@@ -8,13 +8,31 @@ fn main() {
 
     let params = gfx::ApiParameters {
         enable_debugging: true,
-        required_api_version: gfx::Version::new(1, 0, 0),
-        app_version: gfx::Version::new(1, 0, 0),
-        app_engine_version: gfx::Version::new(1, 0, 0),
+        required_api_version: gfx::Version::new(1, 4, 0),
+        app_version: gfx::Version::new(0, 1, 0),
+        app_engine_version: gfx::Version::new(0, 1, 0),
         app_name: "Rustine".to_string(),
         app_engine_name: "Rustine".to_string(),
     };
-    
-    let logger = log::Log::global().logger("type_name", "main");
-    logger.debug(&format!("Initializing graphics with params: {:?}", params));
+
+    let gfx_core = match gfx::core::Core::new(&params) {
+        Ok(core) => core,
+        Err(e) => {
+            log.logger("main", "init")
+                .error(&format!("Failed to initialize graphics core: {}", e));
+            return;
+        }
+    };
+    match gfx_core.enumerate_physical_devices() {
+        Ok(devices) => {
+            for device in devices {
+                log.logger("main", "init")
+                    .info(&format!("Found device: {}", device));
+            }
+        }
+        Err(e) => {
+            log.logger("main", "init")
+                .error(&format!("Failed to enumerate physical devices: {}", e));
+        }
+    }
 }

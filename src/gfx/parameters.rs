@@ -12,24 +12,3 @@ pub struct ApiParameters {
     pub app_name: String,
     pub app_engine_name: String,
 }
-
-/// Represents the type of a physical graphics device.
-#[derive(Debug)]
-pub enum PhysicalDeviceType {
-    Discrete,
-    Integrated,
-    Virtual,
-    Cpu,
-    Other,
-}
-
-/// Represents a physical graphics device (GPU) in the system.
-#[derive(Debug)]
-pub struct PhysicalDevice {
-    pub name: String,
-    pub driver: Version,
-    pub api: Version,
-    pub device_type: PhysicalDeviceType,
-    pub id: u128,
-    pub luid: u64,
-}
