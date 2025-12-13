@@ -5,11 +5,11 @@ edition = "2024"
 
 [[bin]]
 name = "Rustine"
-path = "Rustine/main.rs"
+path = "src/main.rs"
 
 [lib]
 name = "rustine"
-path = "Rustine/lib.rs"
+path = "src/lib.rs"
 
 [dependencies]
 chrono = "0.4"
