@@ -3,5 +3,13 @@ name = "rustine"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "Rustine"
+path = "src/main.rs"
+
+[lib]
+name = "rustine"
+path = "src/lib.rs"
+
 [dependencies]
 chrono = "0.4"

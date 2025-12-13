@@ -219,85 +219,72 @@ impl Log {
         }
     }
 
-    /// Logs an error message with type and caller context.
-    pub fn error(&self, message: impl AsRef<str>, type_name: impl AsRef<str>, caller: impl AsRef<str>) {
-        self.append(
+    /// Creates a Logger instance with the specified type and caller_name context.
+    ///
+    /// Returns a Logger that will include the provided type and caller_name
+    /// information in all subsequent log messages.
+    pub fn logger<'a>(&'a self, type_name: impl Into<String>, caller_name: impl Into<String>) -> Logger<'a> {
+        Logger {
+            log: self,
+            type_name: type_name.into(),
+            caller_name: caller_name.into(),
+        }
+    }
+}
+
+/// A logger instance that captures type and caller_name context for logging.
+///
+/// Created by calling `Log::logger()`, this struct stores contextual
+/// information and provides methods to log at different severity levels.
+pub struct Logger<'a> {
+    log: &'a Log,
+    type_name: String,
+    caller_name: String,
+}
+
+impl Logger<'_> {
+    /// Logs an error message.
+    pub fn error(&self, message: impl AsRef<str>) {
+        self.log.append(
             Severity::Error,
             message.as_ref(),
-            type_name.as_ref(),
-            caller.as_ref(),
+            &self.type_name,
+            &self.caller_name,
         );
     }
 
-    /// Logs a warning message with type and caller context.
-    pub fn warning(&self, message: impl AsRef<str>, type_name: impl AsRef<str>, caller: impl AsRef<str>) {
-        self.append(
+    /// Logs a warning message.
+    pub fn warning(&self, message: impl AsRef<str>) {
+        self.log.append(
             Severity::Warning,
             message.as_ref(),
-            type_name.as_ref(),
-            caller.as_ref(),
+            &self.type_name,
+            &self.caller_name,
         );
     }
-    /// Logs an informational message with type and caller context.
-    pub fn information(&self, message: impl AsRef<str>, type_name: impl AsRef<str>, caller: impl AsRef<str>) {
-        self.append(
+
+    /// Logs an informational message.
+    pub fn info(&self, message: impl AsRef<str>) {
+        self.log.append(
             Severity::Information,
             message.as_ref(),
-            type_name.as_ref(),
-            caller.as_ref(),
+            &self.type_name,
+            &self.caller_name,
         );
     }
-    /// Logs a debug message with type and caller context.
-    pub fn debug(&self, message: impl AsRef<str>, type_name: impl AsRef<str>, caller: impl AsRef<str>) {
-        self.append(
+
+    /// Logs a debug message.
+    pub fn debug(&self, message: impl AsRef<str>) {
+        self.log.append(
             Severity::Debug,
             message.as_ref(),
-            type_name.as_ref(),
-            caller.as_ref(),
+            &self.type_name,
+            &self.caller_name,
         );
     }
-    /// Logs a function call entry as a debug message.
-    pub fn func(&self, type_name: impl AsRef<str>, caller: impl AsRef<str>) {
-        self.debug("", type_name, caller);
-    }
 
-    /// Logs an error message without type or caller information.
-    pub fn error_msg(&self, message: impl AsRef<str>) {
-        self.error(message, "", "");
-    }
-
-    /// Logs a warning message without type or caller information.
-    pub fn warning_msg(&self, message: impl AsRef<str>) {
-        self.warning(message, "", "");
-    }
-
-    /// Logs an informational message without type or caller information.
-    pub fn info_msg(&self, message: impl AsRef<str>) {
-        self.information(message, "", "");
-    }
-
-    /// Logs a debug message without type or caller information.
-    pub fn debug_msg(&self, message: impl AsRef<str>) {
-        self.debug(message, "", "");
-    }
-
-    /// Logs an error message with type information but no caller.
-    pub fn error_type(&self, message: impl AsRef<str>, type_name: impl AsRef<str>) {
-        self.error(message, type_name, "");
-    }
-
-    /// Logs a warning message with type information but no caller.
-    pub fn warning_type(&self, message: impl AsRef<str>, type_name: impl AsRef<str>) {
-        self.warning(message, type_name, "");
-    }
-
-    /// Logs an informational message with type information but no caller.
-    pub fn info_type(&self, message: impl AsRef<str>, type_name: impl AsRef<str>) {
-        self.information(message, type_name, "");
-    }
-
-    /// Logs a debug message with type information but no caller.
-    pub fn debug_type(&self, message: impl AsRef<str>, type_name: impl AsRef<str>) {
-        self.debug(message, type_name, "");
+    /// Logs a function call entry as a debug message with empty message.
+    pub fn func(&self) {
+        self.debug("");
     }
 }

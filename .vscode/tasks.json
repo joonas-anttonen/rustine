@@ -2,7 +2,64 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Clean",
+			"detail": "Clean the project",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"clean"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			}
+		},
+		{
+			"label": "Build",
+			"detail": "Build the project",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"build"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "Rebuild",
+			"detail": "Clean and build the project",
+			"type": "shell",
+			"command": "cargo clean; cargo build",
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
+		},
+		{
 			"label": "Run",
+			"detail": "Run the application in debug mode",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Run (Release)",
 			"detail": "Run the application in release mode",
 			"type": "process",
 			"command": "cargo",
