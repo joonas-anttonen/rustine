@@ -3,29 +3,12 @@
 // Safe wrappers and abstractions over Vulkan API
 mod vulkan_ffi;
 
-use std::{collections, ffi, fmt, result};
+use std::{collections, ffi, result};
 
 use super::Version;
+use super::core::Result;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Result {
-    Success,
-    NotSupported,
-    Unknown(i32),
-}
-
-impl std::error::Error for Result {}
-impl fmt::Display for Result {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Result::Success => write!(f, "Success"),
-            Result::NotSupported => write!(f, "Not supported"),
-            Result::Unknown(code) => write!(f, "Unknown error: {}", code),
-        }
-    }
-}
-
-fn from_vk_result(code: i32) -> Result {
+fn make_result(code: i32) -> Result {
     match code {
         0 => Result::Success,
         -7 | -8 | -11 => Result::NotSupported, // Extension not present, feature not present, format not supported
@@ -35,14 +18,15 @@ fn from_vk_result(code: i32) -> Result {
 
 fn panic_if_failed(code: i32, context: &str) {
     if code != 0 {
-        panic!("Vulkan panic in {}: {}", context, from_vk_result(code));
+        panic!("Vulkan panic in {}: {}", context, make_result(code));
     }
 }
 
+/// Queries the highest Vulkan API version supported.
 pub fn vk_enumerate_instance_version() -> result::Result<Version, Result> {
     let mut api_version: u32 = 0;
     let result = unsafe {
-        from_vk_result(vulkan_ffi::vkEnumerateInstanceVersion(
+        make_result(vulkan_ffi::vkEnumerateInstanceVersion(
             &mut api_version as *mut u32,
         ))
     };
@@ -53,10 +37,11 @@ pub fn vk_enumerate_instance_version() -> result::Result<Version, Result> {
     }
 }
 
-pub fn vk_enumerate_instance_layer_properties() -> result::Result<Vec<String>, Result> {
+/// Queries the available instance layers.
+pub fn vk_enumerate_instance_layer_properties() -> result::Result<Vec<ffi::CString>, Result> {
     let mut property_count: u32 = 0;
     let result = unsafe {
-        from_vk_result(vulkan_ffi::vkEnumerateInstanceLayerProperties(
+        make_result(vulkan_ffi::vkEnumerateInstanceLayerProperties(
             &mut property_count as *mut u32,
             std::ptr::null_mut(),
         ))
@@ -67,7 +52,7 @@ pub fn vk_enumerate_instance_layer_properties() -> result::Result<Vec<String>, R
             let mut properties: Vec<vulkan_ffi::VkLayerProperties> =
                 Vec::with_capacity(property_count as usize);
             let result = unsafe {
-                from_vk_result(vulkan_ffi::vkEnumerateInstanceLayerProperties(
+                make_result(vulkan_ffi::vkEnumerateInstanceLayerProperties(
                     &mut property_count as *mut u32,
                     properties.as_mut_ptr(),
                 ))
@@ -84,7 +69,7 @@ pub fn vk_enumerate_instance_layer_properties() -> result::Result<Vec<String>, R
                             let cstr = unsafe {
                                 std::ffi::CStr::from_ptr(prop.layerName.as_ptr() as *const i8)
                             };
-                            cstr.to_string_lossy().into_owned()
+                            cstr.to_owned()
                         })
                         .collect();
                     Ok(layer_names)
@@ -96,10 +81,11 @@ pub fn vk_enumerate_instance_layer_properties() -> result::Result<Vec<String>, R
     }
 }
 
-pub fn vk_enumerate_instance_extension_properties() -> result::Result<Vec<String>, Result> {
+/// Queries the available instance extensions.
+pub fn vk_enumerate_instance_extension_properties() -> result::Result<Vec<ffi::CString>, Result> {
     let mut property_count: u32 = 0;
     let result = unsafe {
-        from_vk_result(vulkan_ffi::vkEnumerateInstanceExtensionProperties(
+        make_result(vulkan_ffi::vkEnumerateInstanceExtensionProperties(
             std::ptr::null(),
             &mut property_count as *mut u32,
             std::ptr::null_mut(),
@@ -111,7 +97,7 @@ pub fn vk_enumerate_instance_extension_properties() -> result::Result<Vec<String
             let mut properties: Vec<vulkan_ffi::VkExtensionProperties> =
                 Vec::with_capacity(property_count as usize);
             let result = unsafe {
-                from_vk_result(vulkan_ffi::vkEnumerateInstanceExtensionProperties(
+                make_result(vulkan_ffi::vkEnumerateInstanceExtensionProperties(
                     std::ptr::null(),
                     &mut property_count as *mut u32,
                     properties.as_mut_ptr(),
@@ -129,7 +115,7 @@ pub fn vk_enumerate_instance_extension_properties() -> result::Result<Vec<String
                             let cstr = unsafe {
                                 std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8)
                             };
-                            cstr.to_string_lossy().into_owned()
+                            cstr.to_owned()
                         })
                         .collect();
                     Ok(extension_names)
@@ -141,20 +127,28 @@ pub fn vk_enumerate_instance_extension_properties() -> result::Result<Vec<String
     }
 }
 
+/// Represents a Vulkan instance.
 pub struct Instance {
     handle: vulkan_ffi::VkInstance,
     debug_messenger: Option<vulkan_ffi::VkDebugUtilsMessengerEXT>,
-    destroy_debug_messenger_fn: vulkan_ffi::PFN_vkDestroyDebugUtilsMessengerEXT,
 }
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        // Destroy debug messenger first if it exists
-        if let (Some(messenger), Some(destroy_fn)) =
-            (self.debug_messenger, self.destroy_debug_messenger_fn)
-        {
+        use super::super::log;
+        log::Log::global().append(log::Severity::Warning, "", "gfx::Instance", "drop");
+
+        if let Some(messenger) = self.debug_messenger {
+            let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";
+            let destroy_debug_fn: vulkan_ffi::PFN_vkDestroyDebugUtilsMessengerEXT = unsafe {
+                std::mem::transmute(vulkan_ffi::vkGetInstanceProcAddr(
+                    self.handle as u64,
+                    debug_utils_destroy_fn_name.as_ptr(),
+                ))
+            };
+
             unsafe {
-                destroy_fn(self.handle, messenger, std::ptr::null());
+                destroy_debug_fn.unwrap()(self.handle, messenger, std::ptr::null());
             }
         }
 
@@ -164,12 +158,13 @@ impl Drop for Instance {
     }
 }
 
+/// Enumerates physical devices (GPUs) available on the system.
 pub fn vk_enumerate_physical_devices(
     instance: &Instance,
 ) -> result::Result<Vec<super::core::PhysicalDevice>, Result> {
     let mut device_count: u32 = 0;
     let result = unsafe {
-        from_vk_result(vulkan_ffi::vkEnumeratePhysicalDevices(
+        make_result(vulkan_ffi::vkEnumeratePhysicalDevices(
             instance.handle,
             &mut device_count as *mut u32,
             std::ptr::null_mut(),
@@ -180,7 +175,7 @@ pub fn vk_enumerate_physical_devices(
         Result::Success => {
             let mut devices: Vec<u64> = Vec::with_capacity(device_count as usize);
             let result = unsafe {
-                from_vk_result(vulkan_ffi::vkEnumeratePhysicalDevices(
+                make_result(vulkan_ffi::vkEnumeratePhysicalDevices(
                     instance.handle,
                     &mut device_count as *mut u32,
                     devices.as_mut_ptr(),
@@ -197,17 +192,8 @@ pub fn vk_enumerate_physical_devices(
                     let physical_devices: Vec<super::core::PhysicalDevice> = devices
                         .iter()
                         .map(|&device_handle| {
-                            let mut properties = vulkan_ffi::VkPhysicalDeviceProperties {
-                                apiVersion: 0,
-                                driverVersion: 0,
-                                vendorID: 0,
-                                deviceID: 0,
-                                deviceType: 0,
-                                deviceName: [0; 256],
-                                pipelineCacheUUID: [0; 16],
-                                limits: unsafe { std::mem::zeroed() },
-                                sparseProperties: unsafe { std::mem::zeroed() },
-                            };
+                            let mut properties: vulkan_ffi::VkPhysicalDeviceProperties =
+                                unsafe { std::mem::zeroed() };
 
                             unsafe {
                                 vulkan_ffi::vkGetPhysicalDeviceProperties(
@@ -282,13 +268,15 @@ unsafe extern "C" fn vulkan_debug_callback(
     }
 }
 
+/// Creates a Vulkan instance based on the provided parameters.
 pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<Instance, Result> {
     // 1. Get available instance layers and extensions
-    let available_layers: collections::HashSet<String> = vk_enumerate_instance_layer_properties()?
-        .iter()
-        .cloned()
-        .collect();
-    let available_extensions: collections::HashSet<String> =
+    let available_layers: collections::HashSet<ffi::CString> =
+        vk_enumerate_instance_layer_properties()?
+            .iter()
+            .cloned()
+            .collect();
+    let available_extensions: collections::HashSet<ffi::CString> =
         vk_enumerate_instance_extension_properties()?
             .iter()
             .cloned()
@@ -318,12 +306,12 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
     }
 
     // 3. Add validation and debug utils extension if debugging is requested and available
-    let validation_name = "VK_LAYER_KHRONOS_validation";
+    let validation_name = c"VK_LAYER_KHRONOS_validation";
     let validation_present = available_layers.contains(validation_name);
-    let debug_utils_name = "VK_EXT_debug_utils";
+    let debug_utils_name = c"VK_EXT_debug_utils";
     let debug_utils_present = available_extensions.contains(debug_utils_name);
-    let debug_utils_create_fn_name = ffi::CString::new("vkCreateDebugUtilsMessengerEXT").unwrap();
-    let debug_utils_destroy_fn_name = ffi::CString::new("vkDestroyDebugUtilsMessengerEXT").unwrap();
+    let debug_utils_create_fn_name = c"vkCreateDebugUtilsMessengerEXT";
+    let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";
     let debug_utils_create_fn_present = unsafe {
         vulkan_ffi::vkGetInstanceProcAddr(0, debug_utils_create_fn_name.as_ptr()).is_some()
     };
@@ -337,8 +325,8 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
         && debug_utils_create_fn_present
         && debug_utils_destroy_fn_present;
     if enable_debugging {
-        enabled_layers_cstrings.push(ffi::CString::new(validation_name).unwrap());
-        enabled_extensions_cstrings.push(ffi::CString::new(debug_utils_name).unwrap());
+        enabled_layers_cstrings.push(validation_name.to_owned());
+        enabled_extensions_cstrings.push(debug_utils_name.to_owned());
     }
 
     // 4. Create the Vulkan instance
@@ -385,7 +373,7 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
 
     let mut instance: vulkan_ffi::VkInstance = std::ptr::null_mut();
     let result = unsafe {
-        from_vk_result(vulkan_ffi::vkCreateInstance(
+        make_result(vulkan_ffi::vkCreateInstance(
             &create_info,
             std::ptr::null(),
             &mut instance,
@@ -399,13 +387,6 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
                     std::mem::transmute(vulkan_ffi::vkGetInstanceProcAddr(
                         instance as u64,
                         debug_utils_create_fn_name.as_ptr(),
-                    ))
-                };
-
-                let destroy_debug_fn: vulkan_ffi::PFN_vkDestroyDebugUtilsMessengerEXT = unsafe {
-                    std::mem::transmute(vulkan_ffi::vkGetInstanceProcAddr(
-                        instance as u64,
-                        debug_utils_destroy_fn_name.as_ptr(),
                     ))
                 };
 
@@ -441,13 +422,11 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
                 Ok(Instance {
                     handle: instance,
                     debug_messenger: Some(debug_messenger_ptr),
-                    destroy_debug_messenger_fn: destroy_debug_fn,
                 })
             } else {
                 Ok(Instance {
                     handle: instance,
                     debug_messenger: None,
-                    destroy_debug_messenger_fn: None,
                 })
             }
         }
