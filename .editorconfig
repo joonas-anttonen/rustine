@@ -1,0 +1,4 @@
+[*.cs]
+
+# IDE0018: Inline variable declaration
+dotnet_diagnostic.IDE0018.severity = none

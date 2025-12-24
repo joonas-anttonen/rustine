@@ -73,6 +73,21 @@
 			"problemMatcher": [
 				"$rustc"
 			],
+		},
+		{
+			"label": "Run Wpf",
+			"detail": "Run the WPF application in debug mode",
+			"type": "process",
+			"command": "dotnet",
+			"options": {
+				"cwd": "Rustine.Wpf"
+			},
+			"args": [
+				"run"
+			],
+			"problemMatcher": [
+				"$msCompile"
+			],
 		}
 	]
 }

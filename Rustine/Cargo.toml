@@ -4,12 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "Rustine"
+name = "rustine-app"
 path = "src/main.rs"
 
 [lib]
 name = "rustine"
 path = "src/lib.rs"
+crate-type = ["cdylib"]
 
 [dependencies]
 chrono = "0.4"
