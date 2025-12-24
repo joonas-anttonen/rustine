@@ -5,6 +5,8 @@
     non_upper_case_globals
 )]
 
+use core::ffi;
+
 pub type VkInstance = *mut std::ffi::c_void;
 pub type VkDebugUtilsMessengerEXT = *mut std::ffi::c_void;
 pub type PFN_vkCreateDebugUtilsMessengerEXT = Option<
@@ -354,10 +356,10 @@ unsafe extern "C" {
         VkPhysicalDevice                            physicalDevice,
         VkPhysicalDeviceMemoryProperties*           pMemoryProperties); */
 
-    pub fn vkGetInstanceProcAddr(instance: u64, pName: *const u8)
+    pub fn vkGetInstanceProcAddr(instance: u64, pName: *const ffi::c_char)
     -> Option<unsafe extern "C" fn()>;
 
-    pub fn vkGetDeviceProcAddr(device: u64, pName: *const u8) -> Option<unsafe extern "C" fn()>;
+    pub fn vkGetDeviceProcAddr(device: u64, pName: *const ffi::c_char) -> Option<unsafe extern "C" fn()>;
 }
 
 #[repr(i32)]
