@@ -57,7 +57,8 @@ pub struct Core {
 
 impl Drop for Core {
     fn drop(&mut self) {
-        // Vulkan instance will be automatically dropped
+        use super::super::log;
+        log::Log::global().append(log::Severity::Warning, "", "gfx::Core", "drop");
     }
 }
 
