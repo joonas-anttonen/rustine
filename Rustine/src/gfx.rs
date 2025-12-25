@@ -57,6 +57,7 @@ pub struct PhysicalDevice {
     pub api: Version,
     pub device_type: PhysicalDeviceType,
     pub id: u128,
+    pub luid: u64,
 }
 
 impl std::fmt::Display for PhysicalDevice {

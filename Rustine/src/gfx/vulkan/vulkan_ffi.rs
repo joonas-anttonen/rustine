@@ -8,7 +8,14 @@
 use core::ffi;
 
 pub type VkInstance = *mut std::ffi::c_void;
+pub type VkDevice = *mut std::ffi::c_void;
+pub type VkQueue = *mut std::ffi::c_void;
+pub type VkFence = *mut std::ffi::c_void;
+pub type VkSemaphore = *mut std::ffi::c_void;
+pub type VkCommandBuffer = *mut std::ffi::c_void;
+pub type VkCommandPool = *mut std::ffi::c_void;
 pub type VkDebugUtilsMessengerEXT = *mut std::ffi::c_void;
+
 pub type PFN_vkCreateDebugUtilsMessengerEXT = Option<
     unsafe extern "C" fn(
         VkInstance,
@@ -292,74 +299,272 @@ pub struct VkDebugUtilsMessengerCallbackDataEXT {
 #[link(name = "vulkan-1", kind = "dylib")]
 unsafe extern "C" {
 
-    pub fn vkEnumerateInstanceVersion(pApiVersion: *mut u32) -> i32;
+    // ========== Instance ==========
 
+    pub fn vkEnumerateInstanceVersion(pApiVersion: *mut u32) -> i32;
     pub fn vkEnumerateInstanceLayerProperties(
         pPropertyCount: *mut u32,
         pProperties: *mut VkLayerProperties,
     ) -> i32;
-
     pub fn vkEnumerateInstanceExtensionProperties(
         pLayerName: *const u8,
         pPropertyCount: *mut u32,
         pProperties: *mut VkExtensionProperties,
     ) -> i32;
-
     pub fn vkCreateInstance(
         pCreateInfo: *const VkInstanceCreateInfo,
         pAllocator: *const std::ffi::c_void,
         pInstance: *mut VkInstance,
     ) -> i32;
-
     pub fn vkDestroyInstance(instance: VkInstance, pAllocator: *const std::ffi::c_void);
+    pub fn vkGetInstanceProcAddr(
+        instance: u64,
+        pName: *const ffi::c_char,
+    ) -> Option<unsafe extern "C" fn()>;
+
+    // ========= Physical Device ==========
 
     pub fn vkEnumeratePhysicalDevices(
         instance: VkInstance,
         pPhysicalDeviceCount: *mut u32,
         pPhysicalDevices: *mut u64,
     ) -> i32;
-
     pub fn vkGetPhysicalDeviceFeatures(
         physicalDevice: u64,
         pFeatures: *mut VkPhysicalDeviceFeatures,
     );
-
     pub fn vkGetPhysicalDeviceFormatProperties(
         physicalDevice: u64,
         format: u32,
         pFormatProperties: *mut VkFormatProperties,
     );
-
-    /*
-
-    VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties(
-        VkPhysicalDevice                            physicalDevice,
-        VkFormat                                    format,
-        VkImageType                                 type,
-        VkImageTiling                               tiling,
-        VkImageUsageFlags                           usage,
-        VkImageCreateFlags                          flags,
-        VkImageFormatProperties*                    pImageFormatProperties);*/
-
     pub fn vkGetPhysicalDeviceProperties(
         physicalDevice: u64,
         pProperties: *mut VkPhysicalDeviceProperties,
     );
-
+    pub fn vkGetPhysicalDeviceProperties2(
+        physicalDevice: u64,
+        pProperties: *mut VkPhysicalDeviceProperties2,
+    );
+    pub fn vkGetPhysicalDeviceFeatures2(
+        physicalDevice: u64,
+        pFeatures: *mut VkPhysicalDeviceFeatures2,
+    );
+    pub fn vkEnumerateDeviceExtensionProperties(
+        physicalDevice: u64,
+        pLayerName: *const ffi::c_char,
+        pPropertyCount: *mut u32,
+        pProperties: *mut VkExtensionProperties,
+    ) -> i32;
+    pub fn vkGetPhysicalDeviceQueueFamilyProperties(
+        physicalDevice: u64,
+        pQueueFamilyPropertyCount: *mut u32,
+        pQueueFamilyProperties: *mut VkQueueFamilyProperties,
+    );
+    /*VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties(
+    VkPhysicalDevice                            physicalDevice,
+    VkFormat                                    format,
+    VkImageType                                 type,
+    VkImageTiling                               tiling,
+    VkImageUsageFlags                           usage,
+    VkImageCreateFlags                          flags,
+    VkImageFormatProperties*                    pImageFormatProperties);*/
     /*
-    VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceQueueFamilyProperties(
-        VkPhysicalDevice                            physicalDevice,
-        uint32_t*                                   pQueueFamilyPropertyCount,
-        VkQueueFamilyProperties*                    pQueueFamilyProperties);
-
     VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceMemoryProperties(
         VkPhysicalDevice                            physicalDevice,
         VkPhysicalDeviceMemoryProperties*           pMemoryProperties); */
 
-    pub fn vkGetInstanceProcAddr(instance: u64, pName: *const ffi::c_char)
-    -> Option<unsafe extern "C" fn()>;
+    // ========= Device ==========
 
-    pub fn vkGetDeviceProcAddr(device: u64, pName: *const ffi::c_char) -> Option<unsafe extern "C" fn()>;
+    pub fn vkGetDeviceProcAddr(
+        device: u64,
+        pName: *const ffi::c_char,
+    ) -> Option<unsafe extern "C" fn()>;
+
+    pub fn vkGetDeviceQueue(
+        device: u64,
+        queueFamilyIndex: u32,
+        queueIndex: u32,
+        pQueue: *mut VkQueue,
+    );
+    pub fn vkDeviceWaitIdle(device: u64) -> i32;
+    pub fn vkCreateDevice(
+        physicalDevice: u64,
+        pCreateInfo: *const VkDeviceCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pDevice: *mut VkDevice,
+    ) -> i32;
+    pub fn vkDestroyDevice(device: u64, pAllocator: *const std::ffi::c_void);
+
+    // ========= Queue ==========
+
+    pub fn vkQueueWaitIdle(queue: u64) -> i32;
+    pub fn vkQueueSubmit(
+        queue: u64,
+        submitCount: u32,
+        pSubmits: *const VkSubmitInfo,
+        fence: u64,
+    ) -> i32;
+}
+
+#[repr(C)]
+pub struct VkPhysicalDevicePushDescriptorProperties {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub maxPushDescriptors: u32,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceShaderFloat16Int8Features {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub shaderFloat16: u32,
+    pub shaderInt8: u32,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceDynamicRenderingFeatures {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub dynamicRendering: u32,
+} 
+
+#[repr(C)]
+pub struct VkPhysicalDeviceSynchronization2Features {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub synchronization2: u32,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceRobustness2FeaturesEXT {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub robustBufferAccess2: u32,
+    pub robustImageAccess2: u32,
+    pub nullDescriptor: u32,
+}
+
+#[repr(C)]
+pub struct VkDeviceQueueCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub queueFamilyIndex: u32,
+    pub queueCount: u32,
+    pub pQueuePriorities: *const f32,
+}
+
+#[repr(C)]
+pub struct VkDeviceCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub queueCreateInfoCount: u32,
+    pub pQueueCreateInfos: *const VkDeviceQueueCreateInfo,
+    enabledLayerCount: u32,
+    ppEnabledLayerNames: *const *const ffi::c_char,
+    pub enabledExtensionCount: u32,
+    pub ppEnabledExtensionNames: *const *const ffi::c_char,
+    pub pEnabledFeatures: *const VkPhysicalDeviceFeatures,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkPipelineStageFlags {
+    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT = 0x00000001,
+    VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT = 0x00000002,
+    VK_PIPELINE_STAGE_VERTEX_INPUT_BIT = 0x00000004,
+    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT = 0x00000008,
+    VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT = 0x00000010,
+    VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT = 0x00000020,
+    VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT = 0x00000040,
+    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT = 0x00000080,
+    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT = 0x00000100,
+    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT = 0x00000200,
+    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT = 0x00000400,
+    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT = 0x00000800,
+    VK_PIPELINE_STAGE_TRANSFER_BIT = 0x00001000,
+    VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT = 0x00002000,
+    VK_PIPELINE_STAGE_HOST_BIT = 0x00004000,
+    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT = 0x00008000,
+    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT = 0x00010000,
+    VK_PIPELINE_STAGE_NONE = 0,
+    VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT = 0x01000000,
+    VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT = 0x00040000,
+    VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR = 0x02000000,
+    VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR = 0x00200000,
+    VK_PIPELINE_STAGE_FRAGMENT_DENSITY_PROCESS_BIT_EXT = 0x00800000,
+    VK_PIPELINE_STAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR = 0x00400000,
+    VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT = 0x00080000,
+    VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT = 0x00100000,
+    VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_EXT = 0x00020000,
+}
+
+#[repr(C)]
+pub struct VkSubmitInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub waitSemaphoreCount: u32,
+    pub pWaitSemaphores: *const VkSemaphore,
+    pub pWaitDstStageMask: *const VkPipelineStageFlags,
+    pub commandBufferCount: u32,
+    pub pCommandBuffers: *const VkCommandBuffer,
+    pub signalSemaphoreCount: u32,
+    pub pSignalSemaphores: *const VkSemaphore,
+}
+
+#[repr(C)]
+pub struct VkExtent3D {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+}
+
+#[repr(C)]
+pub struct VkQueueFamilyProperties {
+    pub queueFlags: u32,
+    pub queueCount: u32,
+    pub timestampValidBits: u32,
+    pub minImageTransferGranularity: VkExtent3D,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceFeatures2 {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub features: VkPhysicalDeviceFeatures,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceProperties2 {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub properties: VkPhysicalDeviceProperties,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceIDProperties {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub deviceUUID: [u8; 16],
+    pub driverUUID: [u8; 8],
+    pub deviceLUID: [u8; 8],
+    pub deviceNodeMask: u32,
+    pub deviceLUIDValid: u32,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkQueueFlagBits {
+    VK_QUEUE_GRAPHICS_BIT = 0x00000001,
+    VK_QUEUE_COMPUTE_BIT = 0x00000002,
+    VK_QUEUE_TRANSFER_BIT = 0x00000004,
+    VK_QUEUE_SPARSE_BINDING_BIT = 0x00000008,
+    VK_QUEUE_PROTECTED_BIT = 0x00000010,
+    VK_QUEUE_VIDEO_DECODE_BIT_KHR = 0x00000020,
+    VK_QUEUE_VIDEO_ENCODE_BIT_KHR = 0x00000040,
+    VK_QUEUE_OPTICAL_FLOW_BIT_NV = 0x00000100,
 }
 
 #[repr(i32)]

@@ -191,29 +191,32 @@ pub fn vk_enumerate_physical_devices(
                     let physical_devices: Vec<PhysicalDevice> = devices
                         .iter()
                         .map(|&device_handle| {
-                            let mut properties: vulkan_ffi::VkPhysicalDeviceProperties =
+                            let mut id_properties: vulkan_ffi::VkPhysicalDeviceIDProperties =
                                 unsafe { std::mem::zeroed() };
+                            id_properties.sType = vulkan_ffi::VkStructureType::VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES as u32;
 
+                            let mut properties: vulkan_ffi::VkPhysicalDeviceProperties2 =
+                                unsafe { std::mem::zeroed() };
+                            properties.sType = vulkan_ffi::VkStructureType::VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 as u32;
+                            properties.pNext = &mut id_properties as *mut vulkan_ffi::VkPhysicalDeviceIDProperties as *mut ffi::c_void;
                             unsafe {
-                                vulkan_ffi::vkGetPhysicalDeviceProperties(
+                                vulkan_ffi::vkGetPhysicalDeviceProperties2(
                                     device_handle,
-                                    &mut properties as *mut vulkan_ffi::VkPhysicalDeviceProperties,
+                                    &mut properties as *mut vulkan_ffi::VkPhysicalDeviceProperties2,
                                 );
                             }
 
-                            // Extract device name
                             let device_name = {
-                                let null_pos = properties
+                                let null_pos = properties.properties
                                     .deviceName
                                     .iter()
                                     .position(|&c| c == 0)
-                                    .unwrap_or(properties.deviceName.len());
-                                let name_bytes = &properties.deviceName[..null_pos];
+                                    .unwrap_or(properties.properties.deviceName.len());
+                                let name_bytes = &properties.properties.deviceName[..null_pos];
                                 String::from_utf8_lossy(name_bytes).into_owned()
                             };
 
-                            // Convert device type
-                            let device_type = match properties.deviceType {
+                            let device_type = match properties.properties.deviceType {
                                 1 => PhysicalDeviceType::Integrated,
                                 2 => PhysicalDeviceType::Discrete,
                                 3 => PhysicalDeviceType::Virtual,
@@ -221,15 +224,20 @@ pub fn vk_enumerate_physical_devices(
                                 _ => PhysicalDeviceType::Other,
                             };
 
-                            // Use pipelineCacheUUID as unique ID
-                            let id = u128::from_le_bytes(properties.pipelineCacheUUID);
+                            let id = u128::from_le_bytes(id_properties.deviceUUID);
+                            let luid = if id_properties.deviceLUIDValid != 0 {
+                                u64::from_le_bytes(id_properties.deviceLUID)
+                            } else {
+                                0
+                            };
 
                             PhysicalDevice {
                                 name: device_name,
-                                driver: Version::from_vk_version(properties.driverVersion),
-                                api: Version::from_vk_version(properties.apiVersion),
+                                driver: Version::from_vk_version(properties.properties.driverVersion),
+                                api: Version::from_vk_version(properties.properties.apiVersion),
                                 device_type,
                                 id,
+                                luid,
                             }
                         })
                         .collect();
@@ -306,20 +314,8 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
     let validation_present = available_layers.contains(validation_name);
     let debug_utils_name = c"VK_EXT_debug_utils";
     let debug_utils_present = available_extensions.contains(debug_utils_name);
-    let debug_utils_create_fn_name = c"vkCreateDebugUtilsMessengerEXT";
-    let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";
-    let debug_utils_create_fn_present = unsafe {
-        vulkan_ffi::vkGetInstanceProcAddr(0, debug_utils_create_fn_name.as_ptr()).is_some()
-    };
-    let debug_utils_destroy_fn_present = unsafe {
-        vulkan_ffi::vkGetInstanceProcAddr(0, debug_utils_destroy_fn_name.as_ptr()).is_some()
-    };
 
-    let enable_debugging = parameters.enable_debugging
-        && validation_present
-        && debug_utils_present
-        && debug_utils_create_fn_present
-        && debug_utils_destroy_fn_present;
+    let enable_debugging = parameters.enable_debugging && validation_present && debug_utils_present;
     if enable_debugging {
         enabled_layers_cstrings.push(validation_name.to_owned());
         enabled_extensions_cstrings.push(debug_utils_name.to_owned());
@@ -379,12 +375,19 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
     match result {
         Result::Success => {
             if enable_debugging {
+                let debug_utils_create_fn_name = c"vkCreateDebugUtilsMessengerEXT";
                 let create_debug_fn: vulkan_ffi::PFN_vkCreateDebugUtilsMessengerEXT = unsafe {
                     std::mem::transmute(vulkan_ffi::vkGetInstanceProcAddr(
                         instance as u64,
                         debug_utils_create_fn_name.as_ptr(),
                     ))
                 };
+
+                if create_debug_fn.is_none() {
+                    return Err(Result::NotSupported);
+                }
+
+                warning!("Debugging Enabled");
 
                 // Create debug messenger info
                 let debug_create_info = vulkan_ffi::VkDebugUtilsMessengerCreateInfoEXT {
