@@ -1,27 +1,27 @@
-mod gfx;
-mod gui;
-mod log;
+use rustine::{error, info, warning};
+use rustine::{gfx, gui, log::ConsoleLogListener, log::Log, version::Version};
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::{Arc, Mutex, atomic};
+use std::{thread, time};
 
 fn main() {
-    let log = log::Log::global();
+    let log = Log::global();
     log.set_current_thread_name("main");
-    log.add_listener(log::ConsoleLogListener::new());
+    log.add_listener(ConsoleLogListener::new(true));
+
+    info!("Enter");
 
     let params = gfx::ApiParameters {
         enable_debugging: true,
-        platform: gfx::parameters::Platform::Windows,
-        required_api_version: gfx::Version::new(1, 4, 0),
-        app_version: gfx::Version::new(0, 1, 0),
-        app_engine_version: gfx::Version::new(0, 1, 0),
+        platform: gfx::Platform::Windows,
+        required_api_version: Version::new(1, 4, 0),
+        app_version: Version::new(0, 1, 0),
+        app_engine_version: Version::new(0, 1, 0),
         app_name: "Rustine".to_string(),
         app_engine_name: "Rustine".to_string(),
     };
 
-    let gfx_core = match gfx::core::Core::new(&params) {
+    let gfx_core = match gfx::Core::new(&params) {
         Ok(core) => core,
         Err(e) => {
             error!("Failed to create gfx::Core: {}", e);
@@ -39,9 +39,8 @@ fn main() {
         }
     }
 
-    // Spawn cancelable background thread with mutable access to gfx_core
     let gfx = Arc::new(Mutex::new(gfx_core));
-    let gfx_cancel_signal = AtomicBool::new(false);
+    let gfx_cancel_signal = atomic::AtomicBool::new(false);
 
     let gui = gui::Core::new(Arc::clone(&gfx));
 
@@ -52,29 +51,32 @@ fn main() {
 
         gui_thread_function(&gui);
 
-        gfx_cancel_signal.store(true, Ordering::Relaxed);
+        gfx_cancel_signal.store(true, atomic::Ordering::Relaxed);
     });
+
+    info!("Exit");
 }
 
 fn gui_thread_function(_gui: &gui::Core) {
     // Keep main thread alive for a bit, then signal cancellation
     for _ in 0..5 {
         warning!("Performing gui work");
-        thread::sleep(std::time::Duration::from_millis(1000));
+        thread::sleep(time::Duration::from_millis(1000));
     }
 }
 
-fn gfx_thread_function(gfx: Arc<Mutex<gfx::core::Core>>, cancel_signal: &AtomicBool) {
-    log::Log::global().set_current_thread_name("gfx");
+fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, cancel_signal: &atomic::AtomicBool) {
+    Log::global().set_current_thread_name("gfx");
 
     info!("gfx thread started");
 
-    while !cancel_signal.load(Ordering::Relaxed) {
-        if let Ok(_core) = gfx.lock() {
-            // Perform work with mutable access to gfx_core
-            info!("Performing gfx work");
-        }
-        thread::sleep(std::time::Duration::from_millis(100));
+    while !cancel_signal.load(atomic::Ordering::Relaxed) {
+        let _core = gfx.lock().unwrap();
+
+        // Perform work with mutable access to gfx_core
+        info!("Performing gfx work");
+
+        thread::sleep(time::Duration::from_millis(100));
     }
 
     info!("gfx thread stopped");

@@ -10,7 +10,7 @@ path = "src/main.rs"
 [lib]
 name = "rustine"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 chrono = "0.4"

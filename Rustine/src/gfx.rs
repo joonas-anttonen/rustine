@@ -1,40 +1,71 @@
+#![allow(dead_code)]
+
 pub mod parameters;
 pub use parameters::ApiParameters;
 pub mod vulkan;
 pub mod core;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Version {
-    pub major: u32,
-    pub minor: u32,
-    pub patch: u32,
+use crate::{version::Version};
+use std::{fmt};
+
+/// Re-export core types for easier access.
+pub use core::Core;
+
+/// Represents the target platform for graphics API initialization.
+#[derive(Debug)]
+pub enum Platform {
+    Windows,
+    Wayland,
+    X11,
+    MacOS,
+    Unknown,
 }
 
-impl Version {
-    pub const fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self { major, minor, patch }
-    }
+/// Represents the result of a graphics operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Result {
+    Success,
+    NotSupported,
+    Unknown(i32),
+}
 
-    /// Decodes a Vulkan API version integer into a Version struct.
-    /// 
-    /// Vulkan encodes versions as: bits 31-22: major, bits 21-12: minor, bits 11-0: patch.
-    pub fn from_vk_version(vk_version: u32) -> Self {
-        let major = (vk_version >> 22) & 0x3FF;
-        let minor = (vk_version >> 12) & 0x3FF;
-        let patch = vk_version & 0xFFF;
-        Self { major, minor, patch }
-    }
-
-    /// Encodes a Version into a Vulkan API version integer.
-    /// 
-    /// Returns the packed Vulkan format: bits 31-22: major, bits 21-12: minor, bits 11-0: patch.
-    pub fn to_vk_version(&self) -> u32 {
-        (self.major << 22) | (self.minor << 12) | self.patch
+impl std::error::Error for Result {}
+impl fmt::Display for Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Result::Success => write!(f, "Success"),
+            Result::NotSupported => write!(f, "Not supported"),
+            Result::Unknown(code) => write!(f, "Unknown error: {}", code),
+        }
     }
 }
 
-impl std::fmt::Display for Version {
+/// Represents the type of a physical graphics device.
+#[derive(Debug)]
+pub enum PhysicalDeviceType {
+    Discrete,
+    Integrated,
+    Virtual,
+    Cpu,
+    Other,
+}
+
+/// Represents a physical graphics device (GPU) in the system.
+#[derive(Debug)]
+pub struct PhysicalDevice {
+    pub name: String,
+    pub driver: Version,
+    pub api: Version,
+    pub device_type: PhysicalDeviceType,
+    pub id: u128,
+}
+
+impl std::fmt::Display for PhysicalDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+        write!(
+            f,
+            "{} (API: {}, Driver: {}, Type: {:?}, Id: {:?})",
+            self.name, self.api, self.driver, self.device_type, self.id
+        )
     }
 }

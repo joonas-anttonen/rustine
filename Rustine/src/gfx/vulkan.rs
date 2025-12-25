@@ -5,7 +5,8 @@ mod vulkan_ffi;
 
 use std::{collections, ffi, result};
 
-use crate::{gfx::*, gfx::core::*, error};
+use crate::{error, warning};
+use crate::{gfx::*, version::Version};
 
 fn make_result(code: i32) -> Result {
     match code {
@@ -134,8 +135,7 @@ pub struct Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        use super::super::log;
-        log::Log::global().append(log::Severity::Warning, "", "gfx::vulkan::Instance::drop");
+        warning!("Instance::drop");
 
         if let Some(messenger) = self.debug_messenger {
             let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";
@@ -160,7 +160,7 @@ impl Drop for Instance {
 /// Enumerates physical devices (GPUs) available on the system.
 pub fn vk_enumerate_physical_devices(
     instance: &Instance,
-) -> result::Result<Vec<super::core::PhysicalDevice>, Result> {
+) -> result::Result<Vec<PhysicalDevice>, Result> {
     let mut device_count: u32 = 0;
     let result = unsafe {
         make_result(vulkan_ffi::vkEnumeratePhysicalDevices(
@@ -285,14 +285,14 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
     enabled_extensions_cstrings.push(ffi::CString::new("VK_KHR_surface").unwrap());
 
     match parameters.platform {
-        super::parameters::Platform::Windows => {
+        super::Platform::Windows => {
             enabled_extensions_cstrings.push(ffi::CString::new("VK_KHR_win32_surface").unwrap());
         }
-        super::parameters::Platform::X11 => {
+        super::Platform::X11 => {
             enabled_extensions_cstrings.push(ffi::CString::new("VK_KHR_xlib_surface").unwrap());
             enabled_extensions_cstrings.push(ffi::CString::new("VK_KHR_xcb_surface").unwrap());
         }
-        super::parameters::Platform::Wayland => {
+        super::Platform::Wayland => {
             enabled_extensions_cstrings.push(ffi::CString::new("VK_KHR_wayland_surface").unwrap());
         }
         // Error if unsupported platform

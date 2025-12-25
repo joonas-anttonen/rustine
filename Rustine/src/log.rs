@@ -47,12 +47,7 @@ impl Event {
 
     /// Formats the event as a short string with thread, origin, and message.
     pub fn to_short_string(&self) -> String {
-        format!(
-            "[{}] {} {}",
-            self.thread,
-            &self.origin,
-            self.message
-        )
+        format!("[{}] {} {}", self.thread, &self.origin, self.message)
     }
 
     /// Formats the event as a full string including timestamp and severity.
@@ -78,7 +73,7 @@ impl Event {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Severity {
     Debug,
-    Information,
+    Info,
     Warning,
     Error,
 }
@@ -88,7 +83,7 @@ impl fmt::Display for Severity {
         match self {
             Severity::Error => write!(f, "R"),
             Severity::Warning => write!(f, "W"),
-            Severity::Information => write!(f, "I"),
+            Severity::Info => write!(f, "I"),
             Severity::Debug => write!(f, "D"),
         }
     }
@@ -116,18 +111,24 @@ pub trait LogListener: Send + Sync {
 ///
 /// Events are formatted as short strings and colored based on severity
 /// (blue for debug, white for info, yellow for warning, red for error).
-pub struct ConsoleLogListener;
+pub struct ConsoleLogListener {
+    use_short_display: bool,
+    time_base: time::SystemTime,
+}
 
 impl ConsoleLogListener {
     /// Creates a new console log listener.
-    pub fn new() -> Self {
-        Self
+    pub fn new(use_short_display: bool) -> Self {
+        Self {
+            use_short_display,
+            time_base: time::SystemTime::now(),
+        }
     }
 
     fn color_code(sev: Severity) -> &'static str {
         match sev {
             Severity::Debug => "\u{1b}[34m",
-            Severity::Information => "\u{1b}[0m",
+            Severity::Info => "\u{1b}[0m",
             Severity::Warning => "\u{1b}[33m",
             Severity::Error => "\u{1b}[31m",
         }
@@ -138,7 +139,20 @@ impl LogListener for ConsoleLogListener {
     fn append(&self, event: &Event) {
         let color = Self::color_code(event.severity);
         let reset = "\u{1b}[0m";
-        println!("{}{}{}", color, event.to_full_string(), reset);
+        let output = if self.use_short_display {
+            let time_diff = event
+                .timestamp
+                .duration_since(self.time_base)
+                .unwrap_or_default();
+            format!(
+                "[+{} ms] {}",
+                time_diff.as_millis(),
+                event.to_short_string()
+            )
+        } else {
+            event.to_full_string()
+        };
+        println!("{}{}{}", color, output, reset);
     }
 
     fn flush(&self) {}
@@ -232,7 +246,7 @@ macro_rules! debug {
 macro_rules! info {
     ($($arg:tt)*) => {{
         $crate::log::Log::global().append(
-            $crate::log::Severity::Information,
+            $crate::log::Severity::Info,
             &format!($($arg)*),
             module_path!()
         );

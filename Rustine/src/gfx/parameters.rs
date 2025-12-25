@@ -1,21 +1,12 @@
 #![allow(dead_code)]
 
-use super::Version;
-
-#[derive(Debug)]
-pub enum Platform {
-    Windows,
-    Wayland,
-    X11,
-    MacOS,
-    Unknown,
-}
+use crate::version::Version;
 
 /// Parameters for initializing the graphics API.
 #[derive(Debug)]
 pub struct ApiParameters {
     pub enable_debugging: bool,
-    pub platform: Platform,
+    pub platform: super::Platform,
     pub required_api_version: Version,
     pub app_version: Version,
     pub app_engine_version: Version,
