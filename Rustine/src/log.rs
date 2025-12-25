@@ -5,7 +5,7 @@
 
 #![allow(dead_code)] // Come on, this is a library!
 
-use std::{fmt, time, sync, thread};
+use std::{fmt, sync, thread, time};
 
 /// A log event containing severity level, timestamp, and contextual information.
 ///
@@ -59,11 +59,11 @@ impl Event {
     }
 
     /// Formats the event as a full string including timestamp and severity.
-    pub fn to_string_full(&self) -> String {
+    pub fn to_full_string(&self) -> String {
         format!(
             "[{}] [{}] [{}] {} {}",
-            self.thread,
             datetime_iso8601(self.timestamp),
+            self.thread,
             self.severity,
             origin_string(&self.r#type, &self.method),
             self.message
@@ -93,11 +93,17 @@ impl fmt::Display for Severity {
 
 impl fmt::Display for Event {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string_full())
+        write!(f, "{}", self.to_full_string())
     }
 }
 
 fn origin_string(r#type: &str, method: &str) -> String {
+    if method.is_empty() {
+        return r#type.to_string();
+    }
+    if r#type.is_empty() {
+        return String::new();
+    }
     format!("{}::{}", r#type, method)
 }
 
@@ -144,11 +150,10 @@ impl LogListener for ConsoleLogListener {
     fn append(&self, event: &Event) {
         let color = Self::color_code(event.severity);
         let reset = "\u{1b}[0m";
-        println!("{}{}{}", color, event.to_short_string(), reset);
+        println!("{}{}{}", color, event.to_full_string(), reset);
     }
 
-    fn flush(&self) {
-    }
+    fn flush(&self) {}
 }
 
 /// The main logging system that manages listeners and distributes log events.
@@ -183,7 +188,10 @@ impl Log {
     /// Registers a new listener to receive log events.
     ///
     /// Returns an `Arc` to the listener for potential later reference.
-    pub fn add_listener<L: LogListener + 'static>(&self, listener: L) -> sync::Arc<dyn LogListener> {
+    pub fn add_listener<L: LogListener + 'static>(
+        &self,
+        listener: L,
+    ) -> sync::Arc<dyn LogListener> {
         let arc_listener: sync::Arc<dyn LogListener> = sync::Arc::new(listener);
         self.listeners.write().unwrap().push(arc_listener.clone());
         arc_listener
@@ -219,11 +227,19 @@ impl Log {
         }
     }
 
+    pub fn append_short(&self, severity: Severity, message: &str){
+        self.append(severity, message, "", "");
+    }
+
     /// Creates a Logger instance with the specified type and caller_name context.
     ///
     /// Returns a Logger that will include the provided type and caller_name
     /// information in all subsequent log messages.
-    pub fn logger<'a>(&'a self, type_name: impl Into<String>, caller_name: impl Into<String>) -> Logger<'a> {
+    pub fn logger<'a>(
+        &'a self,
+        type_name: impl Into<String>,
+        caller_name: impl Into<String>,
+    ) -> Logger<'a> {
         Logger {
             log: self,
             type_name: type_name.into(),

@@ -6,7 +6,7 @@ mod vulkan_ffi;
 use std::{collections, ffi, result};
 
 use super::Version;
-use super::core::Result;
+use super::core::*;
 
 fn make_result(code: i32) -> Result {
     match code {
@@ -136,7 +136,7 @@ pub struct Instance {
 impl Drop for Instance {
     fn drop(&mut self) {
         use super::super::log;
-        log::Log::global().append(log::Severity::Warning, "", "gfx::Instance", "drop");
+        log::Log::global().append(log::Severity::Warning, "", "gfx::vulkan::Instance", "drop");
 
         if let Some(messenger) = self.debug_messenger {
             let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";
@@ -215,11 +215,11 @@ pub fn vk_enumerate_physical_devices(
 
                             // Convert device type
                             let device_type = match properties.deviceType {
-                                1 => super::core::PhysicalDeviceType::Integrated,
-                                2 => super::core::PhysicalDeviceType::Discrete,
-                                3 => super::core::PhysicalDeviceType::Virtual,
-                                4 => super::core::PhysicalDeviceType::Cpu,
-                                _ => super::core::PhysicalDeviceType::Other,
+                                1 => PhysicalDeviceType::Integrated,
+                                2 => PhysicalDeviceType::Discrete,
+                                3 => PhysicalDeviceType::Virtual,
+                                4 => PhysicalDeviceType::Cpu,
+                                _ => PhysicalDeviceType::Other,
                             };
 
                             // Use pipelineCacheUUID as unique ID
@@ -261,9 +261,12 @@ unsafe extern "C" fn vulkan_debug_callback(
 
         let message = ffi::CStr::from_ptr(data.pMessage).to_string_lossy();
 
-        super::super::log::Log::global()
-            .logger("Vulkan", "")
-            .error(&format!("{}", message));
+        super::super::log::Log::global().append(
+            super::super::log::Severity::Error,
+            &message,
+            "Vulkan",
+            "",
+        );
         0
     }
 }

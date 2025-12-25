@@ -55,6 +55,11 @@ pub struct Core {
     instance: vulkan::Instance,
 }
 
+// SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
+// The Vulkan instance itself is thread-safe for most operations.
+unsafe impl Send for Core {}
+unsafe impl Sync for Core {}
+
 impl Drop for Core {
     fn drop(&mut self) {
         use super::super::log;
