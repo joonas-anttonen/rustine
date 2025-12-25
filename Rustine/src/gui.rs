@@ -2,14 +2,15 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::warning;
+
 pub struct Core {
     gfx: Arc<Mutex<crate::gfx::core::Core>>,
 }
 
 impl Drop for Core {
     fn drop(&mut self) {
-        use super::log;
-        log::Log::global().append(log::Severity::Warning, "", "gui::Core", "drop");
+        warning!("Core::drop");
     }
 }
 

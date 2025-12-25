@@ -5,8 +5,7 @@ mod vulkan_ffi;
 
 use std::{collections, ffi, result};
 
-use super::Version;
-use super::core::*;
+use crate::{gfx::*, gfx::core::*, error};
 
 fn make_result(code: i32) -> Result {
     match code {
@@ -136,7 +135,7 @@ pub struct Instance {
 impl Drop for Instance {
     fn drop(&mut self) {
         use super::super::log;
-        log::Log::global().append(log::Severity::Warning, "", "gfx::vulkan::Instance", "drop");
+        log::Log::global().append(log::Severity::Warning, "", "gfx::vulkan::Instance::drop");
 
         if let Some(messenger) = self.debug_messenger {
             let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";
@@ -189,7 +188,7 @@ pub fn vk_enumerate_physical_devices(
                     }
 
                     // Query properties for each physical device
-                    let physical_devices: Vec<super::core::PhysicalDevice> = devices
+                    let physical_devices: Vec<PhysicalDevice> = devices
                         .iter()
                         .map(|&device_handle| {
                             let mut properties: vulkan_ffi::VkPhysicalDeviceProperties =
@@ -225,7 +224,7 @@ pub fn vk_enumerate_physical_devices(
                             // Use pipelineCacheUUID as unique ID
                             let id = u128::from_le_bytes(properties.pipelineCacheUUID);
 
-                            super::core::PhysicalDevice {
+                            PhysicalDevice {
                                 name: device_name,
                                 driver: Version::from_vk_version(properties.driverVersion),
                                 api: Version::from_vk_version(properties.apiVersion),
@@ -260,13 +259,7 @@ unsafe extern "C" fn vulkan_debug_callback(
         }
 
         let message = ffi::CStr::from_ptr(data.pMessage).to_string_lossy();
-
-        super::super::log::Log::global().append(
-            super::super::log::Severity::Error,
-            &message,
-            "Vulkan",
-            "",
-        );
+        error!("Vulkan: {}", message);
         0
     }
 }

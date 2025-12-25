@@ -1,4 +1,4 @@
-use super::vulkan;
+use crate::{gfx::*, warning};
 
 use std::{fmt, result};
 
@@ -62,8 +62,7 @@ unsafe impl Sync for Core {}
 
 impl Drop for Core {
     fn drop(&mut self) {
-        use super::super::log;
-        log::Log::global().append(log::Severity::Warning, "", "gfx::Core", "drop");
+        warning!("Core::drop");
     }
 }
 

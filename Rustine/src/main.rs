@@ -24,21 +24,18 @@ fn main() {
     let gfx_core = match gfx::core::Core::new(&params) {
         Ok(core) => core,
         Err(e) => {
-            log.logger("main", "init")
-                .error(&format!("Failed to initialize graphics core: {}", e));
+            error!("Failed to create gfx::Core: {}", e);
             return;
         }
     };
     match gfx_core.enumerate_physical_devices() {
         Ok(devices) => {
             for device in devices {
-                log.logger("main", "init")
-                    .info(&format!("Found device: {}", device));
+                info!("Found device: {}", device);
             }
         }
         Err(e) => {
-            log.logger("main", "init")
-                .error(&format!("Failed to enumerate physical devices: {}", e));
+            error!("Failed to enumerate physical devices: {}", e);
         }
     }
 
@@ -62,25 +59,23 @@ fn main() {
 fn gui_thread_function(_gui: &gui::Core) {
     // Keep main thread alive for a bit, then signal cancellation
     for _ in 0..5 {
-        log::Log::global().append(log::Severity::Debug, "Performing gui work", "gui", "loop");
+        warning!("Performing gui work");
         thread::sleep(std::time::Duration::from_millis(1000));
     }
 }
 
 fn gfx_thread_function(gfx: Arc<Mutex<gfx::core::Core>>, cancel_signal: &AtomicBool) {
-    let log = log::Log::global();
-    log.set_current_thread_name("gfx");
+    log::Log::global().set_current_thread_name("gfx");
 
-    let logger = log.logger("gfx", "loop");
-    logger.info("gfx thread started");
+    info!("gfx thread started");
 
     while !cancel_signal.load(Ordering::Relaxed) {
         if let Ok(_core) = gfx.lock() {
             // Perform work with mutable access to gfx_core
-            logger.debug("Performing gfx work");
+            info!("Performing gfx work");
         }
         thread::sleep(std::time::Duration::from_millis(100));
     }
 
-    logger.info("gfx thread stopped");
+    info!("gfx thread stopped");
 }

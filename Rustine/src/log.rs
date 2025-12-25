@@ -16,8 +16,7 @@ pub struct Event {
     pub severity: Severity,
     pub timestamp: time::SystemTime,
     pub message: String,
-    pub r#type: String,
-    pub method: String,
+    pub origin: String,
     pub thread: String,
 }
 
@@ -34,16 +33,14 @@ impl Event {
     pub fn new(
         severity: Severity,
         message: impl Into<String>,
-        r#type: impl Into<String>,
-        method: impl Into<String>,
+        origin: impl Into<String>,
         thread: impl Into<String>,
     ) -> Self {
         Self {
             severity,
             timestamp: time::SystemTime::now(),
             message: message.into(),
-            r#type: r#type.into(),
-            method: method.into(),
+            origin: origin.into(),
             thread: thread.into(),
         }
     }
@@ -53,7 +50,7 @@ impl Event {
         format!(
             "[{}] {} {}",
             self.thread,
-            origin_string(&self.r#type, &self.method),
+            &self.origin,
             self.message
         )
     }
@@ -62,12 +59,18 @@ impl Event {
     pub fn to_full_string(&self) -> String {
         format!(
             "[{}] [{}] [{}] {} {}",
-            datetime_iso8601(self.timestamp),
+            Event::datetime_iso8601(self.timestamp),
             self.thread,
             self.severity,
-            origin_string(&self.r#type, &self.method),
+            &self.origin,
             self.message
         )
+    }
+
+    /// Formats a `SystemTime` as an ISO 8601 string with milliseconds and timezone.
+    fn datetime_iso8601(tp: time::SystemTime) -> String {
+        let datetime: chrono::DateTime<chrono::Local> = tp.into();
+        datetime.format("%Y-%m-%dT%H:%M:%S%.3f%:z").to_string()
     }
 }
 
@@ -83,10 +86,10 @@ pub enum Severity {
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Severity::Error => write!(f, "ERROR"),
-            Severity::Warning => write!(f, "WARNING"),
-            Severity::Information => write!(f, "INFO"),
-            Severity::Debug => write!(f, "DEBUG"),
+            Severity::Error => write!(f, "R"),
+            Severity::Warning => write!(f, "W"),
+            Severity::Information => write!(f, "I"),
+            Severity::Debug => write!(f, "D"),
         }
     }
 }
@@ -95,21 +98,6 @@ impl fmt::Display for Event {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_full_string())
     }
-}
-
-fn origin_string(r#type: &str, method: &str) -> String {
-    if method.is_empty() {
-        return r#type.to_string();
-    }
-    if r#type.is_empty() {
-        return String::new();
-    }
-    format!("{}::{}", r#type, method)
-}
-
-fn datetime_iso8601(tp: time::SystemTime) -> String {
-    let datetime: chrono::DateTime<chrono::Local> = tp.into();
-    datetime.format("%Y-%m-%dT%H:%M:%S%.3f").to_string()
 }
 
 /// A trait for receiving and handling log events.
@@ -213,7 +201,7 @@ impl Log {
     }
 
     /// Appends a log event with the specified severity and context information.
-    pub fn append(&self, severity: Severity, message: &str, type_name: &str, method_name: &str) {
+    pub fn append(&self, severity: Severity, message: &str, type_name: &str) {
         let thread_name = {
             let map = self.thread_names.lock().unwrap();
             map.get(&thread::current().id())
@@ -221,86 +209,54 @@ impl Log {
                 .unwrap_or_else(|| "unknown".to_string())
         };
 
-        let ev = Event::new(severity, message, type_name, method_name, thread_name);
+        let ev = Event::new(severity, message, type_name, thread_name);
         for l in self.listeners.read().unwrap().iter() {
             l.append(&ev);
         }
     }
-
-    pub fn append_short(&self, severity: Severity, message: &str){
-        self.append(severity, message, "", "");
-    }
-
-    /// Creates a Logger instance with the specified type and caller_name context.
-    ///
-    /// Returns a Logger that will include the provided type and caller_name
-    /// information in all subsequent log messages.
-    pub fn logger<'a>(
-        &'a self,
-        type_name: impl Into<String>,
-        caller_name: impl Into<String>,
-    ) -> Logger<'a> {
-        Logger {
-            log: self,
-            type_name: type_name.into(),
-            caller_name: caller_name.into(),
-        }
-    }
 }
 
-/// A logger instance that captures type and caller_name context for logging.
-///
-/// Created by calling `Log::logger()`, this struct stores contextual
-/// information and provides methods to log at different severity levels.
-pub struct Logger<'a> {
-    log: &'a Log,
-    type_name: String,
-    caller_name: String,
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)*) => {{
+        $crate::log::Log::global().append(
+            $crate::log::Severity::Debug,
+            &format!($($arg)*),
+            module_path!(),
+            concat!(file!(), ":", line!())
+        );
+    }};
 }
 
-impl Logger<'_> {
-    /// Logs an error message.
-    pub fn error(&self, message: impl AsRef<str>) {
-        self.log.append(
-            Severity::Error,
-            message.as_ref(),
-            &self.type_name,
-            &self.caller_name,
+#[macro_export]
+macro_rules! info {
+    ($($arg:tt)*) => {{
+        $crate::log::Log::global().append(
+            $crate::log::Severity::Information,
+            &format!($($arg)*),
+            module_path!()
         );
-    }
+    }};
+}
 
-    /// Logs a warning message.
-    pub fn warning(&self, message: impl AsRef<str>) {
-        self.log.append(
-            Severity::Warning,
-            message.as_ref(),
-            &self.type_name,
-            &self.caller_name,
+#[macro_export]
+macro_rules! warning {
+    ($($arg:tt)*) => {{
+        $crate::log::Log::global().append(
+            $crate::log::Severity::Warning,
+            &format!($($arg)*),
+            module_path!()
         );
-    }
+    }};
+}
 
-    /// Logs an informational message.
-    pub fn info(&self, message: impl AsRef<str>) {
-        self.log.append(
-            Severity::Information,
-            message.as_ref(),
-            &self.type_name,
-            &self.caller_name,
+#[macro_export]
+macro_rules! error {
+    ($($arg:tt)*) => {{
+        $crate::log::Log::global().append(
+            $crate::log::Severity::Error,
+            &format!($($arg)*),
+            module_path!()
         );
-    }
-
-    /// Logs a debug message.
-    pub fn debug(&self, message: impl AsRef<str>) {
-        self.log.append(
-            Severity::Debug,
-            message.as_ref(),
-            &self.type_name,
-            &self.caller_name,
-        );
-    }
-
-    /// Logs a function call entry as a debug message with empty message.
-    pub fn func(&self) {
-        self.debug("");
-    }
+    }};
 }
