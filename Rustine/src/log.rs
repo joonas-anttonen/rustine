@@ -236,8 +236,7 @@ macro_rules! debug {
         $crate::log::Log::global().append(
             $crate::log::Severity::Debug,
             &format!($($arg)*),
-            module_path!(),
-            concat!(file!(), ":", line!())
+            module_path!()
         );
     }};
 }

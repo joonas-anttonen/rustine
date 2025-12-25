@@ -9,6 +9,7 @@ use core::ffi;
 
 pub type VkInstance = *mut std::ffi::c_void;
 pub type VkDevice = *mut std::ffi::c_void;
+pub type VkPhysicalDevice = u64;
 pub type VkQueue = *mut std::ffi::c_void;
 pub type VkFence = *mut std::ffi::c_void;
 pub type VkSemaphore = *mut std::ffi::c_void;
@@ -394,7 +395,7 @@ unsafe extern "C" {
         pAllocator: *const std::ffi::c_void,
         pDevice: *mut VkDevice,
     ) -> i32;
-    pub fn vkDestroyDevice(device: u64, pAllocator: *const std::ffi::c_void);
+    pub fn vkDestroyDevice(device: VkDevice, pAllocator: *const std::ffi::c_void);
 
     // ========= Queue ==========
 
@@ -462,8 +463,8 @@ pub struct VkDeviceCreateInfo {
     pub flags: u32,
     pub queueCreateInfoCount: u32,
     pub pQueueCreateInfos: *const VkDeviceQueueCreateInfo,
-    enabledLayerCount: u32,
-    ppEnabledLayerNames: *const *const ffi::c_char,
+    pub enabledLayerCount: u32,
+    pub ppEnabledLayerNames: *const *const ffi::c_char,
     pub enabledExtensionCount: u32,
     pub ppEnabledExtensionNames: *const *const ffi::c_char,
     pub pEnabledFeatures: *const VkPhysicalDeviceFeatures,
@@ -692,7 +693,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_IMAGE_SPARSE_MEMORY_REQUIREMENTS_INFO_2 = 1000146002,
     VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2 = 1000146003,
     VK_STRUCTURE_TYPE_SPARSE_IMAGE_MEMORY_REQUIREMENTS_2 = 1000146004,
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 = 1000059000,
+    PHYSICAL_DEVICE_FEATURES_2 = 1000059000,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 = 1000059001,
     VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2 = 1000059002,
     VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2 = 1000059003,
@@ -829,7 +830,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_RENDERING_INFO = 1000044000,
     VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO = 1000044001,
     VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO = 1000044002,
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES = 1000044003,
+    PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES = 1000044003,
     VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO = 1000044004,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES = 1000280000,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_PROPERTIES = 1000280001,

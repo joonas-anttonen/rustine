@@ -1,9 +1,16 @@
 use crate::{gfx::*, warning};
 
-use std::{result};
+use std::result;
 
+/// The core graphics subsystem, managing Vulkan initialization and device selection.
+///
+/// `Core` encapsulates a Vulkan instance and a selected physical device.
+/// It is responsible for creating and maintaining the graphics pipeline.
+/// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
+    device: vulkan::Device,
     instance: vulkan::Instance,
+    selected_device: PhysicalDevice,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -18,16 +25,126 @@ impl Drop for Core {
 }
 
 impl Core {
-    pub fn new(params: &ApiParameters) -> std::result::Result<Self, Result> {
-        let vk_instance = vulkan::vk_create_instance(&params)?;
-
-        Ok(Self {
-            instance: vk_instance,
-        })
-    }
-
+    /// Enumerates all available physical devices (GPUs) accessible via the Vulkan instance.
     pub fn enumerate_physical_devices(&self) -> result::Result<Vec<PhysicalDevice>, Result> {
         let devices = vulkan::vk_enumerate_physical_devices(&self.instance)?;
         Ok(devices)
+    }
+
+    /// Creates a new `CoreBuilder` to configure and build a `Core` instance.
+    pub fn builder(params: ApiParameters) -> CoreBuilder {
+        CoreBuilder::new(params)
+    }
+
+    /// Returns a reference to the selected physical device.
+    pub fn selected_physical_device(&self) -> &PhysicalDevice {
+        &self.selected_device
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DeviceSelector {
+    /// Select the device with the best performance characteristics.
+    Optimal,
+    /// Select a specific device by its index in the enumerated device list.
+    ByIndex(usize),
+    /// Select a device by its UUID.
+    ById(u128),
+    /// Select a device by its LUID (Windows-specific identifier).
+    ByLuid(u64),
+    /// Select a device by its exact name.
+    ByName(String),
+}
+
+/// Builder for creating and configuring a `Core` graphics instance.
+///
+/// `CoreBuilder` allows fine-grained control over graphics initialization, including
+/// API parameter configuration and physical device selection strategy.
+#[derive(Debug)]
+pub struct CoreBuilder {
+    params: ApiParameters,
+    selector: DeviceSelector,
+}
+
+impl CoreBuilder {
+    /// Creates a new `CoreBuilder` with the given API parameters.
+    pub fn new(params: ApiParameters) -> Self {
+        Self {
+            params,
+            selector: DeviceSelector::Optimal,
+        }
+    }
+
+    /// Selects the optimal physical device based on device type and API/driver versions.
+    ///
+    /// Discrete GPUs are preferred over integrated, virtual, and CPU devices.
+    /// Ties are broken by higher API and driver versions.
+    pub fn select_optimal_device(mut self) -> Self {
+        self.selector = DeviceSelector::Optimal;
+        self
+    }
+
+    /// Selects a specific device by its index in the enumerated list.
+    pub fn select_device_by_index(mut self, index: usize) -> Self {
+        self.selector = DeviceSelector::ByIndex(index);
+        self
+    }
+
+    /// Selects a specific device by its UUID.
+    pub fn select_device_by_id(mut self, id: u128) -> Self {
+        self.selector = DeviceSelector::ById(id);
+        self
+    }
+
+    /// Selects a specific device by its LUID (Windows-specific identifier).
+    pub fn select_device_by_luid(mut self, luid: u64) -> Self {
+        self.selector = DeviceSelector::ByLuid(luid);
+        self
+    }
+
+    /// Selects a specific device by its name.
+    pub fn select_device_by_name<S: Into<String>>(mut self, name: S) -> Self {
+        self.selector = DeviceSelector::ByName(name.into());
+        self
+    }
+
+    /// Builds the `Core` instance.
+    pub fn build(self) -> result::Result<Core, Result> {
+        let vk_instance = vulkan::vk_create_instance(&self.params)?;
+        let devices = vulkan::vk_enumerate_physical_devices(&vk_instance)?;
+
+        let pick_type_score = |t: &PhysicalDeviceType| -> i32 {
+            match t {
+                PhysicalDeviceType::Discrete => 3,
+                PhysicalDeviceType::Integrated => 2,
+                PhysicalDeviceType::Virtual => 1,
+                PhysicalDeviceType::Cpu => 0,
+                PhysicalDeviceType::Other => 0,
+            }
+        };
+
+        let selected = match self.selector {
+            DeviceSelector::Optimal => devices
+                .into_iter()
+                .max_by_key(|d| (pick_type_score(&d.device_type), d.api, d.driver)),
+            DeviceSelector::ByIndex(i) => devices.into_iter().nth(i),
+            DeviceSelector::ById(id) => devices.into_iter().find(|d| d.id == id),
+            DeviceSelector::ByLuid(luid) => devices.into_iter().find(|d| d.luid == luid),
+            DeviceSelector::ByName(name) => devices.into_iter().find(|d| d.name == name),
+        };
+
+        let selected_device = match selected {
+            Some(d) => d,
+            None => return Err(Result::NotSupported),
+        };
+
+        // Create logical device
+        let vk_device = vulkan::vk_create_device(selected_device.handle)?;
+
+        Ok(Core {
+            instance: vk_instance,
+            selected_device,
+            device: vk_device,
+        })
     }
 }

@@ -22,23 +22,19 @@ fn main() {
             app_engine_name: "Rustine".to_string(),
         };
 
-        let gfx_core = match gfx::Core::new(&params) {
+        let gfx_core = match gfx::Core::builder(params)
+            .select_optimal_device()
+            .build()
+        {
             Ok(core) => core,
             Err(e) => {
-                error!("Failed to create gfx::Core: {}", e);
+                error!("Failed to build gfx::Core: {}", e);
                 return;
             }
         };
-        match gfx_core.enumerate_physical_devices() {
-            Ok(devices) => {
-                for device in devices {
-                    info!("Found device: {}", device);
-                }
-            }
-            Err(e) => {
-                error!("Failed to enumerate physical devices: {}", e);
-            }
-        }
+
+        let dev = gfx_core.selected_physical_device();
+        info!("Selected device: {}", dev);
 
         let gfx = Arc::new(Mutex::new(gfx_core));
         let gfx_cancel_signal = atomic::AtomicBool::new(false);

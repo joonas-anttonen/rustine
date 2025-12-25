@@ -3,6 +3,7 @@
 mod parameters;
 pub use parameters::ApiParameters;
 mod vulkan;
+mod vulkan_ffi;
 mod core;
 /// Re-export core types for easier access.
 pub use core::Core;
@@ -58,6 +59,7 @@ pub struct PhysicalDevice {
     pub device_type: PhysicalDeviceType,
     pub id: u128,
     pub luid: u64,
+    pub handle: u64,
 }
 
 impl std::fmt::Display for PhysicalDevice {
