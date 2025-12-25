@@ -1,15 +1,14 @@
 #![allow(dead_code)]
 
-pub mod parameters;
+mod parameters;
 pub use parameters::ApiParameters;
-pub mod vulkan;
-pub mod core;
+mod vulkan;
+mod core;
+/// Re-export core types for easier access.
+pub use core::Core;
 
 use crate::{version::Version};
 use std::{fmt};
-
-/// Re-export core types for easier access.
-pub use core::Core;
 
 /// Represents the target platform for graphics API initialization.
 #[derive(Debug)]

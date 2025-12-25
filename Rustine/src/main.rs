@@ -11,48 +11,50 @@ fn main() {
 
     info!("Enter");
 
-    let params = gfx::ApiParameters {
-        enable_debugging: true,
-        platform: gfx::Platform::Windows,
-        required_api_version: Version::new(1, 4, 0),
-        app_version: Version::new(0, 1, 0),
-        app_engine_version: Version::new(0, 1, 0),
-        app_name: "Rustine".to_string(),
-        app_engine_name: "Rustine".to_string(),
-    };
+    {
+        let params = gfx::ApiParameters {
+            enable_debugging: true,
+            platform: gfx::Platform::Windows,
+            required_api_version: Version::new(1, 4, 0),
+            app_version: Version::new(0, 1, 0),
+            app_engine_version: Version::new(0, 1, 0),
+            app_name: "Rustine".to_string(),
+            app_engine_name: "Rustine".to_string(),
+        };
 
-    let gfx_core = match gfx::Core::new(&params) {
-        Ok(core) => core,
-        Err(e) => {
-            error!("Failed to create gfx::Core: {}", e);
-            return;
-        }
-    };
-    match gfx_core.enumerate_physical_devices() {
-        Ok(devices) => {
-            for device in devices {
-                info!("Found device: {}", device);
+        let gfx_core = match gfx::Core::new(&params) {
+            Ok(core) => core,
+            Err(e) => {
+                error!("Failed to create gfx::Core: {}", e);
+                return;
+            }
+        };
+        match gfx_core.enumerate_physical_devices() {
+            Ok(devices) => {
+                for device in devices {
+                    info!("Found device: {}", device);
+                }
+            }
+            Err(e) => {
+                error!("Failed to enumerate physical devices: {}", e);
             }
         }
-        Err(e) => {
-            error!("Failed to enumerate physical devices: {}", e);
-        }
-    }
 
-    let gfx = Arc::new(Mutex::new(gfx_core));
-    let gfx_cancel_signal = atomic::AtomicBool::new(false);
+        let gfx = Arc::new(Mutex::new(gfx_core));
+        let gfx_cancel_signal = atomic::AtomicBool::new(false);
 
-    let gui = gui::Core::new(Arc::clone(&gfx));
+        let gui = gui::Core::new(Arc::clone(&gfx));
 
-    thread::scope(|s| {
-        s.spawn(|| {
-            gfx_thread_function(Arc::clone(&gfx), &gfx_cancel_signal);
+        thread::scope(|s| {
+            s.spawn(|| {
+                gfx_thread_function(Arc::clone(&gfx), &gfx_cancel_signal);
+            });
+
+            gui_thread_function(&gui);
+
+            gfx_cancel_signal.store(true, atomic::Ordering::Relaxed);
         });
-
-        gui_thread_function(&gui);
-
-        gfx_cancel_signal.store(true, atomic::Ordering::Relaxed);
-    });
+    }
 
     info!("Exit");
 }
