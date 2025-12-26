@@ -7,6 +7,165 @@
 
 use core::ffi;
 
+#[link(name = "vulkan-1", kind = "dylib")]
+unsafe extern "C" {
+
+    // ========== Instance ==========
+
+    pub fn vkEnumerateInstanceVersion(pApiVersion: *mut u32) -> i32;
+    pub fn vkEnumerateInstanceLayerProperties(
+        pPropertyCount: *mut u32,
+        pProperties: *mut VkLayerProperties,
+    ) -> i32;
+    pub fn vkEnumerateInstanceExtensionProperties(
+        pLayerName: *const u8,
+        pPropertyCount: *mut u32,
+        pProperties: *mut VkExtensionProperties,
+    ) -> i32;
+    pub fn vkCreateInstance(
+        pCreateInfo: *const VkInstanceCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pInstance: *mut VkInstance,
+    ) -> i32;
+    pub fn vkDestroyInstance(instance: VkInstance, pAllocator: *const std::ffi::c_void);
+    pub fn vkGetInstanceProcAddr(
+        instance: VkInstance,
+        pName: *const ffi::c_char,
+    ) -> Option<unsafe extern "C" fn()>;
+
+    // ========= Physical Device ==========
+
+    pub fn vkEnumeratePhysicalDevices(
+        instance: VkInstance,
+        pPhysicalDeviceCount: *mut u32,
+        pPhysicalDevices: *mut u64,
+    ) -> i32;
+    pub fn vkGetPhysicalDeviceFeatures(
+        physicalDevice: u64,
+        pFeatures: *mut VkPhysicalDeviceFeatures,
+    );
+    pub fn vkGetPhysicalDeviceFormatProperties(
+        physicalDevice: u64,
+        format: u32,
+        pFormatProperties: *mut VkFormatProperties,
+    );
+    pub fn vkGetPhysicalDeviceProperties(
+        physicalDevice: u64,
+        pProperties: *mut VkPhysicalDeviceProperties,
+    );
+    pub fn vkGetPhysicalDeviceProperties2(
+        physicalDevice: u64,
+        pProperties: *mut VkPhysicalDeviceProperties2,
+    );
+    pub fn vkGetPhysicalDeviceFeatures2(
+        physicalDevice: u64,
+        pFeatures: *mut VkPhysicalDeviceFeatures2,
+    );
+    pub fn vkEnumerateDeviceExtensionProperties(
+        physicalDevice: u64,
+        pLayerName: *const ffi::c_char,
+        pPropertyCount: *mut u32,
+        pProperties: *mut VkExtensionProperties,
+    ) -> i32;
+    pub fn vkGetPhysicalDeviceQueueFamilyProperties(
+        physicalDevice: u64,
+        pQueueFamilyPropertyCount: *mut u32,
+        pQueueFamilyProperties: *mut VkQueueFamilyProperties,
+    );
+
+    // ========= Device ==========
+
+    pub fn vkGetDeviceProcAddr(
+        device: u64,
+        pName: *const ffi::c_char,
+    ) -> Option<unsafe extern "C" fn()>;
+
+    pub fn vkGetDeviceQueue(
+        device: VkDevice,
+        queueFamilyIndex: u32,
+        queueIndex: u32,
+        pQueue: *mut VkQueue,
+    );
+    pub fn vkDeviceWaitIdle(device: VkDevice) -> i32;
+    pub fn vkCreateDevice(
+        physicalDevice: VkPhysicalDevice,
+        pCreateInfo: *const VkDeviceCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pDevice: *mut VkDevice,
+    ) -> i32;
+    pub fn vkDestroyDevice(device: VkDevice, pAllocator: *const std::ffi::c_void);
+    pub fn vkCreateCommandPool(
+        device: VkDevice,
+        pCreateInfo: *const VkCommandPoolCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pCommandPool: *mut VkCommandPool,
+    ) -> i32;
+    pub fn vkDestroyCommandPool(
+        device: VkDevice,
+        commandPool: VkCommandPool,
+        pAllocator: *const std::ffi::c_void,
+    );
+    pub fn vkResetCommandPool(device: VkDevice, commandPool: VkCommandPool, flags: u32) -> i32;
+    pub fn vkAllocateCommandBuffers(
+        device: VkDevice,
+        pAllocateInfo: *const VkCommandBufferAllocateInfo,
+        pCommandBuffers: *mut VkCommandBuffer,
+    ) -> i32;
+    pub fn vkFreeCommandBuffers(
+        device: VkDevice,
+        commandPool: VkCommandPool,
+        commandBufferCount: u32,
+        pCommandBuffers: *const VkCommandBuffer,
+    );
+    pub fn vkCreateFence(
+        device: VkDevice,
+        pCreateInfo: *const VkFenceCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pFence: *mut VkFence,
+    ) -> i32;
+    pub fn vkDestroyFence(device: VkDevice, fence: VkFence, pAllocator: *const std::ffi::c_void);
+    pub fn vkResetFences(device: VkDevice, fenceCount: u32, pFences: *const VkFence) -> i32;
+    pub fn vkGetFenceStatus(device: VkDevice, fence: VkFence) -> i32;
+    pub fn vkWaitForFences(
+        device: VkDevice,
+        fenceCount: u32,
+        pFences: *const VkFence,
+        waitAll: u32,
+        timeout: u64,
+    ) -> i32;
+    pub fn vkCreateSemaphore(
+        device: VkDevice,
+        pCreateInfo: *const VkSemaphoreCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pSemaphore: *mut VkSemaphore,
+    ) -> i32;
+    pub fn vkDestroySemaphore(
+        device: VkDevice,
+        semaphore: VkSemaphore,
+        pAllocator: *const std::ffi::c_void,
+    );
+
+    // ========= Queue ==========
+
+    pub fn vkQueueWaitIdle(queue: VkQueue) -> i32;
+    pub fn vkQueueSubmit(
+        queue: VkQueue,
+        submitCount: u32,
+        pSubmits: *const VkSubmitInfo,
+        fence: VkFence,
+    ) -> i32;
+
+    // ========= Command Buffer ==========
+
+    pub fn vkBeginCommandBuffer(
+        commandBuffer: VkCommandBuffer,
+        pBeginInfo: *const VkCommandBufferBeginInfo,
+    ) -> i32;
+    pub fn vkEndCommandBuffer(commandBuffer: VkCommandBuffer) -> i32;
+    pub fn vkResetCommandBuffer(commandBuffer: VkCommandBuffer, flags: u32) -> i32;
+
+}
+
 pub type VkInstance = *mut std::ffi::c_void;
 pub type VkDevice = *mut std::ffi::c_void;
 pub type VkPhysicalDevice = u64;
@@ -27,6 +186,86 @@ pub type PFN_vkCreateDebugUtilsMessengerEXT = Option<
 >;
 pub type PFN_vkDestroyDebugUtilsMessengerEXT =
     Option<unsafe extern "C" fn(VkInstance, VkDebugUtilsMessengerEXT, *const std::ffi::c_void)>;
+
+#[repr(C)]
+pub struct VkSemaphoreCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+}
+
+#[repr(C)]
+pub struct VkFenceCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: VkFenceCreateFlags,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkFenceCreateFlags {
+    VK_FENCE_CREATE_SIGNALED_BIT = 0x00000001,
+}
+
+#[repr(C)]
+pub struct VkCommandBufferBeginInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub pInheritanceInfo: *const std::ffi::c_void,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkCommandBufferUsageFlags {
+    ONE_TIME_SUBMIT_BIT = 0x00000001,
+    VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT = 0x00000002,
+    VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT = 0x00000004,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkCommandBufferResetFlags {
+    VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT = 0x00000001,
+}
+
+#[repr(C)]
+pub struct VkCommandBufferAllocateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub commandPool: VkCommandPool,
+    pub level: VkCommandBufferLevel,
+    pub commandBufferCount: u32,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkCommandBufferLevel {
+    VK_COMMAND_BUFFER_LEVEL_PRIMARY = 0,
+    VK_COMMAND_BUFFER_LEVEL_SECONDARY = 1,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkCommandPoolCreateFlags {
+    VK_COMMAND_POOL_CREATE_TRANSIENT_BIT = 0x00000001,
+    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT = 0x00000002,
+    VK_COMMAND_POOL_CREATE_PROTECTED_BIT = 0x00000004,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkCommandPoolResetFlags {
+    VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT = 0x00000001,
+}
+
+#[repr(C)]
+pub struct VkCommandPoolCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub queueFamilyIndex: u32,
+}
 
 #[repr(C)]
 pub struct VkLayerProperties {
@@ -297,117 +536,6 @@ pub struct VkDebugUtilsMessengerCallbackDataEXT {
     pub pObjects: *const std::ffi::c_void,
 }
 
-#[link(name = "vulkan-1", kind = "dylib")]
-unsafe extern "C" {
-
-    // ========== Instance ==========
-
-    pub fn vkEnumerateInstanceVersion(pApiVersion: *mut u32) -> i32;
-    pub fn vkEnumerateInstanceLayerProperties(
-        pPropertyCount: *mut u32,
-        pProperties: *mut VkLayerProperties,
-    ) -> i32;
-    pub fn vkEnumerateInstanceExtensionProperties(
-        pLayerName: *const u8,
-        pPropertyCount: *mut u32,
-        pProperties: *mut VkExtensionProperties,
-    ) -> i32;
-    pub fn vkCreateInstance(
-        pCreateInfo: *const VkInstanceCreateInfo,
-        pAllocator: *const std::ffi::c_void,
-        pInstance: *mut VkInstance,
-    ) -> i32;
-    pub fn vkDestroyInstance(instance: VkInstance, pAllocator: *const std::ffi::c_void);
-    pub fn vkGetInstanceProcAddr(
-        instance: VkInstance,
-        pName: *const ffi::c_char,
-    ) -> Option<unsafe extern "C" fn()>;
-
-    // ========= Physical Device ==========
-
-    pub fn vkEnumeratePhysicalDevices(
-        instance: VkInstance,
-        pPhysicalDeviceCount: *mut u32,
-        pPhysicalDevices: *mut u64,
-    ) -> i32;
-    pub fn vkGetPhysicalDeviceFeatures(
-        physicalDevice: u64,
-        pFeatures: *mut VkPhysicalDeviceFeatures,
-    );
-    pub fn vkGetPhysicalDeviceFormatProperties(
-        physicalDevice: u64,
-        format: u32,
-        pFormatProperties: *mut VkFormatProperties,
-    );
-    pub fn vkGetPhysicalDeviceProperties(
-        physicalDevice: u64,
-        pProperties: *mut VkPhysicalDeviceProperties,
-    );
-    pub fn vkGetPhysicalDeviceProperties2(
-        physicalDevice: u64,
-        pProperties: *mut VkPhysicalDeviceProperties2,
-    );
-    pub fn vkGetPhysicalDeviceFeatures2(
-        physicalDevice: u64,
-        pFeatures: *mut VkPhysicalDeviceFeatures2,
-    );
-    pub fn vkEnumerateDeviceExtensionProperties(
-        physicalDevice: u64,
-        pLayerName: *const ffi::c_char,
-        pPropertyCount: *mut u32,
-        pProperties: *mut VkExtensionProperties,
-    ) -> i32;
-    pub fn vkGetPhysicalDeviceQueueFamilyProperties(
-        physicalDevice: u64,
-        pQueueFamilyPropertyCount: *mut u32,
-        pQueueFamilyProperties: *mut VkQueueFamilyProperties,
-    );
-    /*VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties(
-    VkPhysicalDevice                            physicalDevice,
-    VkFormat                                    format,
-    VkImageType                                 type,
-    VkImageTiling                               tiling,
-    VkImageUsageFlags                           usage,
-    VkImageCreateFlags                          flags,
-    VkImageFormatProperties*                    pImageFormatProperties);*/
-    /*
-    VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceMemoryProperties(
-        VkPhysicalDevice                            physicalDevice,
-        VkPhysicalDeviceMemoryProperties*           pMemoryProperties); */
-
-    // ========= Device ==========
-
-    pub fn vkGetDeviceProcAddr(
-        device: u64,
-        pName: *const ffi::c_char,
-    ) -> Option<unsafe extern "C" fn()>;
-
-    pub fn vkGetDeviceQueue(
-        device: VkDevice,
-        queueFamilyIndex: u32,
-        queueIndex: u32,
-        pQueue: *mut VkQueue,
-    );
-    pub fn vkDeviceWaitIdle(device: VkDevice) -> i32;
-    pub fn vkCreateDevice(
-        physicalDevice: VkPhysicalDevice,
-        pCreateInfo: *const VkDeviceCreateInfo,
-        pAllocator: *const std::ffi::c_void,
-        pDevice: *mut VkDevice,
-    ) -> i32;
-    pub fn vkDestroyDevice(device: VkDevice, pAllocator: *const std::ffi::c_void);
-
-    // ========= Queue ==========
-
-    pub fn vkQueueWaitIdle(queue: u64) -> i32;
-    pub fn vkQueueSubmit(
-        queue: u64,
-        submitCount: u32,
-        pSubmits: *const VkSubmitInfo,
-        fence: u64,
-    ) -> i32;
-}
-
 #[repr(C)]
 pub struct VkPhysicalDevicePushDescriptorProperties {
     pub sType: u32,
@@ -663,10 +791,10 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET = 36,
     VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO = 37,
     VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO = 38,
-    VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO = 39,
-    VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO = 40,
+    COMMAND_POOL_CREATE_INFO = 39,
+    COMMAND_BUFFER_ALLOCATE_INFO = 40,
     VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO = 41,
-    VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO = 42,
+    COMMAND_BUFFER_BEGIN_INFO = 42,
     VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO = 43,
     VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER = 44,
     VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER = 45,

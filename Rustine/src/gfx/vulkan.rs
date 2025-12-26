@@ -7,6 +7,17 @@ use crate::{gfx::*, version::Version};
 
 use crate::gfx::vulkan_ffi as ffi;
 
+/// Wraps a Vulkan function call and converts the result to a Rust Result.
+macro_rules! vk_call {
+    ($expr:expr) => {{
+        let res = unsafe { $expr };
+        match make_result(res) {
+            Result::Success => Ok(()),
+            other => Err(other),
+        }
+    }};
+}
+
 /// Represents a Vulkan instance.
 pub struct Instance {
     handle: ffi::VkInstance,
@@ -18,6 +29,70 @@ pub struct Device {
     queue: ffi::VkQueue,
     handle: ffi::VkDevice,
     physical_device: ffi::VkPhysicalDevice,
+}
+
+/// Represents a command pool owned by a single thread.
+pub struct CommandPool {
+    handle: ffi::VkCommandPool,
+    available_command_buffers: collections::VecDeque<CommandBuffer>,
+}
+
+impl CommandPool {
+    /// Creates a new command pool with pre-allocated command buffers.
+    pub fn new(pool: ffi::VkCommandPool, buffers: Vec<CommandBuffer>) -> Self {
+        CommandPool {
+            handle: pool,
+            available_command_buffers: collections::VecDeque::from(buffers),
+        }
+    }
+
+    /// Checks if the pool has no available command buffers.
+    pub fn is_empty(&self) -> bool {
+        self.available_command_buffers.is_empty()
+    }
+
+    /// Rents a command buffer from the pool, or returns None if empty.
+    pub fn rent_buffer(&mut self) -> Option<CommandBuffer> {
+        self.available_command_buffers.pop_front()
+    }
+
+    /// Returns a command buffer to the pool.
+    pub fn return_buffer(&mut self, buffer: CommandBuffer) {
+        self.available_command_buffers.push_back(buffer);
+    }
+}
+
+/// Represents a command buffer allocated from a command pool.
+pub struct CommandBuffer {
+    handle: ffi::VkCommandBuffer,
+    fence: ffi::VkFence,
+}
+
+impl CommandBuffer {
+    /// Creates a new command buffer with the given handle and fence.
+    pub fn new(handle: ffi::VkCommandBuffer, fence: ffi::VkFence) -> Self {
+        CommandBuffer { handle, fence }
+    }
+
+    /// Begins recording commands into the command buffer.
+    pub fn begin(&self) {
+        let begin_info = ffi::VkCommandBufferBeginInfo {
+            sType: ffi::VkStructureType::COMMAND_BUFFER_BEGIN_INFO as u32,
+            pNext: ptr::null(),
+            flags: 0,
+            pInheritanceInfo: ptr::null(),
+        };
+        vk_call!(ffi::vkBeginCommandBuffer(self.handle, &begin_info)).unwrap_or_else(|r| {
+            error!("Failed to begin command buffer: {:?}", r);
+        });
+    }
+
+    /// Ends recording commands into the command buffer.
+    pub fn end(&self) {
+        vk_call!(ffi::vkEndCommandBuffer(self.handle)).unwrap_or_else(|r| {
+            error!("Failed to end command buffer: {:?}", r);
+        });
+    }
 }
 
 impl Drop for Instance {
@@ -59,17 +134,6 @@ fn make_result(code: i32) -> Result {
         -7 | -8 | -11 => Result::NotSupported, // Extension not present, feature not present, format not supported
         other => Result::Unknown(other),
     }
-}
-
-/// Wraps a Vulkan function call and converts the result to a Rust Result.
-macro_rules! vk_call {
-    ($expr:expr) => {{
-        let res = unsafe { $expr };
-        match make_result(res) {
-            Result::Success => Ok(()),
-            other => Err(other),
-        }
-    }};
 }
 
 /// Queries the highest Vulkan API version supported.
