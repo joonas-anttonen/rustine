@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use std::{collections, result};
+use std::{collections, ptr, result};
 
-use crate::{debug, error, warning};
+use crate::{error, warning};
 use crate::{gfx::*, version::Version};
 
 use crate::gfx::vulkan_ffi as ffi;
@@ -15,6 +15,17 @@ fn make_result(code: i32) -> Result {
     }
 }
 
+/// Wraps a Vulkan function call and converts the result to a Rust Result.
+macro_rules! vk_call {
+    ($expr:expr) => {{
+        let res = unsafe { $expr };
+        match make_result(res) {
+            Result::Success => Ok(()),
+            other => Err(other),
+        }
+    }};
+}
+
 fn panic_if_failed(code: i32, context: &str) {
     if code != 0 {
         panic!("Vulkan panic in {}: {}", context, make_result(code));
@@ -24,106 +35,67 @@ fn panic_if_failed(code: i32, context: &str) {
 /// Queries the highest Vulkan API version supported.
 pub fn vk_enumerate_instance_version() -> result::Result<Version, Result> {
     let mut api_version: u32 = 0;
-    let result = unsafe {
-        make_result(ffi::vkEnumerateInstanceVersion(
-            &mut api_version as *mut u32,
-        ))
-    };
-
-    match result {
-        Result::Success => Ok(Version::from_vk_version(api_version)),
-        _ => Err(result),
-    }
+    vk_call!(ffi::vkEnumerateInstanceVersion(
+        &mut api_version as *mut u32
+    ))?;
+    Ok(Version::from_vk_version(api_version))
 }
 
 /// Queries the available instance layers.
-pub fn vk_enumerate_instance_layer_properties() -> result::Result<Vec<std::ffi::CString>, Result> {
+pub fn vk_enumerate_instance_layers() -> result::Result<Vec<std::ffi::CString>, Result> {
     let mut property_count: u32 = 0;
-    let result = unsafe {
-        make_result(ffi::vkEnumerateInstanceLayerProperties(
-            &mut property_count as *mut u32,
-            std::ptr::null_mut(),
-        ))
-    };
+    vk_call!(ffi::vkEnumerateInstanceLayerProperties(
+        &mut property_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
 
-    match result {
-        Result::Success => {
-            let mut properties: Vec<ffi::VkLayerProperties> =
-                Vec::with_capacity(property_count as usize);
-            let result = unsafe {
-                make_result(ffi::vkEnumerateInstanceLayerProperties(
-                    &mut property_count as *mut u32,
-                    properties.as_mut_ptr(),
-                ))
-            };
+    let mut properties: Vec<ffi::VkLayerProperties> = Vec::with_capacity(property_count as usize);
+    vk_call!(ffi::vkEnumerateInstanceLayerProperties(
+        &mut property_count as *mut u32,
+        properties.as_mut_ptr(),
+    ))?;
 
-            match result {
-                Result::Success => {
-                    unsafe {
-                        properties.set_len(property_count as usize);
-                    }
-                    let layer_names = properties
-                        .iter()
-                        .map(|prop| {
-                            let cstr = unsafe {
-                                std::ffi::CStr::from_ptr(prop.layerName.as_ptr() as *const i8)
-                            };
-                            cstr.to_owned()
-                        })
-                        .collect();
-                    Ok(layer_names)
-                }
-                _ => Err(result),
-            }
-        }
-        _ => Err(result),
+    unsafe {
+        properties.set_len(property_count as usize);
+        let layer_names = properties
+            .iter()
+            .map(|prop| {
+                let cstr = std::ffi::CStr::from_ptr(prop.layerName.as_ptr() as *const i8);
+                cstr.to_owned()
+            })
+            .collect();
+        Ok(layer_names)
     }
 }
 
 /// Queries the available instance extensions.
-pub fn vk_enumerate_instance_extension_properties() -> result::Result<Vec<std::ffi::CString>, Result>
-{
+pub fn vk_enumerate_instance_extensions() -> result::Result<Vec<std::ffi::CString>, Result> {
     let mut property_count: u32 = 0;
-    let result = unsafe {
-        make_result(ffi::vkEnumerateInstanceExtensionProperties(
-            std::ptr::null(),
-            &mut property_count as *mut u32,
-            std::ptr::null_mut(),
-        ))
-    };
+    vk_call!(ffi::vkEnumerateInstanceExtensionProperties(
+        ptr::null(),
+        &mut property_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
 
-    match result {
-        Result::Success => {
-            let mut properties: Vec<ffi::VkExtensionProperties> =
-                Vec::with_capacity(property_count as usize);
-            let result = unsafe {
-                make_result(ffi::vkEnumerateInstanceExtensionProperties(
-                    std::ptr::null(),
-                    &mut property_count as *mut u32,
-                    properties.as_mut_ptr(),
-                ))
-            };
+    let mut properties: Vec<ffi::VkExtensionProperties> =
+        Vec::with_capacity(property_count as usize);
+    vk_call!(ffi::vkEnumerateInstanceExtensionProperties(
+        ptr::null(),
+        &mut property_count as *mut u32,
+        properties.as_mut_ptr(),
+    ))?;
 
-            match result {
-                Result::Success => {
-                    unsafe {
-                        properties.set_len(property_count as usize);
-                    }
-                    let extension_names = properties
-                        .iter()
-                        .map(|prop| {
-                            let cstr = unsafe {
-                                std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8)
-                            };
-                            cstr.to_owned()
-                        })
-                        .collect();
-                    Ok(extension_names)
-                }
-                _ => Err(result),
-            }
-        }
-        _ => Err(result),
+    unsafe {
+        properties.set_len(property_count as usize);
+
+        let extension_names = properties
+            .iter()
+            .map(|prop| {
+                let cstr = std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8);
+                cstr.to_owned()
+            })
+            .collect();
+        Ok(extension_names)
     }
 }
 
@@ -131,48 +103,32 @@ pub fn vk_enumerate_physical_device_extensions(
     physical_device: ffi::VkPhysicalDevice,
 ) -> result::Result<Vec<std::ffi::CString>, Result> {
     let mut property_count: u32 = 0;
-    let result = unsafe {
-        make_result(ffi::vkEnumerateDeviceExtensionProperties(
-            physical_device,
-            std::ptr::null(),
-            &mut property_count as *mut u32,
-            std::ptr::null_mut(),
-        ))
-    };
+    vk_call!(ffi::vkEnumerateDeviceExtensionProperties(
+        physical_device,
+        ptr::null(),
+        &mut property_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
 
-    match result {
-        Result::Success => {
-            let mut properties: Vec<ffi::VkExtensionProperties> =
-                Vec::with_capacity(property_count as usize);
-            let result = unsafe {
-                make_result(ffi::vkEnumerateDeviceExtensionProperties(
-                    physical_device,
-                    std::ptr::null(),
-                    &mut property_count as *mut u32,
-                    properties.as_mut_ptr(),
-                ))
-            };
+    let mut properties: Vec<ffi::VkExtensionProperties> =
+        Vec::with_capacity(property_count as usize);
+    vk_call!(ffi::vkEnumerateDeviceExtensionProperties(
+        physical_device,
+        ptr::null(),
+        &mut property_count as *mut u32,
+        properties.as_mut_ptr(),
+    ))?;
 
-            match result {
-                Result::Success => {
-                    unsafe {
-                        properties.set_len(property_count as usize);
-                    }
-                    let extension_names = properties
-                        .iter()
-                        .map(|prop| {
-                            let cstr = unsafe {
-                                std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8)
-                            };
-                            cstr.to_owned()
-                        })
-                        .collect();
-                    Ok(extension_names)
-                }
-                _ => Err(result),
-            }
-        }
-        _ => Err(result),
+    unsafe {
+        properties.set_len(property_count as usize);
+        let extension_names = properties
+            .iter()
+            .map(|prop| {
+                let cstr = std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8);
+                cstr.to_owned()
+            })
+            .collect();
+        Ok(extension_names)
     }
 }
 
@@ -184,7 +140,7 @@ pub fn vk_enumerate_physical_device_queue_families(
         ffi::vkGetPhysicalDeviceQueueFamilyProperties(
             physical_device,
             &mut queue_family_count as *mut u32,
-            std::ptr::null_mut(),
+            ptr::null_mut(),
         );
     }
 
@@ -207,7 +163,9 @@ pub struct Instance {
     debug_messenger: Option<ffi::VkDebugUtilsMessengerEXT>,
 }
 
+/// Represents a Vulkan logical device.
 pub struct Device {
+    queue: ffi::VkQueue,
     handle: ffi::VkDevice,
     physical_device: ffi::VkPhysicalDevice,
 }
@@ -220,18 +178,18 @@ impl Drop for Instance {
             let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";
             let destroy_debug_fn: ffi::PFN_vkDestroyDebugUtilsMessengerEXT = unsafe {
                 std::mem::transmute(ffi::vkGetInstanceProcAddr(
-                    self.handle as u64,
+                    self.handle,
                     debug_utils_destroy_fn_name.as_ptr(),
                 ))
             };
 
             unsafe {
-                destroy_debug_fn.unwrap()(self.handle, messenger, std::ptr::null());
+                destroy_debug_fn.unwrap()(self.handle, messenger, ptr::null());
             }
         }
 
         unsafe {
-            ffi::vkDestroyInstance(self.handle, std::ptr::null());
+            ffi::vkDestroyInstance(self.handle, ptr::null());
         }
     }
 }
@@ -240,7 +198,7 @@ impl Drop for Device {
     fn drop(&mut self) {
         warning!("Device::drop");
         unsafe {
-            ffi::vkDestroyDevice(self.handle, std::ptr::null());
+            ffi::vkDestroyDevice(self.handle, ptr::null());
         }
     }
 }
@@ -250,94 +208,87 @@ pub fn vk_enumerate_physical_devices(
     instance: &Instance,
 ) -> result::Result<Vec<PhysicalDevice>, Result> {
     let mut device_count: u32 = 0;
-    let result = unsafe {
-        make_result(ffi::vkEnumeratePhysicalDevices(
-            instance.handle,
-            &mut device_count as *mut u32,
-            std::ptr::null_mut(),
-        ))
-    };
+    vk_call!(ffi::vkEnumeratePhysicalDevices(
+        instance.handle,
+        &mut device_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
 
-    match result {
-        Result::Success => {
-            let mut devices: Vec<u64> = Vec::with_capacity(device_count as usize);
-            let result = unsafe {
-                make_result(ffi::vkEnumeratePhysicalDevices(
-                    instance.handle,
-                    &mut device_count as *mut u32,
-                    devices.as_mut_ptr(),
-                ))
+    let mut devices: Vec<u64> = Vec::with_capacity(device_count as usize);
+    vk_call!(ffi::vkEnumeratePhysicalDevices(
+        instance.handle,
+        &mut device_count as *mut u32,
+        devices.as_mut_ptr(),
+    ))?;
+
+    unsafe {
+        devices.set_len(device_count as usize);
+    }
+
+    let physical_devices: Vec<PhysicalDevice> = devices
+        .iter()
+        .map(|&device_handle| {
+            let mut id_properties = unsafe {
+                ffi::VkPhysicalDeviceIDProperties {
+                    sType: ffi::VkStructureType::PHYSICAL_DEVICE_ID_PROPERTIES as u32,
+                    ..std::mem::zeroed()
+                }
             };
 
-            match result {
-                Result::Success => {
-                    unsafe {
-                        devices.set_len(device_count as usize);
-                    }
-
-                    // Query properties for each physical device
-                    let physical_devices: Vec<PhysicalDevice> = devices
-                        .iter()
-                        .map(|&device_handle| {
-                            let mut id_properties: ffi::VkPhysicalDeviceIDProperties =
-                                unsafe { std::mem::zeroed() };
-                            id_properties.sType = ffi::VkStructureType::VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES as u32;
-
-                            let mut properties: ffi::VkPhysicalDeviceProperties2 =
-                                unsafe { std::mem::zeroed() };
-                            properties.sType = ffi::VkStructureType::VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 as u32;
-                            properties.pNext = &mut id_properties as *mut ffi::VkPhysicalDeviceIDProperties as *mut std::ffi::c_void;
-                            unsafe {
-                                ffi::vkGetPhysicalDeviceProperties2(
-                                    device_handle,
-                                    &mut properties as *mut ffi::VkPhysicalDeviceProperties2,
-                                );
-                            }
-
-                            let device_name = {
-                                let null_pos = properties.properties
-                                    .deviceName
-                                    .iter()
-                                    .position(|&c| c == 0)
-                                    .unwrap_or(properties.properties.deviceName.len());
-                                let name_bytes = &properties.properties.deviceName[..null_pos];
-                                String::from_utf8_lossy(name_bytes).into_owned()
-                            };
-
-                            let device_type = match properties.properties.deviceType {
-                                1 => PhysicalDeviceType::Integrated,
-                                2 => PhysicalDeviceType::Discrete,
-                                3 => PhysicalDeviceType::Virtual,
-                                4 => PhysicalDeviceType::Cpu,
-                                _ => PhysicalDeviceType::Other,
-                            };
-
-                            let id = u128::from_le_bytes(id_properties.deviceUUID);
-                            let luid = if id_properties.deviceLUIDValid != 0 {
-                                u64::from_le_bytes(id_properties.deviceLUID)
-                            } else {
-                                0
-                            };
-
-                            PhysicalDevice {
-                                name: device_name,
-                                driver: Version::from_vk_version(properties.properties.driverVersion),
-                                api: Version::from_vk_version(properties.properties.apiVersion),
-                                device_type,
-                                id,
-                                luid,
-                                handle: device_handle,
-                            }
-                        })
-                        .collect();
-
-                    Ok(physical_devices)
+            let mut properties = unsafe {
+                ffi::VkPhysicalDeviceProperties2 {
+                    sType: ffi::VkStructureType::PHYSICAL_DEVICE_PROPERTIES_2 as u32,
+                    pNext: &mut id_properties as *mut ffi::VkPhysicalDeviceIDProperties
+                        as *mut std::ffi::c_void,
+                    ..std::mem::zeroed()
                 }
-                _ => Err(result),
+            };
+            unsafe {
+                ffi::vkGetPhysicalDeviceProperties2(
+                    device_handle,
+                    &mut properties as *mut ffi::VkPhysicalDeviceProperties2,
+                );
             }
-        }
-        _ => Err(result),
-    }
+
+            let device_name = {
+                let null_pos = properties
+                    .properties
+                    .deviceName
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(properties.properties.deviceName.len());
+                let name_bytes = &properties.properties.deviceName[..null_pos];
+                String::from_utf8_lossy(name_bytes).into_owned()
+            };
+
+            let device_type = match properties.properties.deviceType {
+                1 => PhysicalDeviceType::Integrated,
+                2 => PhysicalDeviceType::Discrete,
+                3 => PhysicalDeviceType::Virtual,
+                4 => PhysicalDeviceType::Cpu,
+                _ => PhysicalDeviceType::Other,
+            };
+
+            let id = u128::from_le_bytes(id_properties.deviceUUID);
+            let luid = if id_properties.deviceLUIDValid != 0 {
+                u64::from_le_bytes(id_properties.deviceLUID)
+            } else {
+                0
+            };
+
+            PhysicalDevice {
+                name: device_name,
+                driver: Version::from_vk_version(properties.properties.driverVersion),
+                api: Version::from_vk_version(properties.properties.apiVersion),
+                device_type,
+                id,
+                luid,
+                handle: device_handle,
+            }
+        })
+        .collect();
+
+    Ok(physical_devices)
 }
 
 unsafe extern "C" fn vulkan_debug_callback(
@@ -397,80 +348,80 @@ pub fn vk_create_device(physical_device: ffi::VkPhysicalDevice) -> result::Resul
     let queue_family_properties = vk_enumerate_physical_device_queue_families(physical_device);
     let general_queue_family_index = queue_family_properties
         .iter()
-        .position(|qf| (qf.queueFlags & ffi::VkQueueFlagBits::VK_QUEUE_GRAPHICS_BIT as u32) != 0)
+        .position(|qf| (qf.queueFlags & ffi::VkQueueFlags::GRAPHICS_BIT as u32) != 0)
         .ok_or(Result::NotSupported)?;
     let queue_priority: f32 = 1.0;
     let queue_create_info = ffi::VkDeviceQueueCreateInfo {
-        sType: ffi::VkStructureType::VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO as u32,
-        pNext: std::ptr::null(),
+        sType: ffi::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
+        pNext: ptr::null(),
         flags: 0,
         queueFamilyIndex: general_queue_family_index as u32,
         queueCount: 1,
         pQueuePriorities: &queue_priority as *const f32,
     };
     let device_create_info = ffi::VkDeviceCreateInfo {
-        sType: ffi::VkStructureType::VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO as u32,
+        sType: ffi::VkStructureType::DEVICE_CREATE_INFO as u32,
         pNext: &mut physical_device_features as *mut ffi::VkPhysicalDeviceFeatures2
             as *mut std::ffi::c_void,
         flags: 0,
         queueCreateInfoCount: 1,
         pQueueCreateInfos: &queue_create_info as *const ffi::VkDeviceQueueCreateInfo,
         enabledLayerCount: 0,
-        ppEnabledLayerNames: std::ptr::null(),
+        ppEnabledLayerNames: ptr::null(),
         enabledExtensionCount: _enabled_extensions_ptrs.len() as u32,
         ppEnabledExtensionNames: _enabled_extensions_ptrs.as_ptr(),
-        pEnabledFeatures: std::ptr::null(),
+        pEnabledFeatures: ptr::null(),
     };
 
-    let mut device_handle: ffi::VkDevice = std::ptr::null_mut();
-    let result = unsafe {
-        make_result(ffi::vkCreateDevice(
-            physical_device,
-            &device_create_info,
-            std::ptr::null(),
-            &mut device_handle,
-        ))
-    };
-    match result {
-        Result::Success => Ok(Device {
-            handle: device_handle,
-            physical_device,
-        }),
-        _ => Err(result),
+    let mut device_handle: ffi::VkDevice = ptr::null_mut();
+    vk_call!(ffi::vkCreateDevice(
+        physical_device,
+        &device_create_info,
+        ptr::null(),
+        &mut device_handle,
+    ))?;
+
+    let mut queue_handle: ffi::VkQueue = ptr::null_mut();
+    unsafe {
+        ffi::vkGetDeviceQueue(
+            device_handle,
+            general_queue_family_index as u32,
+            0,
+            &mut queue_handle,
+        );
     }
+
+    Ok(Device {
+        handle: device_handle,
+        physical_device,
+        queue: queue_handle,
+    })
 }
 
 /// Creates a Vulkan instance based on the provided parameters.
 pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<Instance, Result> {
     // 1. Get available instance layers and extensions
     let available_layers: collections::HashSet<std::ffi::CString> =
-        vk_enumerate_instance_layer_properties()?
-            .into_iter()
-            .collect();
+        vk_enumerate_instance_layers()?.into_iter().collect();
     let available_extensions: collections::HashSet<std::ffi::CString> =
-        vk_enumerate_instance_extension_properties()?
-            .into_iter()
-            .collect();
+        vk_enumerate_instance_extensions()?.into_iter().collect();
 
-    let mut enabled_layers_cstrings: Vec<std::ffi::CString> = Vec::new();
-    let mut enabled_extensions_cstrings: Vec<std::ffi::CString> = Vec::new();
+    let mut enabled_layers: Vec<std::ffi::CString> = Vec::new();
+    let mut enabled_extensions: Vec<std::ffi::CString> = Vec::new();
 
     // 2. Add platform-specific surface extensions
-    enabled_extensions_cstrings.push(std::ffi::CString::new("VK_KHR_surface").unwrap());
+    enabled_extensions.push(std::ffi::CString::new("VK_KHR_surface").unwrap());
 
     match parameters.platform {
-        super::Platform::Windows => {
-            enabled_extensions_cstrings
-                .push(std::ffi::CString::new("VK_KHR_win32_surface").unwrap());
+        Platform::Windows => {
+            enabled_extensions.push(std::ffi::CString::new("VK_KHR_win32_surface").unwrap());
         }
-        super::Platform::X11 => {
-            enabled_extensions_cstrings
-                .push(std::ffi::CString::new("VK_KHR_xlib_surface").unwrap());
-            enabled_extensions_cstrings.push(std::ffi::CString::new("VK_KHR_xcb_surface").unwrap());
+        Platform::X11 => {
+            enabled_extensions.push(std::ffi::CString::new("VK_KHR_xlib_surface").unwrap());
+            enabled_extensions.push(std::ffi::CString::new("VK_KHR_xcb_surface").unwrap());
         }
-        super::Platform::Wayland => {
-            enabled_extensions_cstrings
-                .push(std::ffi::CString::new("VK_KHR_wayland_surface").unwrap());
+        Platform::Wayland => {
+            enabled_extensions.push(std::ffi::CString::new("VK_KHR_wayland_surface").unwrap());
         }
         // Error if unsupported platform
         _ => {
@@ -486,26 +437,21 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
 
     let enable_debugging = parameters.enable_debugging && validation_present && debug_utils_present;
     if enable_debugging {
-        enabled_layers_cstrings.push(validation_name.to_owned());
-        enabled_extensions_cstrings.push(debug_utils_name.to_owned());
+        enabled_layers.push(validation_name.to_owned());
+        enabled_extensions.push(debug_utils_name.to_owned());
     }
 
     // 4. Create the Vulkan instance
     let app_name_cstring = std::ffi::CString::new(parameters.app_name.as_str()).unwrap();
     let engine_name_cstring = std::ffi::CString::new(parameters.app_engine_name.as_str()).unwrap();
-    let enabled_layers_ptrs: Vec<*const std::ffi::c_char> = enabled_layers_cstrings
-        .iter()
-        .map(|cs| cs.as_ptr())
-        .collect();
-
-    let enabled_extensions_ptrs: Vec<*const std::ffi::c_char> = enabled_extensions_cstrings
-        .iter()
-        .map(|cs| cs.as_ptr())
-        .collect();
+    let enabled_layers_ptrs: Vec<*const std::ffi::c_char> =
+        enabled_layers.iter().map(|cs| cs.as_ptr()).collect();
+    let enabled_extensions_ptrs: Vec<*const std::ffi::c_char> =
+        enabled_extensions.iter().map(|cs| cs.as_ptr()).collect();
 
     let app_info = ffi::VkApplicationInfo {
-        sType: ffi::VkStructureType::VK_STRUCTURE_TYPE_APPLICATION_INFO as u32,
-        pNext: std::ptr::null(),
+        sType: ffi::VkStructureType::APPLICATION_INFO as u32,
+        pNext: ptr::null(),
         pApplicationName: app_name_cstring.as_ptr(),
         applicationVersion: parameters.app_version.to_vk_version(),
         pEngineName: engine_name_cstring.as_ptr(),
@@ -514,89 +460,73 @@ pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<I
     };
 
     let create_info = ffi::VkInstanceCreateInfo {
-        sType: ffi::VkStructureType::VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO as u32,
-        pNext: std::ptr::null(),
+        sType: ffi::VkStructureType::INSTANCE_CREATE_INFO as u32,
+        pNext: ptr::null(),
         flags: 0,
         pApplicationInfo: &app_info,
         enabledLayerCount: enabled_layers_ptrs.len() as u32,
         ppEnabledLayerNames: if enabled_layers_ptrs.is_empty() {
-            std::ptr::null()
+            ptr::null()
         } else {
             enabled_layers_ptrs.as_ptr()
         },
         enabledExtensionCount: enabled_extensions_ptrs.len() as u32,
         ppEnabledExtensionNames: if enabled_extensions_ptrs.is_empty() {
-            std::ptr::null()
+            ptr::null()
         } else {
             enabled_extensions_ptrs.as_ptr()
         },
     };
 
-    let mut instance: ffi::VkInstance = std::ptr::null_mut();
-    let result = unsafe {
-        make_result(ffi::vkCreateInstance(
-            &create_info,
-            std::ptr::null(),
-            &mut instance,
-        ))
-    };
+    let mut instance_handle: ffi::VkInstance = ptr::null_mut();
+    vk_call!(ffi::vkCreateInstance(
+        &create_info,
+        ptr::null(),
+        &mut instance_handle,
+    ))?;
 
-    match result {
-        Result::Success => {
-            if enable_debugging {
-                let debug_utils_create_fn_name = c"vkCreateDebugUtilsMessengerEXT";
-                let create_debug_fn: ffi::PFN_vkCreateDebugUtilsMessengerEXT = unsafe {
-                    std::mem::transmute(ffi::vkGetInstanceProcAddr(
-                        instance as u64,
-                        debug_utils_create_fn_name.as_ptr(),
-                    ))
-                };
+    let mut debug_messenger: Option<ffi::VkDebugUtilsMessengerEXT> = None;
+    if enable_debugging {
+        let debug_utils_create_fn_name = c"vkCreateDebugUtilsMessengerEXT";
+        let create_debug_fn: ffi::PFN_vkCreateDebugUtilsMessengerEXT = unsafe {
+            std::mem::transmute(ffi::vkGetInstanceProcAddr(
+                instance_handle,
+                debug_utils_create_fn_name.as_ptr(),
+            ))
+        };
 
-                if create_debug_fn.is_none() {
-                    return Err(Result::NotSupported);
-                }
-
-                warning!("Debugging Enabled");
-
-                // Create debug messenger info
-                let debug_create_info = ffi::VkDebugUtilsMessengerCreateInfoEXT {
-                        sType: ffi::VkStructureType::VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT as u32,
-                        pNext: std::ptr::null(),
-                        flags: 0,
-                        messageSeverity:
-                            ffi::VkDebugUtilsMessageSeverityFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT as u32 |
-                            ffi::VkDebugUtilsMessageSeverityFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT as u32,
-                        messageType:
-                            ffi::VkDebugUtilsMessageTypeFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT as u32 |
-                            ffi::VkDebugUtilsMessageTypeFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT as u32,
-                        pfnUserCallback: Some(vulkan_debug_callback),
-                        pUserData: std::ptr::null_mut(),
-                    };
-
-                let mut debug_messenger_ptr: ffi::VkDebugUtilsMessengerEXT = std::ptr::null_mut();
-                panic_if_failed(
-                    unsafe {
-                        create_debug_fn.unwrap()(
-                            instance,
-                            &debug_create_info,
-                            std::ptr::null(),
-                            &mut debug_messenger_ptr,
-                        )
-                    },
-                    "Creating Debug Utils Messenger",
-                );
-
-                Ok(Instance {
-                    handle: instance,
-                    debug_messenger: Some(debug_messenger_ptr),
-                })
-            } else {
-                Ok(Instance {
-                    handle: instance,
-                    debug_messenger: None,
-                })
-            }
+        if create_debug_fn.is_none() {
+            return Err(Result::NotSupported);
         }
-        _ => Err(result),
+
+        warning!("Debugging Enabled");
+
+        // Create debug messenger info
+        let debug_create_info = ffi::VkDebugUtilsMessengerCreateInfoEXT {
+            sType: ffi::VkStructureType::DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT as u32,
+            pNext: ptr::null(),
+            flags: 0,
+            messageSeverity: ffi::VkDebugUtilsMessageSeverityFlagsEXT::ERROR_BIT_EXT as u32
+                | ffi::VkDebugUtilsMessageSeverityFlagsEXT::WARNING_BIT_EXT as u32,
+            messageType: ffi::VkDebugUtilsMessageTypeFlagsEXT::GENERAL_BIT_EXT as u32
+                | ffi::VkDebugUtilsMessageTypeFlagsEXT::VALIDATION_BIT_EXT as u32,
+            pfnUserCallback: Some(vulkan_debug_callback),
+            pUserData: ptr::null_mut(),
+        };
+
+        let mut debug_messenger_ptr: ffi::VkDebugUtilsMessengerEXT = ptr::null_mut();
+        vk_call!(create_debug_fn.unwrap()(
+            instance_handle,
+            &debug_create_info,
+            ptr::null(),
+            &mut debug_messenger_ptr,
+        ))?;
+
+        debug_messenger = Some(debug_messenger_ptr);
     }
+
+    Ok(Instance {
+        handle: instance_handle,
+        debug_messenger: debug_messenger,
+    })
 }

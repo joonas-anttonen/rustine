@@ -319,7 +319,7 @@ unsafe extern "C" {
     ) -> i32;
     pub fn vkDestroyInstance(instance: VkInstance, pAllocator: *const std::ffi::c_void);
     pub fn vkGetInstanceProcAddr(
-        instance: u64,
+        instance: VkInstance,
         pName: *const ffi::c_char,
     ) -> Option<unsafe extern "C" fn()>;
 
@@ -383,14 +383,14 @@ unsafe extern "C" {
     ) -> Option<unsafe extern "C" fn()>;
 
     pub fn vkGetDeviceQueue(
-        device: u64,
+        device: VkDevice,
         queueFamilyIndex: u32,
         queueIndex: u32,
         pQueue: *mut VkQueue,
     );
-    pub fn vkDeviceWaitIdle(device: u64) -> i32;
+    pub fn vkDeviceWaitIdle(device: VkDevice) -> i32;
     pub fn vkCreateDevice(
-        physicalDevice: u64,
+        physicalDevice: VkPhysicalDevice,
         pCreateInfo: *const VkDeviceCreateInfo,
         pAllocator: *const std::ffi::c_void,
         pDevice: *mut VkDevice,
@@ -428,7 +428,7 @@ pub struct VkPhysicalDeviceDynamicRenderingFeatures {
     pub sType: u32,
     pub pNext: *const std::ffi::c_void,
     pub dynamicRendering: u32,
-} 
+}
 
 #[repr(C)]
 pub struct VkPhysicalDeviceSynchronization2Features {
@@ -557,8 +557,8 @@ pub struct VkPhysicalDeviceIDProperties {
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VkQueueFlagBits {
-    VK_QUEUE_GRAPHICS_BIT = 0x00000001,
+pub enum VkQueueFlags {
+    GRAPHICS_BIT = 0x00000001,
     VK_QUEUE_COMPUTE_BIT = 0x00000002,
     VK_QUEUE_TRANSFER_BIT = 0x00000004,
     VK_QUEUE_SPARSE_BINDING_BIT = 0x00000008,
@@ -624,10 +624,10 @@ pub enum VkResult {
 
 #[repr(u32)]
 pub enum VkStructureType {
-    VK_STRUCTURE_TYPE_APPLICATION_INFO = 0,
-    VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO = 1,
-    VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO = 2,
-    VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO = 3,
+    APPLICATION_INFO = 0,
+    INSTANCE_CREATE_INFO = 1,
+    DEVICE_QUEUE_CREATE_INFO = 2,
+    DEVICE_CREATE_INFO = 3,
     VK_STRUCTURE_TYPE_SUBMIT_INFO = 4,
     VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO = 5,
     VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE = 6,
@@ -694,7 +694,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2 = 1000146003,
     VK_STRUCTURE_TYPE_SPARSE_IMAGE_MEMORY_REQUIREMENTS_2 = 1000146004,
     PHYSICAL_DEVICE_FEATURES_2 = 1000059000,
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 = 1000059001,
+    PHYSICAL_DEVICE_PROPERTIES_2 = 1000059001,
     VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2 = 1000059002,
     VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2 = 1000059003,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2 = 1000059004,
@@ -725,7 +725,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES = 1000071001,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO = 1000071002,
     VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES = 1000071003,
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES = 1000071004,
+    PHYSICAL_DEVICE_ID_PROPERTIES = 1000071004,
     VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO = 1000072000,
     VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO = 1000072001,
     VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO = 1000072002,
@@ -1052,7 +1052,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_TAG_INFO_EXT = 1000128001,
     VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT = 1000128002,
     VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CALLBACK_DATA_EXT = 1000128003,
-    VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT = 1000128004,
+    DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT = 1000128004,
     VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID = 1000129000,
     VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID = 1000129001,
     VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID = 1000129002,
@@ -1929,17 +1929,17 @@ pub enum VkFormatFeatureFlagBits {
 }
 
 #[repr(u32)]
-pub enum VkDebugUtilsMessageSeverityFlagBitsEXT {
+pub enum VkDebugUtilsMessageSeverityFlagsEXT {
     VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT = 0x00000001,
     VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT = 0x00000010,
-    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT = 0x00000100,
-    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT = 0x00001000,
+    WARNING_BIT_EXT = 0x00000100,
+    ERROR_BIT_EXT = 0x00001000,
 }
 
 #[repr(u32)]
-pub enum VkDebugUtilsMessageTypeFlagBitsEXT {
-    VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT = 0x00000001,
-    VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT = 0x00000002,
+pub enum VkDebugUtilsMessageTypeFlagsEXT {
+    GENERAL_BIT_EXT = 0x00000001,
+    VALIDATION_BIT_EXT = 0x00000002,
     VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT = 0x00000004,
     VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT = 0x00000008,
 }
