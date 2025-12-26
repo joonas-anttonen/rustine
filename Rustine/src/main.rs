@@ -57,7 +57,7 @@ fn main() {
 
 fn gui_thread_function(_gui: &gui::Core) {
     // Keep main thread alive for a bit, then signal cancellation
-    for _ in 0..5 {
+    for _ in 0..2 {
         warning!("Performing gui work");
         thread::sleep(time::Duration::from_millis(1000));
     }

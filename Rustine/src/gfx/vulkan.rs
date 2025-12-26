@@ -7,156 +7,6 @@ use crate::{gfx::*, version::Version};
 
 use crate::gfx::vulkan_ffi as ffi;
 
-fn make_result(code: i32) -> Result {
-    match code {
-        0 => Result::Success,
-        -7 | -8 | -11 => Result::NotSupported, // Extension not present, feature not present, format not supported
-        other => Result::Unknown(other),
-    }
-}
-
-/// Wraps a Vulkan function call and converts the result to a Rust Result.
-macro_rules! vk_call {
-    ($expr:expr) => {{
-        let res = unsafe { $expr };
-        match make_result(res) {
-            Result::Success => Ok(()),
-            other => Err(other),
-        }
-    }};
-}
-
-fn panic_if_failed(code: i32, context: &str) {
-    if code != 0 {
-        panic!("Vulkan panic in {}: {}", context, make_result(code));
-    }
-}
-
-/// Queries the highest Vulkan API version supported.
-pub fn vk_enumerate_instance_version() -> result::Result<Version, Result> {
-    let mut api_version: u32 = 0;
-    vk_call!(ffi::vkEnumerateInstanceVersion(
-        &mut api_version as *mut u32
-    ))?;
-    Ok(Version::from_vk_version(api_version))
-}
-
-/// Queries the available instance layers.
-pub fn vk_enumerate_instance_layers() -> result::Result<Vec<std::ffi::CString>, Result> {
-    let mut property_count: u32 = 0;
-    vk_call!(ffi::vkEnumerateInstanceLayerProperties(
-        &mut property_count as *mut u32,
-        ptr::null_mut(),
-    ))?;
-
-    let mut properties: Vec<ffi::VkLayerProperties> = Vec::with_capacity(property_count as usize);
-    vk_call!(ffi::vkEnumerateInstanceLayerProperties(
-        &mut property_count as *mut u32,
-        properties.as_mut_ptr(),
-    ))?;
-
-    unsafe {
-        properties.set_len(property_count as usize);
-        let layer_names = properties
-            .iter()
-            .map(|prop| {
-                let cstr = std::ffi::CStr::from_ptr(prop.layerName.as_ptr() as *const i8);
-                cstr.to_owned()
-            })
-            .collect();
-        Ok(layer_names)
-    }
-}
-
-/// Queries the available instance extensions.
-pub fn vk_enumerate_instance_extensions() -> result::Result<Vec<std::ffi::CString>, Result> {
-    let mut property_count: u32 = 0;
-    vk_call!(ffi::vkEnumerateInstanceExtensionProperties(
-        ptr::null(),
-        &mut property_count as *mut u32,
-        ptr::null_mut(),
-    ))?;
-
-    let mut properties: Vec<ffi::VkExtensionProperties> =
-        Vec::with_capacity(property_count as usize);
-    vk_call!(ffi::vkEnumerateInstanceExtensionProperties(
-        ptr::null(),
-        &mut property_count as *mut u32,
-        properties.as_mut_ptr(),
-    ))?;
-
-    unsafe {
-        properties.set_len(property_count as usize);
-
-        let extension_names = properties
-            .iter()
-            .map(|prop| {
-                let cstr = std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8);
-                cstr.to_owned()
-            })
-            .collect();
-        Ok(extension_names)
-    }
-}
-
-pub fn vk_enumerate_physical_device_extensions(
-    physical_device: ffi::VkPhysicalDevice,
-) -> result::Result<Vec<std::ffi::CString>, Result> {
-    let mut property_count: u32 = 0;
-    vk_call!(ffi::vkEnumerateDeviceExtensionProperties(
-        physical_device,
-        ptr::null(),
-        &mut property_count as *mut u32,
-        ptr::null_mut(),
-    ))?;
-
-    let mut properties: Vec<ffi::VkExtensionProperties> =
-        Vec::with_capacity(property_count as usize);
-    vk_call!(ffi::vkEnumerateDeviceExtensionProperties(
-        physical_device,
-        ptr::null(),
-        &mut property_count as *mut u32,
-        properties.as_mut_ptr(),
-    ))?;
-
-    unsafe {
-        properties.set_len(property_count as usize);
-        let extension_names = properties
-            .iter()
-            .map(|prop| {
-                let cstr = std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8);
-                cstr.to_owned()
-            })
-            .collect();
-        Ok(extension_names)
-    }
-}
-
-pub fn vk_enumerate_physical_device_queue_families(
-    physical_device: ffi::VkPhysicalDevice,
-) -> Vec<ffi::VkQueueFamilyProperties> {
-    let mut queue_family_count: u32 = 0;
-    unsafe {
-        ffi::vkGetPhysicalDeviceQueueFamilyProperties(
-            physical_device,
-            &mut queue_family_count as *mut u32,
-            ptr::null_mut(),
-        );
-    }
-
-    let mut properties: Vec<ffi::VkQueueFamilyProperties> =
-        Vec::with_capacity(queue_family_count as usize);
-    unsafe {
-        ffi::vkGetPhysicalDeviceQueueFamilyProperties(
-            physical_device,
-            &mut queue_family_count as *mut u32,
-            properties.as_mut_ptr(),
-        );
-        properties.set_len(queue_family_count as usize);
-    }
-    properties
-}
-
 /// Represents a Vulkan instance.
 pub struct Instance {
     handle: ffi::VkInstance,
@@ -203,8 +53,152 @@ impl Drop for Device {
     }
 }
 
+fn make_result(code: i32) -> Result {
+    match code {
+        0 => Result::Success,
+        -7 | -8 | -11 => Result::NotSupported, // Extension not present, feature not present, format not supported
+        other => Result::Unknown(other),
+    }
+}
+
+/// Wraps a Vulkan function call and converts the result to a Rust Result.
+macro_rules! vk_call {
+    ($expr:expr) => {{
+        let res = unsafe { $expr };
+        match make_result(res) {
+            Result::Success => Ok(()),
+            other => Err(other),
+        }
+    }};
+}
+
+/// Queries the highest Vulkan API version supported.
+pub fn enumerate_instance_version() -> result::Result<Version, Result> {
+    let mut api_version: u32 = 0;
+    vk_call!(ffi::vkEnumerateInstanceVersion(
+        &mut api_version as *mut u32
+    ))?;
+    Ok(Version::from_vk_version(api_version))
+}
+
+/// Queries the available instance layers.
+pub fn enumerate_instance_layers() -> result::Result<Vec<std::ffi::CString>, Result> {
+    let mut property_count: u32 = 0;
+    vk_call!(ffi::vkEnumerateInstanceLayerProperties(
+        &mut property_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
+
+    let mut properties: Vec<ffi::VkLayerProperties> = Vec::with_capacity(property_count as usize);
+    vk_call!(ffi::vkEnumerateInstanceLayerProperties(
+        &mut property_count as *mut u32,
+        properties.as_mut_ptr(),
+    ))?;
+
+    unsafe {
+        properties.set_len(property_count as usize);
+        let layer_names = properties
+            .iter()
+            .map(|prop| {
+                let cstr = std::ffi::CStr::from_ptr(prop.layerName.as_ptr() as *const i8);
+                cstr.to_owned()
+            })
+            .collect();
+        Ok(layer_names)
+    }
+}
+
+/// Queries the available instance extensions.
+pub fn enumerate_instance_extensions() -> result::Result<Vec<std::ffi::CString>, Result> {
+    let mut property_count: u32 = 0;
+    vk_call!(ffi::vkEnumerateInstanceExtensionProperties(
+        ptr::null(),
+        &mut property_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
+
+    let mut properties: Vec<ffi::VkExtensionProperties> =
+        Vec::with_capacity(property_count as usize);
+    vk_call!(ffi::vkEnumerateInstanceExtensionProperties(
+        ptr::null(),
+        &mut property_count as *mut u32,
+        properties.as_mut_ptr(),
+    ))?;
+
+    unsafe {
+        properties.set_len(property_count as usize);
+
+        let extension_names = properties
+            .iter()
+            .map(|prop| {
+                let cstr = std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8);
+                cstr.to_owned()
+            })
+            .collect();
+        Ok(extension_names)
+    }
+}
+
+pub fn enumerate_physical_device_extensions(
+    physical_device: ffi::VkPhysicalDevice,
+) -> result::Result<Vec<std::ffi::CString>, Result> {
+    let mut property_count: u32 = 0;
+    vk_call!(ffi::vkEnumerateDeviceExtensionProperties(
+        physical_device,
+        ptr::null(),
+        &mut property_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
+
+    let mut properties: Vec<ffi::VkExtensionProperties> =
+        Vec::with_capacity(property_count as usize);
+    vk_call!(ffi::vkEnumerateDeviceExtensionProperties(
+        physical_device,
+        ptr::null(),
+        &mut property_count as *mut u32,
+        properties.as_mut_ptr(),
+    ))?;
+
+    unsafe {
+        properties.set_len(property_count as usize);
+        let extension_names = properties
+            .iter()
+            .map(|prop| {
+                let cstr = std::ffi::CStr::from_ptr(prop.extensionName.as_ptr() as *const i8);
+                cstr.to_owned()
+            })
+            .collect();
+        Ok(extension_names)
+    }
+}
+
+pub fn enumerate_physical_device_queue_families(
+    physical_device: ffi::VkPhysicalDevice,
+) -> Vec<ffi::VkQueueFamilyProperties> {
+    let mut queue_family_count: u32 = 0;
+    unsafe {
+        ffi::vkGetPhysicalDeviceQueueFamilyProperties(
+            physical_device,
+            &mut queue_family_count as *mut u32,
+            ptr::null_mut(),
+        );
+    }
+
+    let mut properties: Vec<ffi::VkQueueFamilyProperties> =
+        Vec::with_capacity(queue_family_count as usize);
+    unsafe {
+        ffi::vkGetPhysicalDeviceQueueFamilyProperties(
+            physical_device,
+            &mut queue_family_count as *mut u32,
+            properties.as_mut_ptr(),
+        );
+        properties.set_len(queue_family_count as usize);
+    }
+    properties
+}
+
 /// Enumerates physical devices (GPUs) available on the system.
-pub fn vk_enumerate_physical_devices(
+pub fn enumerate_physical_devices(
     instance: &Instance,
 ) -> result::Result<Vec<PhysicalDevice>, Result> {
     let mut device_count: u32 = 0;
@@ -312,9 +306,9 @@ unsafe extern "C" fn vulkan_debug_callback(
     }
 }
 
-pub fn vk_create_device(physical_device: ffi::VkPhysicalDevice) -> result::Result<Device, Result> {
+pub fn create_device(physical_device: ffi::VkPhysicalDevice) -> result::Result<Device, Result> {
     let _available_device_extensions: collections::HashSet<std::ffi::CString> =
-        vk_enumerate_physical_device_extensions(physical_device)?
+        enumerate_physical_device_extensions(physical_device)?
             .into_iter()
             .collect();
 
@@ -345,7 +339,7 @@ pub fn vk_create_device(physical_device: ffi::VkPhysicalDevice) -> result::Resul
         ffi::vkGetPhysicalDeviceFeatures2(physical_device, &mut physical_device_features);
     }
 
-    let queue_family_properties = vk_enumerate_physical_device_queue_families(physical_device);
+    let queue_family_properties = enumerate_physical_device_queue_families(physical_device);
     let general_queue_family_index = queue_family_properties
         .iter()
         .position(|qf| (qf.queueFlags & ffi::VkQueueFlags::GRAPHICS_BIT as u32) != 0)
@@ -399,12 +393,12 @@ pub fn vk_create_device(physical_device: ffi::VkPhysicalDevice) -> result::Resul
 }
 
 /// Creates a Vulkan instance based on the provided parameters.
-pub fn vk_create_instance(parameters: &super::ApiParameters) -> result::Result<Instance, Result> {
+pub fn create_instance(parameters: &super::ApiParameters) -> result::Result<Instance, Result> {
     // 1. Get available instance layers and extensions
     let available_layers: collections::HashSet<std::ffi::CString> =
-        vk_enumerate_instance_layers()?.into_iter().collect();
+        enumerate_instance_layers()?.into_iter().collect();
     let available_extensions: collections::HashSet<std::ffi::CString> =
-        vk_enumerate_instance_extensions()?.into_iter().collect();
+        enumerate_instance_extensions()?.into_iter().collect();
 
     let mut enabled_layers: Vec<std::ffi::CString> = Vec::new();
     let mut enabled_extensions: Vec<std::ffi::CString> = Vec::new();

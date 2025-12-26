@@ -27,7 +27,7 @@ impl Drop for Core {
 impl Core {
     /// Enumerates all available physical devices (GPUs) accessible via the Vulkan instance.
     pub fn enumerate_physical_devices(&self) -> result::Result<Vec<PhysicalDevice>, Result> {
-        let devices = vulkan::vk_enumerate_physical_devices(&self.instance)?;
+        let devices = vulkan::enumerate_physical_devices(&self.instance)?;
         Ok(devices)
     }
 
@@ -110,36 +110,41 @@ impl CoreBuilder {
 
     /// Builds the `Core` instance.
     pub fn build(self) -> result::Result<Core, Result> {
-        let vk_instance = vulkan::vk_create_instance(&self.params)?;
-        let devices = vulkan::vk_enumerate_physical_devices(&vk_instance)?;
+        // 1. Create Vulkan instance
+        let vk_instance = vulkan::create_instance(&self.params)?;
 
-        let pick_type_score = |t: &PhysicalDeviceType| -> i32 {
-            match t {
-                PhysicalDeviceType::Discrete => 3,
-                PhysicalDeviceType::Integrated => 2,
-                PhysicalDeviceType::Virtual => 1,
-                PhysicalDeviceType::Cpu => 0,
-                PhysicalDeviceType::Other => 0,
+        // 2. Select physical device
+        let selected_device = {
+            let devices = vulkan::enumerate_physical_devices(&vk_instance)?;
+
+            let pick_type_score = |t: &PhysicalDeviceType| -> i32 {
+                match t {
+                    PhysicalDeviceType::Discrete => 3,
+                    PhysicalDeviceType::Integrated => 2,
+                    PhysicalDeviceType::Virtual => 1,
+                    PhysicalDeviceType::Cpu => 0,
+                    PhysicalDeviceType::Other => 0,
+                }
+            };
+
+            let selected = match self.selector {
+                DeviceSelector::Optimal => devices
+                    .into_iter()
+                    .max_by_key(|d| (pick_type_score(&d.device_type), d.api, d.driver)),
+                DeviceSelector::ByIndex(i) => devices.into_iter().nth(i),
+                DeviceSelector::ById(id) => devices.into_iter().find(|d| d.id == id),
+                DeviceSelector::ByLuid(luid) => devices.into_iter().find(|d| d.luid == luid),
+                DeviceSelector::ByName(name) => devices.into_iter().find(|d| d.name == name),
+            };
+
+            match selected {
+                Some(d) => d,
+                None => return Err(Result::NotSupported),
             }
         };
 
-        let selected = match self.selector {
-            DeviceSelector::Optimal => devices
-                .into_iter()
-                .max_by_key(|d| (pick_type_score(&d.device_type), d.api, d.driver)),
-            DeviceSelector::ByIndex(i) => devices.into_iter().nth(i),
-            DeviceSelector::ById(id) => devices.into_iter().find(|d| d.id == id),
-            DeviceSelector::ByLuid(luid) => devices.into_iter().find(|d| d.luid == luid),
-            DeviceSelector::ByName(name) => devices.into_iter().find(|d| d.name == name),
-        };
-
-        let selected_device = match selected {
-            Some(d) => d,
-            None => return Err(Result::NotSupported),
-        };
-
-        // Create logical device
-        let vk_device = vulkan::vk_create_device(selected_device.handle)?;
+        // 3. Create logical device
+        let vk_device = vulkan::create_device(selected_device.handle)?;
 
         Ok(Core {
             instance: vk_instance,
