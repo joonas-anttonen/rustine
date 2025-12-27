@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{collections, ptr, result};
+use std::{collections, ptr};
 
 use crate::{error, warning};
 use crate::{gfx::*, version::Version};
@@ -12,8 +12,8 @@ use crate::gfx::vulkan_ffi as ffi;
 macro_rules! vk_call {
     ($expr:expr) => {{
         let res = unsafe { $expr };
-        match crate::gfx::Result::from_code(res) {
-            crate::gfx::Result::Success => Ok(()),
+        match crate::gfx::Outcome::from_code(res) {
+            crate::gfx::Outcome::Success => Ok(()),
             other => Err(other),
         }
     }};
@@ -150,7 +150,7 @@ impl Drop for Device {
 }
 
 /// Queries the highest Vulkan API version supported.
-pub fn enumerate_instance_version() -> result::Result<Version, Result> {
+pub fn enumerate_instance_version() -> Result<Version> {
     let mut api_version: u32 = 0;
     vk_call!(ffi::vkEnumerateInstanceVersion(
         &mut api_version as *mut u32
@@ -159,7 +159,7 @@ pub fn enumerate_instance_version() -> result::Result<Version, Result> {
 }
 
 /// Queries the available instance layers.
-pub fn enumerate_instance_layers() -> result::Result<Vec<std::ffi::CString>, Result> {
+pub fn enumerate_instance_layers() -> Result<Vec<std::ffi::CString>> {
     let mut property_count: u32 = 0;
     vk_call!(ffi::vkEnumerateInstanceLayerProperties(
         &mut property_count as *mut u32,
@@ -186,7 +186,7 @@ pub fn enumerate_instance_layers() -> result::Result<Vec<std::ffi::CString>, Res
 }
 
 /// Queries the available instance extensions.
-pub fn enumerate_instance_extensions() -> result::Result<Vec<std::ffi::CString>, Result> {
+pub fn enumerate_instance_extensions() -> Result<Vec<std::ffi::CString>> {
     let mut property_count: u32 = 0;
     vk_call!(ffi::vkEnumerateInstanceExtensionProperties(
         ptr::null(),
@@ -218,7 +218,7 @@ pub fn enumerate_instance_extensions() -> result::Result<Vec<std::ffi::CString>,
 
 pub fn enumerate_physical_device_extensions(
     physical_device: ffi::VkPhysicalDevice,
-) -> result::Result<Vec<std::ffi::CString>, Result> {
+) -> Result<Vec<std::ffi::CString>> {
     let mut property_count: u32 = 0;
     vk_call!(ffi::vkEnumerateDeviceExtensionProperties(
         physical_device,
@@ -275,9 +275,7 @@ pub fn enumerate_physical_device_queue_families(
 }
 
 /// Enumerates physical devices (GPUs) available on the system.
-pub fn enumerate_physical_devices(
-    instance: &Instance,
-) -> result::Result<Vec<PhysicalDevice>, Result> {
+pub fn enumerate_physical_devices(instance: &Instance) -> Result<Vec<PhysicalDevice>> {
     let mut device_count: u32 = 0;
     vk_call!(ffi::vkEnumeratePhysicalDevices(
         instance.handle,
@@ -378,7 +376,7 @@ unsafe extern "C" fn vulkan_debug_callback(
         }
 
         let message = std::ffi::CStr::from_ptr(data.pMessage).to_string_lossy();
-        error!("Vulkan: {}", message);
+        error!("{}", message);
         0
     }
 }
@@ -386,7 +384,7 @@ unsafe extern "C" fn vulkan_debug_callback(
 pub fn create_device(
     parameters: &super::ApiParameters,
     physical_device: ffi::VkPhysicalDevice,
-) -> result::Result<Device, Result> {
+) -> Result<Device> {
     let available_device_extensions: collections::HashSet<std::ffi::CString> =
         enumerate_physical_device_extensions(physical_device)?
             .into_iter()
@@ -394,7 +392,7 @@ pub fn create_device(
 
     let mut enabled_extensions_cstrings: Vec<std::ffi::CString> = Vec::new();
     enabled_extensions_cstrings.push(std::ffi::CString::new("VK_KHR_swapchain").unwrap());
-    
+
     if parameters.platform == Platform::Windows {
         let external_memory_win32_name = c"VK_KHR_external_memory_win32";
         if available_device_extensions.contains(external_memory_win32_name) {
@@ -432,7 +430,7 @@ pub fn create_device(
     let general_queue_family_index = queue_family_properties
         .iter()
         .position(|qf| (qf.queueFlags & ffi::VkQueueFlags::GRAPHICS_BIT as u32) != 0)
-        .ok_or(Result::NotSupported)?;
+        .ok_or(Outcome::NotSupported)?;
     let queue_priority: f32 = 1.0;
     let queue_create_info = ffi::VkDeviceQueueCreateInfo {
         sType: ffi::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
@@ -482,7 +480,7 @@ pub fn create_device(
 }
 
 /// Creates a Vulkan instance based on the provided parameters.
-pub fn create_instance(parameters: &super::ApiParameters) -> result::Result<Instance, Result> {
+pub fn create_instance(parameters: &super::ApiParameters) -> Result<Instance> {
     // 1. Get available instance layers and extensions
     let available_layers: collections::HashSet<std::ffi::CString> =
         enumerate_instance_layers()?.into_iter().collect();
@@ -508,7 +506,7 @@ pub fn create_instance(parameters: &super::ApiParameters) -> result::Result<Inst
         }
         // Error if unsupported platform
         _ => {
-            return Err(Result::NotSupported);
+            return Err(Outcome::NotSupported);
         }
     }
 
@@ -539,7 +537,7 @@ pub fn create_instance(parameters: &super::ApiParameters) -> result::Result<Inst
         applicationVersion: parameters.app_version.to_vk_version(),
         pEngineName: engine_name_cstring.as_ptr(),
         engineVersion: parameters.app_engine_version.to_vk_version(),
-        apiVersion: parameters.required_api_version.to_vk_version(),
+        apiVersion: MINIMUM_VULKAN_API_VERSION.to_vk_version(),
     };
 
     let create_info = ffi::VkInstanceCreateInfo {
@@ -579,7 +577,7 @@ pub fn create_instance(parameters: &super::ApiParameters) -> result::Result<Inst
         };
 
         if create_debug_fn.is_none() {
-            return Err(Result::NotSupported);
+            return Err(Outcome::NotSupported);
         }
 
         warning!("Debugging Enabled");

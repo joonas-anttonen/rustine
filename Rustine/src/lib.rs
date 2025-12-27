@@ -2,6 +2,7 @@ pub mod gfx;
 pub mod gui;
 pub mod log;
 pub mod version;
+pub use version::Version;
 
 /// Status codes returned by FFI functions.
 #[repr(i32)]

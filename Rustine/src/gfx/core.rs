@@ -8,9 +8,10 @@ use std::{result, sync::Arc};
 /// It is responsible for creating and maintaining the graphics pipeline.
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
+    test_pixel_buffer: PixelBuffer,
     allocator: Arc<vma::Allocator>,
     physical_device: PhysicalDevice,
-    device: vulkan::Device,
+    device: Arc<vulkan::Device>,
     instance: vulkan::Instance,
 }
 
@@ -27,7 +28,7 @@ impl Drop for Core {
 
 impl Core {
     /// Enumerates all available physical devices (GPUs) accessible via the Vulkan instance.
-    pub fn enumerate_physical_devices(&self) -> result::Result<Vec<PhysicalDevice>, Result> {
+    pub fn enumerate_physical_devices(&self) -> result::Result<Vec<PhysicalDevice>, Outcome> {
         let devices = vulkan::enumerate_physical_devices(&self.instance)?;
         Ok(devices)
     }
@@ -114,7 +115,7 @@ impl CoreBuilder {
     }
 
     /// Builds the `Core` instance.
-    pub fn build(self) -> result::Result<Core, Result> {
+    pub fn build(self) -> Result<Core> {
         // 1. Create Vulkan instance
         let vk_instance = vulkan::create_instance(&self.params)?;
 
@@ -144,18 +145,30 @@ impl CoreBuilder {
 
             match selected {
                 Some(d) => d,
-                None => return Err(Result::NotSupported),
+                None => return Err(Outcome::NotSupported),
             }
         };
 
         // 3. Create logical device
-        let vk_device =
-            vulkan::create_device(&self.params, selected_device.handle as vulkan_ffi::VkPhysicalDevice)?;
+        let vk_device = Arc::new(vulkan::create_device(
+            &self.params,
+            selected_device.handle as vulkan_ffi::VkPhysicalDevice,
+        )?);
 
         // 4. Create VMA
-        let allocator = vma::Allocator::new(&vk_instance, &vk_device)?;
+        let allocator = vma::Allocator::new(&vk_instance, Arc::clone(&vk_device))?;
+
+        let test_pixel_buffer = allocator.create_pixel_buffer(
+            Format::R8G8B8A8_UNORM,
+            256,
+            256,
+            ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ImageAspect::COLOR,
+            ImageSamples::X1,
+        )?;
 
         Ok(Core {
+            test_pixel_buffer: test_pixel_buffer,
             allocator,
             physical_device: selected_device,
             device: vk_device,

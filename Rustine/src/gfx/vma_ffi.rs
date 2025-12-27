@@ -7,7 +7,7 @@
 
 use crate::gfx::vulkan_ffi::{
     VkBuffer, VkBufferCreateInfo, VkDevice, VkDeviceMemory, VkDeviceSize, VkImage,
-    VkImageCreateInfo, VkInstance, VkMemoryPropertyFlags, VkPhysicalDevice,
+    VkImageCreateInfo, VkInstance, VkPhysicalDevice,
 };
 
 pub type VmaAllocator = *mut std::ffi::c_void;
@@ -147,7 +147,7 @@ pub struct VmaAllocationInfo {
 #[repr(C)]
 pub struct VmaAllocationCreateInfo {
     /// Flags for created allocation. Use `VmaAllocationCreateFlagBits` enum.
-    pub flags: VmaAllocationCreateFlags,
+    pub flags: u32,
     /// Intended usage of memory.
     ///
     /// You can leave `VMA_MEMORY_USAGE_UNKNOWN` if you specify memory requirements in other way.
@@ -157,12 +157,12 @@ pub struct VmaAllocationCreateInfo {
     ///
     /// Leave 0 if you specify memory requirements in other way.
     /// If `pool` is not null, this member is ignored.
-    pub requiredFlags: VkMemoryPropertyFlags,
+    pub requiredFlags: u32,
     /// Flags that preferably should be set in a memory type chosen for an allocation.
     ///
     /// Set to 0 if no additional flags are preferred.
     /// If `pool` is not null, this member is ignored.
-    pub preferredFlags: VkMemoryPropertyFlags,
+    pub preferredFlags: u32,
     /// Bitmask containing one bit set for every memory type acceptable for this allocation.
     ///
     /// Value 0 is equivalent to `UINT32_MAX` - it means any memory type is accepted if
@@ -462,7 +462,6 @@ pub enum VmaAllocationCreateFlags {
     /// If you use this flag while creating a buffer or an image, `VkMemoryDedicatedAllocateInfo`
     /// structure is applied if possible.
     DEDICATED_MEMORY_BIT = 0x00000001,
-
     /// Set this flag to only try to allocate from existing `VkDeviceMemory` blocks and never create new such block.
     ///
     /// If new allocation cannot be placed in any of the existing blocks, allocation

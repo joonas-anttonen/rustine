@@ -2,15 +2,12 @@
 
 use std::sync::Arc;
 
-use crate::gfx;
-use crate::gfx::vma_ffi;
-use crate::gfx::vulkan_ffi;
-use crate::version::Version;
-use crate::vk_call;
-use crate::warning;
+use crate::{gfx, gfx::vma_ffi, gfx::vulkan, gfx::vulkan_ffi};
+use crate::{vk_call, warning};
 
 pub struct Allocator {
     pub handle: vma_ffi::VmaAllocator,
+    pub device: Arc<vulkan::Device>,
 }
 
 impl Drop for Allocator {
@@ -23,10 +20,7 @@ impl Drop for Allocator {
 }
 
 impl Allocator {
-    pub fn new(
-        instance: &crate::gfx::vulkan::Instance,
-        device: &crate::gfx::vulkan::Device,
-    ) -> std::result::Result<Arc<Self>, gfx::Result> {
+    pub fn new(instance: &vulkan::Instance, device: Arc<vulkan::Device>) -> gfx::Result<Arc<Self>> {
         let mut flags = vma_ffi::VmaAllocatorCreateFlags::NONE as u32;
         // If Windows platform, enable external memory handle types
         if cfg!(target_os = "windows") {
@@ -43,7 +37,7 @@ impl Allocator {
             pHeapSizeLimit: std::ptr::null(),
             pVulkanFunctions: std::ptr::null(),
             instance: instance.handle(),
-            vulkanApiVersion: Version::new(1, 4, 0).to_vk_version(),
+            vulkanApiVersion: gfx::MINIMUM_VULKAN_API_VERSION.to_vk_version(),
             pTypeExternalMemoryHandleTypes: std::ptr::null(),
         };
 
@@ -56,15 +50,88 @@ impl Allocator {
 
         Ok(Arc::new(Allocator {
             handle: allocator_handle,
+            device: Arc::clone(&device),
         }))
     }
 
-    pub fn allocate_image(
+    pub fn create_pixel_buffer(
+        self: &Arc<Self>,
+        format: gfx::Format,
+        width: u32,
+        height: u32,
+        usage: gfx::ImageUsage,
+        aspect: gfx::ImageAspect,
+        samples: gfx::ImageSamples,
+    ) -> gfx::Result<gfx::PixelBuffer> {
+        let image_create_info = vulkan_ffi::VkImageCreateInfo {
+            sType: vulkan_ffi::VkStructureType::IMAGE_CREATE_INFO as u32,
+            pNext: std::ptr::null(),
+            flags: 0,
+            imageType: vulkan_ffi::VkImageType::X2D,
+            format: format.to_vk(),
+            extent: vulkan_ffi::VkExtent3D {
+                width,
+                height,
+                depth: 1,
+            },
+            mipLevels: 1,
+            arrayLayers: 1,
+            samples: samples.0,
+            tiling: vulkan_ffi::VkImageTiling::OPTIMAL,
+            usage: usage.0,
+            sharingMode: vulkan_ffi::VkSharingMode::EXCLUSIVE,
+            queueFamilyIndexCount: 0,
+            pQueueFamilyIndices: std::ptr::null(),
+            initialLayout: vulkan_ffi::VkImageLayout::UNDEFINED,
+        };
+        let mut image_view_create_info = vulkan_ffi::VkImageViewCreateInfo {
+            sType: vulkan_ffi::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
+            pNext: std::ptr::null(),
+            flags: 0,
+            image: std::ptr::null_mut(), // NOTE: image not available yet, will be set in allocate_image
+            viewType: vulkan_ffi::VkImageViewType::X2D,
+            format: format.to_vk(),
+            components: vulkan_ffi::VkComponentMapping {
+                r: vulkan_ffi::VkComponentSwizzle::IDENTITY,
+                g: vulkan_ffi::VkComponentSwizzle::IDENTITY,
+                b: vulkan_ffi::VkComponentSwizzle::IDENTITY,
+                a: vulkan_ffi::VkComponentSwizzle::IDENTITY,
+            },
+            subresourceRange: vulkan_ffi::VkImageSubresourceRange {
+                aspectMask: aspect.0,
+                baseMipLevel: 0,
+                levelCount: 1,
+                baseArrayLayer: 0,
+                layerCount: 1,
+            },
+        };
+
+        let allocation_create_info = vma_ffi::VmaAllocationCreateInfo {
+            flags: 0,
+            usage: vma_ffi::VmaMemoryUsage::AUTO,
+            requiredFlags: 0,
+            preferredFlags: 0,
+            memoryTypeBits: 0,
+            pool: std::ptr::null_mut(),
+            pUserData: std::ptr::null_mut(),
+            priority: 0.0,
+        };
+
+        self.allocate_image(
+            &image_create_info,
+            &mut image_view_create_info,
+            &allocation_create_info,
+        )
+    }
+
+    fn allocate_image(
         self: &Arc<Self>,
         image_create_info: &vulkan_ffi::VkImageCreateInfo,
+        image_view_create_info: &mut vulkan_ffi::VkImageViewCreateInfo,
         allocation_create_info: &vma_ffi::VmaAllocationCreateInfo,
-    ) -> std::result::Result<ImageAllocation, gfx::Result> {
+    ) -> gfx::Result<gfx::PixelBuffer> {
         let mut image: vulkan_ffi::VkImage = std::ptr::null_mut();
+        let mut image_view: vulkan_ffi::VkImageView = std::ptr::null_mut();
         let mut allocation: vma_ffi::VmaAllocation = std::ptr::null_mut();
         let mut allocation_info: vma_ffi::VmaAllocationInfo = unsafe { std::mem::zeroed() };
 
@@ -77,37 +144,28 @@ impl Allocator {
             &mut allocation_info
         ))?;
 
-        Ok(ImageAllocation {
-            handle: allocation,
+        image_view_create_info.image = image; // Set the image now that it's created
+
+        vk_call!(vulkan_ffi::vkCreateImageView(
+            self.device.handle(),
+            image_view_create_info,
+            std::ptr::null(),
+            &mut image_view
+        ))
+        .or_else(|err| {
+            // If creating the image view fails, clean up the previously
+            // created VMA image and allocation to avoid leaking resources.
+            unsafe {
+                vma_ffi::vmaDestroyImage(self.handle, image, allocation);
+            }
+            Err(err)
+        })?;
+
+        Ok(gfx::PixelBuffer {
+            image,
+            image_view,
+            allocation,
             allocator: Arc::clone(&self),
         })
-    }
-}
-
-pub struct ImageAllocation {
-    pub handle: vma_ffi::VmaAllocation,
-    pub allocator: Arc<Allocator>,
-}
-
-impl Drop for ImageAllocation {
-    fn drop(&mut self) {
-        warning!("ImageAllocation::drop");
-        unsafe {
-            vma_ffi::vmaDestroyImage(self.allocator.handle, std::ptr::null_mut(), self.handle);
-        }
-    }
-}
-
-pub struct BufferAllocation {
-    pub handle: vma_ffi::VmaAllocation,
-    pub allocator: Arc<Allocator>,
-}
-
-impl Drop for BufferAllocation {
-    fn drop(&mut self) {
-        warning!("BufferAllocation::drop");
-        unsafe {
-            vma_ffi::vmaDestroyBuffer(self.allocator.handle, std::ptr::null_mut(), self.handle);
-        }
     }
 }
