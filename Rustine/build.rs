@@ -16,6 +16,7 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", lib_path.display());
 
     build_glfw(&project_dir, &target_os);
+    build_vma_interop(&project_dir, &target_os);
 
     // If on Windows, link the appropriate CRT libraries
     if target_os == "windows" {
@@ -30,6 +31,26 @@ fn main() {
             }
         };
     }
+}
+
+fn build_vma_interop(project_dir: &Path, target_os: &str) {
+    let generator = match target_os {
+        "windows" => "Ninja",
+        _ => "Ninja",
+    };
+
+    // Build
+    let destination_dir = cmake::Config::new(project_dir.join("ext").join("vma_interop"))
+        .generator(generator)
+        .always_configure(true)
+        .build();
+
+    // Link
+    println!(
+        "cargo:rustc-link-search=native={}",
+        destination_dir.join("lib").display()
+    );
+    println!("cargo:rustc-link-lib=static={}", "rustine_vma");
 }
 
 fn build_glfw(project_dir: &Path, target_os: &str) {

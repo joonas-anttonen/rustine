@@ -7,12 +7,13 @@ use crate::{gfx::*, version::Version};
 
 use crate::gfx::vulkan_ffi as ffi;
 
-/// Wraps a Vulkan function call and converts the result to a Rust Result.
+/// Wraps a Vulkan function call and converts the result to `gfx::Result`.
+#[macro_export]
 macro_rules! vk_call {
     ($expr:expr) => {{
         let res = unsafe { $expr };
-        match make_result(res) {
-            Result::Success => Ok(()),
+        match crate::gfx::Result::from_code(res) {
+            crate::gfx::Result::Success => Ok(()),
             other => Err(other),
         }
     }};
@@ -35,6 +36,20 @@ pub struct Device {
     queue: ffi::VkQueue,
     handle: ffi::VkDevice,
     physical_device: ffi::VkPhysicalDevice,
+}
+
+impl Device {
+    pub fn handle(&self) -> ffi::VkDevice {
+        self.handle
+    }
+
+    pub fn physical_device_handle(&self) -> ffi::VkPhysicalDevice {
+        self.physical_device
+    }
+
+    pub fn queue_handle(&self) -> ffi::VkQueue {
+        self.queue
+    }
 }
 
 /// Represents a command pool owned by a single thread.
@@ -131,14 +146,6 @@ impl Drop for Device {
         unsafe {
             ffi::vkDestroyDevice(self.handle, ptr::null());
         }
-    }
-}
-
-fn make_result(code: i32) -> Result {
-    match code {
-        0 => Result::Success,
-        -7 | -8 | -11 => Result::NotSupported, // Extension not present, feature not present, format not supported
-        other => Result::Unknown(other),
     }
 }
 
@@ -376,14 +383,26 @@ unsafe extern "C" fn vulkan_debug_callback(
     }
 }
 
-pub fn create_device(physical_device: ffi::VkPhysicalDevice) -> result::Result<Device, Result> {
-    let _available_device_extensions: collections::HashSet<std::ffi::CString> =
+pub fn create_device(
+    parameters: &super::ApiParameters,
+    physical_device: ffi::VkPhysicalDevice,
+) -> result::Result<Device, Result> {
+    let available_device_extensions: collections::HashSet<std::ffi::CString> =
         enumerate_physical_device_extensions(physical_device)?
             .into_iter()
             .collect();
 
     let mut enabled_extensions_cstrings: Vec<std::ffi::CString> = Vec::new();
     enabled_extensions_cstrings.push(std::ffi::CString::new("VK_KHR_swapchain").unwrap());
+    
+    if parameters.platform == Platform::Windows {
+        let external_memory_win32_name = c"VK_KHR_external_memory_win32";
+        if available_device_extensions.contains(external_memory_win32_name) {
+            warning!("Enabling external memory Win32 extension");
+            enabled_extensions_cstrings
+                .push(std::ffi::CString::new("VK_KHR_external_memory_win32").unwrap());
+        }
+    }
 
     let _enabled_extensions_ptrs: Vec<*const std::ffi::c_char> = enabled_extensions_cstrings
         .iter()

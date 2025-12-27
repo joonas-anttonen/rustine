@@ -1,3 +1,6 @@
 [submodule "Rustine/ext/glfw"]
 	path = Rustine/ext/glfw
 	url = https://github.com/glfw/glfw.git
+[submodule "Rustine/ext/vma"]
+	path = Rustine/ext/vma
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git

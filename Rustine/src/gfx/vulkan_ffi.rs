@@ -144,6 +144,12 @@ unsafe extern "C" {
         semaphore: VkSemaphore,
         pAllocator: *const std::ffi::c_void,
     );
+    pub fn vkCreateImageView(
+        device: VkDevice,
+        pCreateInfo: *const VkImageViewCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pView: *mut VkImageView,
+    ) -> i32;
 
     // ========= Queue ==========
 
@@ -176,6 +182,8 @@ unsafe extern "C" {
 
 pub type VkInstance = *mut std::ffi::c_void;
 pub type VkDevice = *mut std::ffi::c_void;
+pub type VkDeviceMemory = *mut std::ffi::c_void;
+pub type VkDeviceSize = u64;
 pub type VkPhysicalDevice = *mut std::ffi::c_void;
 pub type VkQueue = *mut std::ffi::c_void;
 pub type VkFence = *mut std::ffi::c_void;
@@ -184,6 +192,9 @@ pub type VkCommandBuffer = *mut std::ffi::c_void;
 pub type VkCommandPool = *mut std::ffi::c_void;
 pub type VkDebugUtilsMessengerEXT = *mut std::ffi::c_void;
 pub type VkSurfaceKHR = *mut std::ffi::c_void;
+pub type VkImage = *mut std::ffi::c_void;
+pub type VkImageView = *mut std::ffi::c_void;
+pub type VkBuffer = *mut std::ffi::c_void;
 
 pub type PFN_vkCreateDebugUtilsMessengerEXT = Option<
     unsafe extern "C" fn(
@@ -195,6 +206,284 @@ pub type PFN_vkCreateDebugUtilsMessengerEXT = Option<
 >;
 pub type PFN_vkDestroyDebugUtilsMessengerEXT =
     Option<unsafe extern "C" fn(VkInstance, VkDebugUtilsMessengerEXT, *const std::ffi::c_void)>;
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkBufferCreateFlags {
+    SPARSE_BINDING_BIT = 0x00000001,
+    SPARSE_RESIDENCY_BIT = 0x00000002,
+    SPARSE_ALIASED_BIT = 0x00000004,
+    PROTECTED_BIT = 0x00000008,
+    DEVICE_ADDRESS_CAPTURE_REPLAY_BIT = 0x00000010,
+    DESCRIPTOR_BUFFER_CAPTURE_REPLAY_BIT_EXT = 0x00000020,
+    VIDEO_PROFILE_INDEPENDENT_BIT_KHR = 0x00000040,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkBufferUsageFlags {
+    TRANSFER_SRC_BIT = 0x00000001,
+    TRANSFER_DST_BIT = 0x00000002,
+    UNIFORM_TEXEL_BUFFER_BIT = 0x00000004,
+    STORAGE_TEXEL_BUFFER_BIT = 0x00000008,
+    UNIFORM_BUFFER_BIT = 0x00000010,
+    STORAGE_BUFFER_BIT = 0x00000020,
+    INDEX_BUFFER_BIT = 0x00000040,
+    VERTEX_BUFFER_BIT = 0x00000080,
+    INDIRECT_BUFFER_BIT = 0x00000100,
+    SHADER_DEVICE_ADDRESS_BIT = 0x00020000,
+    VIDEO_DECODE_SRC_BIT_KHR = 0x00002000,
+    VIDEO_DECODE_DST_BIT_KHR = 0x00004000,
+    TRANSFORM_FEEDBACK_BUFFER_BIT_EXT = 0x00000800,
+    TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT = 0x00001000,
+    CONDITIONAL_RENDERING_BIT_EXT = 0x00000200,
+    ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR = 0x00080000,
+    ACCELERATION_STRUCTURE_STORAGE_BIT_KHR = 0x00100000,
+    SHADER_BINDING_TABLE_BIT_KHR = 0x00000400,
+    VIDEO_ENCODE_DST_BIT_KHR = 0x00008000,
+    VIDEO_ENCODE_SRC_BIT_KHR = 0x00010000,
+    SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT = 0x00200000,
+    RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT = 0x00400000,
+    PUSH_DESCRIPTORS_DESCRIPTOR_BUFFER_BIT_EXT = 0x04000000,
+    MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT = 0x00800000,
+    MICROMAP_STORAGE_BIT_EXT = 0x01000000,
+    TILE_MEMORY_QCOM = 0x08000000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkSharingMode {
+    EXCLUSIVE = 0,
+    CONCURRENT = 1,
+}
+
+#[repr(C)]
+pub struct VkBufferCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: VkBufferCreateFlags,
+    pub size: VkDeviceSize,
+    pub usage: VkBufferUsageFlags,
+    pub sharingMode: VkSharingMode,
+    pub queueFamilyIndexCount: u32,
+    pub pQueueFamilyIndices: *const u32,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkImageCreateFlags {
+    SPARSE_BINDING_BIT = 0x00000001,
+    SPARSE_RESIDENCY_BIT = 0x00000002,
+    SPARSE_ALIASED_BIT = 0x00000004,
+    MUTABLE_FORMAT_BIT = 0x00000008,
+    CUBE_COMPATIBLE_BIT = 0x00000010,
+    ALIAS_BIT = 0x00000400,
+    SPLIT_INSTANCE_BIND_REGIONS_BIT = 0x00000040,
+    X2D_ARRAY_COMPATIBLE_BIT = 0x00000020,
+    BLOCK_TEXEL_VIEW_COMPATIBLE_BIT = 0x00000080,
+    EXTENDED_USAGE_BIT = 0x00000100,
+    PROTECTED_BIT = 0x00000800,
+    DISJOINT_BIT = 0x00000200,
+    CORNER_SAMPLED_BIT_NV = 0x00002000,
+    SAMPLE_LOCATIONS_COMPATIBLE_DEPTH_BIT_EXT = 0x00001000,
+    SUBSAMPLED_BIT_EXT = 0x00004000,
+    DESCRIPTOR_BUFFER_CAPTURE_REPLAY_BIT_EXT = 0x00010000,
+    MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT = 0x00040000,
+    X2D_VIEW_COMPATIBLE_BIT_EXT = 0x00020000,
+    VIDEO_PROFILE_INDEPENDENT_BIT_KHR = 0x00100000,
+    FRAGMENT_DENSITY_MAP_OFFSET_BIT_EXT = 0x00008000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkImageType {
+    X1D = 0,
+    X2D = 1,
+    X3D = 2,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkImageTiling {
+    OPTIMAL = 0,
+    LINEAR = 1,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkSampleCountFlags {
+    X1_BIT = 0x00000001,
+    X2_BIT = 0x00000002,
+    X4_BIT = 0x00000004,
+    X8_BIT = 0x00000008,
+    X16_BIT = 0x00000010,
+    X32_BIT = 0x00000020,
+    X64_BIT = 0x00000040,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkImageUsageFlags {
+    TRANSFER_SRC_BIT = 0x00000001,
+    TRANSFER_DST_BIT = 0x00000002,
+    SAMPLED_BIT = 0x00000004,
+    STORAGE_BIT = 0x00000008,
+    COLOR_ATTACHMENT_BIT = 0x00000010,
+    DEPTH_STENCIL_ATTACHMENT_BIT = 0x00000020,
+    TRANSIENT_ATTACHMENT_BIT = 0x00000040,
+    INPUT_ATTACHMENT_BIT = 0x00000080,
+    HOST_TRANSFER_BIT = 0x00400000,
+    VIDEO_DECODE_DST_BIT_KHR = 0x00000400,
+    VIDEO_DECODE_SRC_BIT_KHR = 0x00000800,
+    VIDEO_DECODE_DPB_BIT_KHR = 0x00001000,
+    FRAGMENT_DENSITY_MAP_BIT_EXT = 0x00000200,
+    FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR = 0x00000100,
+    VIDEO_ENCODE_DST_BIT_KHR = 0x00002000,
+    VIDEO_ENCODE_SRC_BIT_KHR = 0x00004000,
+    VIDEO_ENCODE_DPB_BIT_KHR = 0x00008000,
+    ATTACHMENT_FEEDBACK_LOOP_BIT_EXT = 0x00080000,
+    INVOCATION_MASK_BIT_HUAWEI = 0x00040000,
+    SAMPLE_WEIGHT_BIT_QCOM = 0x00100000,
+    SAMPLE_BLOCK_MATCH_BIT_QCOM = 0x00200000,
+    TILE_MEMORY_QCOM = 0x08000000,
+    VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR = 0x02000000,
+    VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR = 0x04000000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkImageLayout {
+    UNDEFINED = 0,
+    GENERAL = 1,
+    COLOR_ATTACHMENT_OPTIMAL = 2,
+    DEPTH_STENCIL_ATTACHMENT_OPTIMAL = 3,
+    DEPTH_STENCIL_READ_ONLY_OPTIMAL = 4,
+    SHADER_READ_ONLY_OPTIMAL = 5,
+    TRANSFER_SRC_OPTIMAL = 6,
+    TRANSFER_DST_OPTIMAL = 7,
+    PREINITIALIZED = 8,
+    DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL = 1000117000,
+    DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL = 1000117001,
+    DEPTH_ATTACHMENT_OPTIMAL = 1000241000,
+    DEPTH_READ_ONLY_OPTIMAL = 1000241001,
+    STENCIL_ATTACHMENT_OPTIMAL = 1000241002,
+    STENCIL_READ_ONLY_OPTIMAL = 1000241003,
+    READ_ONLY_OPTIMAL = 1000314000,
+    ATTACHMENT_OPTIMAL = 1000314001,
+    RENDERING_LOCAL_READ = 1000232000,
+    PRESENT_SRC_KHR = 1000001002,
+    VIDEO_DECODE_DST_KHR = 1000024000,
+    VIDEO_DECODE_SRC_KHR = 1000024001,
+    VIDEO_DECODE_DPB_KHR = 1000024002,
+    SHARED_PRESENT_KHR = 1000111000,
+    FRAGMENT_DENSITY_MAP_OPTIMAL_EXT = 1000218000,
+    FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR = 1000164003,
+    VIDEO_ENCODE_DST_KHR = 1000299000,
+    VIDEO_ENCODE_SRC_KHR = 1000299001,
+    VIDEO_ENCODE_DPB_KHR = 1000299002,
+    ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT = 1000339000,
+    VIDEO_ENCODE_QUANTIZATION_MAP_KHR = 1000553000,
+}
+
+#[repr(C)]
+pub struct VkImageCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: VkImageCreateFlags,
+    pub imageType: VkImageType,
+    pub format: VkFormat,
+    pub extent: VkExtent3D,
+    pub mipLevels: u32,
+    pub arrayLayers: u32,
+    pub samples: VkSampleCountFlags,
+    pub tiling: VkImageTiling,
+    pub usage: VkImageUsageFlags,
+    pub sharingMode: VkSharingMode,
+    pub queueFamilyIndexCount: u32,
+    pub pQueueFamilyIndices: *const u32,
+    pub initialLayout: VkImageLayout,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkComponentSwizzle {
+    IDENTITY = 0,
+    ZERO = 1,
+    ONE = 2,
+    R = 3,
+    G = 4,
+    B = 5,
+    A = 6,
+}
+
+#[repr(C)]
+pub struct VkComponentMapping {
+    pub r: VkComponentSwizzle,
+    pub g: VkComponentSwizzle,
+    pub b: VkComponentSwizzle,
+    pub a: VkComponentSwizzle,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkImageAspectFlags {
+    COLOR_BIT = 0x00000001,
+    DEPTH_BIT = 0x00000002,
+    STENCIL_BIT = 0x00000004,
+    METADATA_BIT = 0x00000008,
+    PLANE_0_BIT = 0x00000010,
+    PLANE_1_BIT = 0x00000020,
+    PLANE_2_BIT = 0x00000040,
+    NONE = 0,
+}
+
+#[repr(C)]
+pub struct VkImageSubresourceRange {
+    pub aspectMask: VkImageAspectFlags,
+    pub baseMipLevel: u32,
+    pub levelCount: u32,
+    pub baseArrayLayer: u32,
+    pub layerCount: u32,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkImageViewType {
+    X1D = 0,
+    X2D = 1,
+    X3D = 2,
+    XCUBE = 3,
+    X1D_ARRAY = 4,
+    X2D_ARRAY = 5,
+    XCUBE_ARRAY = 6,
+}
+
+#[repr(C)]
+pub struct VkImageViewCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub image: VkImage,
+    pub viewType: VkImageViewType,
+    pub format: VkFormat,
+    pub components: VkComponentMapping,
+    pub subresourceRange: VkImageSubresourceRange,
+}
+
+#[repr(C)]
+pub struct VkMemoryAllocateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub allocationSize: VkDeviceSize,
+    pub memoryTypeIndex: u32,
+}
+
+#[repr(C)]
+pub struct VkMemoryRequirements {
+    pub size: VkDeviceSize,
+    pub alignment: VkDeviceSize,
+    pub memoryTypeBits: u32,
+}
 
 #[repr(C)]
 pub struct VkSemaphoreCreateInfo {
@@ -213,7 +502,7 @@ pub struct VkFenceCreateInfo {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VkFenceCreateFlags {
-    VK_FENCE_CREATE_SIGNALED_BIT = 0x00000001,
+    SIGNALED_BIT = 0x00000001,
 }
 
 #[repr(C)]
@@ -235,7 +524,7 @@ pub enum VkCommandBufferUsageFlags {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VkCommandBufferResetFlags {
-    VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT = 0x00000001,
+    RELEASE_RESOURCES_BIT = 0x00000001,
 }
 
 #[repr(C)]
@@ -250,22 +539,22 @@ pub struct VkCommandBufferAllocateInfo {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VkCommandBufferLevel {
-    VK_COMMAND_BUFFER_LEVEL_PRIMARY = 0,
-    VK_COMMAND_BUFFER_LEVEL_SECONDARY = 1,
+    PRIMARY = 0,
+    SECONDARY = 1,
 }
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VkCommandPoolCreateFlags {
-    VK_COMMAND_POOL_CREATE_TRANSIENT_BIT = 0x00000001,
-    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT = 0x00000002,
-    VK_COMMAND_POOL_CREATE_PROTECTED_BIT = 0x00000004,
+    TRANSIENT_BIT = 0x00000001,
+    RESET_COMMAND_BUFFER_BIT = 0x00000002,
+    PROTECTED_BIT = 0x00000004,
 }
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VkCommandPoolResetFlags {
-    VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT = 0x00000001,
+    RELEASE_RESOURCES_BIT = 0x00000001,
 }
 
 #[repr(C)]
@@ -610,33 +899,33 @@ pub struct VkDeviceCreateInfo {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VkPipelineStageFlags {
-    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT = 0x00000001,
-    VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT = 0x00000002,
-    VK_PIPELINE_STAGE_VERTEX_INPUT_BIT = 0x00000004,
-    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT = 0x00000008,
-    VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT = 0x00000010,
-    VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT = 0x00000020,
-    VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT = 0x00000040,
-    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT = 0x00000080,
-    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT = 0x00000100,
-    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT = 0x00000200,
-    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT = 0x00000400,
-    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT = 0x00000800,
-    VK_PIPELINE_STAGE_TRANSFER_BIT = 0x00001000,
-    VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT = 0x00002000,
-    VK_PIPELINE_STAGE_HOST_BIT = 0x00004000,
-    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT = 0x00008000,
-    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT = 0x00010000,
-    VK_PIPELINE_STAGE_NONE = 0,
-    VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT = 0x01000000,
-    VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT = 0x00040000,
-    VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR = 0x02000000,
-    VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR = 0x00200000,
-    VK_PIPELINE_STAGE_FRAGMENT_DENSITY_PROCESS_BIT_EXT = 0x00800000,
-    VK_PIPELINE_STAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR = 0x00400000,
-    VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT = 0x00080000,
-    VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT = 0x00100000,
-    VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_EXT = 0x00020000,
+    TOP_OF_PIPE_BIT = 0x00000001,
+    DRAW_INDIRECT_BIT = 0x00000002,
+    VERTEX_INPUT_BIT = 0x00000004,
+    VERTEX_SHADER_BIT = 0x00000008,
+    TESSELLATION_CONTROL_SHADER_BIT = 0x00000010,
+    TESSELLATION_EVALUATION_SHADER_BIT = 0x00000020,
+    GEOMETRY_SHADER_BIT = 0x00000040,
+    FRAGMENT_SHADER_BIT = 0x00000080,
+    EARLY_FRAGMENT_TESTS_BIT = 0x00000100,
+    LATE_FRAGMENT_TESTS_BIT = 0x00000200,
+    COLOR_ATTACHMENT_OUTPUT_BIT = 0x00000400,
+    COMPUTE_SHADER_BIT = 0x00000800,
+    TRANSFER_BIT = 0x00001000,
+    BOTTOM_OF_PIPE_BIT = 0x00002000,
+    HOST_BIT = 0x00004000,
+    ALL_GRAPHICS_BIT = 0x00008000,
+    ALL_COMMANDS_BIT = 0x00010000,
+    NONE = 0,
+    TRANSFORM_FEEDBACK_BIT_EXT = 0x01000000,
+    CONDITIONAL_RENDERING_BIT_EXT = 0x00040000,
+    ACCELERATION_STRUCTURE_BUILD_BIT_KHR = 0x02000000,
+    RAY_TRACING_SHADER_BIT_KHR = 0x00200000,
+    FRAGMENT_DENSITY_PROCESS_BIT_EXT = 0x00800000,
+    FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR = 0x00400000,
+    TASK_SHADER_BIT_EXT = 0x00080000,
+    MESH_SHADER_BIT_EXT = 0x00100000,
+    COMMAND_PREPROCESS_BIT_EXT = 0x00020000,
 }
 
 #[repr(C)]
@@ -696,13 +985,27 @@ pub struct VkPhysicalDeviceIDProperties {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VkQueueFlags {
     GRAPHICS_BIT = 0x00000001,
-    VK_QUEUE_COMPUTE_BIT = 0x00000002,
-    VK_QUEUE_TRANSFER_BIT = 0x00000004,
-    VK_QUEUE_SPARSE_BINDING_BIT = 0x00000008,
-    VK_QUEUE_PROTECTED_BIT = 0x00000010,
-    VK_QUEUE_VIDEO_DECODE_BIT_KHR = 0x00000020,
-    VK_QUEUE_VIDEO_ENCODE_BIT_KHR = 0x00000040,
-    VK_QUEUE_OPTICAL_FLOW_BIT_NV = 0x00000100,
+    COMPUTE_BIT = 0x00000002,
+    TRANSFER_BIT = 0x00000004,
+    SPARSE_BINDING_BIT = 0x00000008,
+    PROTECTED_BIT = 0x00000010,
+    VIDEO_DECODE_BIT_KHR = 0x00000020,
+    VIDEO_ENCODE_BIT_KHR = 0x00000040,
+    OPTICAL_FLOW_BIT_NV = 0x00000100,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkMemoryPropertyFlags {
+    DEVICE_LOCAL_BIT = 0x00000001,
+    HOST_VISIBLE_BIT = 0x00000002,
+    HOST_COHERENT_BIT = 0x00000004,
+    HOST_CACHED_BIT = 0x00000008,
+    LAZILY_ALLOCATED_BIT = 0x00000010,
+    PROTECTED_BIT = 0x00000020,
+    DEVICE_COHERENT_BIT_AMD = 0x00000040,
+    DEVICE_UNCACHED_BIT_AMD = 0x00000080,
+    RDMA_CAPABLE_BIT_NV = 0x00000100,
 }
 
 #[repr(i32)]

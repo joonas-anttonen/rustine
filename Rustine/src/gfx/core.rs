@@ -1,6 +1,6 @@
 use crate::{gfx::*, warning};
 
-use std::result;
+use std::{result, sync::Arc};
 
 /// The core graphics subsystem, managing Vulkan initialization and device selection.
 ///
@@ -8,9 +8,10 @@ use std::result;
 /// It is responsible for creating and maintaining the graphics pipeline.
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
+    allocator: Arc<vma::Allocator>,
+    physical_device: PhysicalDevice,
     device: vulkan::Device,
     instance: vulkan::Instance,
-    selected_device: PhysicalDevice,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -38,10 +39,10 @@ impl Core {
 
     /// Returns a reference to the selected physical device.
     pub fn selected_physical_device(&self) -> &PhysicalDevice {
-        &self.selected_device
+        &self.physical_device
     }
 
-    pub fn vulkan_instance_handle(&self) -> vulkan_ffi::VkInstance{
+    pub fn vulkan_instance_handle(&self) -> vulkan_ffi::VkInstance {
         self.instance.handle()
     }
 }
@@ -148,12 +149,17 @@ impl CoreBuilder {
         };
 
         // 3. Create logical device
-        let vk_device = vulkan::create_device(selected_device.handle as vulkan_ffi::VkPhysicalDevice)?;
+        let vk_device =
+            vulkan::create_device(&self.params, selected_device.handle as vulkan_ffi::VkPhysicalDevice)?;
+
+        // 4. Create VMA
+        let allocator = vma::Allocator::new(&vk_instance, &vk_device)?;
 
         Ok(Core {
-            instance: vk_instance,
-            selected_device,
+            allocator,
+            physical_device: selected_device,
             device: vk_device,
+            instance: vk_instance,
         })
     }
 }

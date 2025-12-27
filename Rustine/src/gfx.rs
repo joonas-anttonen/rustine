@@ -3,7 +3,9 @@
 mod parameters;
 pub use parameters::ApiParameters;
 mod core;
-mod vulkan;
+mod vma;
+mod vma_ffi;
+pub mod vulkan;
 pub mod vulkan_ffi;
 /// Re-export core types for easier access.
 pub use core::Core;
@@ -20,7 +22,7 @@ pub struct Surface {
 }
 
 /// Represents the target platform for graphics API initialization.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
     Windows,
     Wayland,
@@ -44,6 +46,16 @@ impl fmt::Display for Result {
             Result::Success => write!(f, "Success"),
             Result::NotSupported => write!(f, "Not supported"),
             Result::Unknown(code) => write!(f, "Unknown error: {}", code),
+        }
+    }
+}
+
+impl Result {
+    pub fn from_code(code: i32) -> Self {
+        match code {
+            0 => Result::Success,
+            -7 | -8 | -11 => Result::NotSupported, // Extension not present, feature not present, format not supported
+            other => Result::Unknown(other),
         }
     }
 }
