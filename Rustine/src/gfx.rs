@@ -2,14 +2,22 @@
 
 mod parameters;
 pub use parameters::ApiParameters;
-mod vulkan;
-mod vulkan_ffi;
 mod core;
+mod vulkan;
+pub mod vulkan_ffi;
 /// Re-export core types for easier access.
 pub use core::Core;
 
-use crate::{version::Version};
-use std::{fmt};
+use crate::version::Version;
+use std::fmt;
+
+/// Represents a rendering surface (e.g., a window surface) for graphics output.
+#[derive(Debug)]
+pub struct Surface {
+    pub handle: u64,
+    pub width: u32,
+    pub height: u32,
+}
 
 /// Represents the target platform for graphics API initialization.
 #[derive(Debug)]

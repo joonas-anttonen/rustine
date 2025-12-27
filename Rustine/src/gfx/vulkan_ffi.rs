@@ -38,37 +38,37 @@ unsafe extern "C" {
     pub fn vkEnumeratePhysicalDevices(
         instance: VkInstance,
         pPhysicalDeviceCount: *mut u32,
-        pPhysicalDevices: *mut u64,
+        pPhysicalDevices: *mut VkPhysicalDevice,
     ) -> i32;
     pub fn vkGetPhysicalDeviceFeatures(
-        physicalDevice: u64,
+        physicalDevice: VkPhysicalDevice,
         pFeatures: *mut VkPhysicalDeviceFeatures,
     );
     pub fn vkGetPhysicalDeviceFormatProperties(
-        physicalDevice: u64,
+        physicalDevice: VkPhysicalDevice,
         format: u32,
         pFormatProperties: *mut VkFormatProperties,
     );
     pub fn vkGetPhysicalDeviceProperties(
-        physicalDevice: u64,
+        physicalDevice: VkPhysicalDevice,
         pProperties: *mut VkPhysicalDeviceProperties,
     );
     pub fn vkGetPhysicalDeviceProperties2(
-        physicalDevice: u64,
+        physicalDevice: VkPhysicalDevice,
         pProperties: *mut VkPhysicalDeviceProperties2,
     );
     pub fn vkGetPhysicalDeviceFeatures2(
-        physicalDevice: u64,
+        physicalDevice: VkPhysicalDevice,
         pFeatures: *mut VkPhysicalDeviceFeatures2,
     );
     pub fn vkEnumerateDeviceExtensionProperties(
-        physicalDevice: u64,
+        physicalDevice: VkPhysicalDevice,
         pLayerName: *const ffi::c_char,
         pPropertyCount: *mut u32,
         pProperties: *mut VkExtensionProperties,
     ) -> i32;
     pub fn vkGetPhysicalDeviceQueueFamilyProperties(
-        physicalDevice: u64,
+        physicalDevice: VkPhysicalDevice,
         pQueueFamilyPropertyCount: *mut u32,
         pQueueFamilyProperties: *mut VkQueueFamilyProperties,
     );
@@ -164,17 +164,26 @@ unsafe extern "C" {
     pub fn vkEndCommandBuffer(commandBuffer: VkCommandBuffer) -> i32;
     pub fn vkResetCommandBuffer(commandBuffer: VkCommandBuffer, flags: u32) -> i32;
 
+    // ========= Surface KHR ==========
+
+    pub fn vkDestroySurfaceKHR(
+        instance: VkInstance,
+        surface: VkSurfaceKHR,
+        pAllocator: *const std::ffi::c_void,
+    );
+
 }
 
 pub type VkInstance = *mut std::ffi::c_void;
 pub type VkDevice = *mut std::ffi::c_void;
-pub type VkPhysicalDevice = u64;
+pub type VkPhysicalDevice = *mut std::ffi::c_void;
 pub type VkQueue = *mut std::ffi::c_void;
 pub type VkFence = *mut std::ffi::c_void;
 pub type VkSemaphore = *mut std::ffi::c_void;
 pub type VkCommandBuffer = *mut std::ffi::c_void;
 pub type VkCommandPool = *mut std::ffi::c_void;
 pub type VkDebugUtilsMessengerEXT = *mut std::ffi::c_void;
+pub type VkSurfaceKHR = *mut std::ffi::c_void;
 
 pub type PFN_vkCreateDebugUtilsMessengerEXT = Option<
     unsafe extern "C" fn(

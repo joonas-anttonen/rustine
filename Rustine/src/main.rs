@@ -1,4 +1,4 @@
-use rustine::{error, info, warning};
+use rustine::{error, info};
 use rustine::{gfx, gui, log::ConsoleLogListener, log::Log, version::Version};
 
 use std::sync::{Arc, Mutex, atomic};
@@ -22,10 +22,7 @@ fn main() {
             app_engine_name: "Rustine".to_string(),
         };
 
-        let gfx_core = match gfx::Core::builder(params)
-            .select_optimal_device()
-            .build()
-        {
+        let gfx_core = match gfx::Core::builder(params).select_optimal_device().build() {
             Ok(core) => core,
             Err(e) => {
                 error!("Failed to build gfx::Core: {}", e);
@@ -55,11 +52,12 @@ fn main() {
     info!("Exit");
 }
 
-fn gui_thread_function(_gui: &gui::Core) {
+fn gui_thread_function(gui: &gui::Core) {
     // Keep main thread alive for a bit, then signal cancellation
-    for _ in 0..2 {
-        warning!("Performing gui work");
-        thread::sleep(time::Duration::from_millis(1000));
+    while !gui.should_close() {
+        //warning!("Performing gui work");
+
+        gui.process_events();
     }
 }
 

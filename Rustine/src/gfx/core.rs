@@ -40,6 +40,10 @@ impl Core {
     pub fn selected_physical_device(&self) -> &PhysicalDevice {
         &self.selected_device
     }
+
+    pub fn vulkan_instance_handle(&self) -> vulkan_ffi::VkInstance{
+        self.instance.handle()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -144,7 +148,7 @@ impl CoreBuilder {
         };
 
         // 3. Create logical device
-        let vk_device = vulkan::create_device(selected_device.handle)?;
+        let vk_device = vulkan::create_device(selected_device.handle as vulkan_ffi::VkPhysicalDevice)?;
 
         Ok(Core {
             instance: vk_instance,

@@ -24,6 +24,12 @@ pub struct Instance {
     debug_messenger: Option<ffi::VkDebugUtilsMessengerEXT>,
 }
 
+impl Instance {
+    pub fn handle(&self) -> ffi::VkInstance {
+        self.handle
+    }
+}
+
 /// Represents a Vulkan logical device.
 pub struct Device {
     queue: ffi::VkQueue,
@@ -272,7 +278,7 @@ pub fn enumerate_physical_devices(
         ptr::null_mut(),
     ))?;
 
-    let mut devices: Vec<u64> = Vec::with_capacity(device_count as usize);
+    let mut devices: Vec<ffi::VkPhysicalDevice> = Vec::with_capacity(device_count as usize);
     vk_call!(ffi::vkEnumeratePhysicalDevices(
         instance.handle,
         &mut device_count as *mut u32,
@@ -341,7 +347,7 @@ pub fn enumerate_physical_devices(
                 device_type,
                 id,
                 luid,
-                handle: device_handle,
+                handle: device_handle as u64,
             }
         })
         .collect();
