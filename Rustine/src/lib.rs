@@ -10,7 +10,8 @@ pub use version::Version;
 pub enum Status {
     Ok = 0,
     Error = 1,
-    InvalidOperation = 2,
+    NotSupported = 2,
+    InvalidOperation = 3,
 }
 
 impl Status {
@@ -19,52 +20,120 @@ impl Status {
     }
 }
 
-// Internal library state. Add fields as needed.
-struct State {}
+/// Internal library state
+struct State {
+    gfx: std::sync::Arc<std::sync::Mutex<gfx::Core>>,
+    gfx_thread: std::thread::JoinHandle<()>,
+    cancel_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
 
 impl State {
-    fn new() -> Self {
-        State {}
-    }
-}
+    fn new(gfx: gfx::Core) -> Self {
+        let cancel_signal = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let gfx = std::sync::Arc::new(std::sync::Mutex::new(gfx));
 
-// Global, single-assignment holder for the state.
-// Not thread-safe: callers must ensure no concurrent access.
-use std::mem::MaybeUninit;
-static mut STATE: MaybeUninit<State> = MaybeUninit::uninit();
-static mut INITIALIZED: bool = false;
+        let gfx_clone = std::sync::Arc::clone(&gfx);
+        let cancel_clone = std::sync::Arc::clone(&cancel_signal);
 
-/// Returns true if the library has been initialized.
-pub fn is_initialized() -> bool {
-    unsafe { core::ptr::read(core::ptr::addr_of!(INITIALIZED)) }
-}
+        let gfx_thread = std::thread::spawn(move || {
+            gfx_thread_function(gfx_clone, cancel_clone);
+        });
 
-/// Internal helper to access mutable state safely.
-/// Returns an error if `initialize()` has not been called.
-/*pub(crate) fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> Result<R, &'static str> {
-    unsafe {
-        if !core::ptr::read(core::ptr::addr_of!(INITIALIZED)) {
-            return Err("Rustine state not initialized; call initialize() first");
+        State {
+            gfx,
+            gfx_thread,
+            cancel_signal,
         }
-        let state_ptr = core::ptr::addr_of_mut!(STATE);
-        let s_ptr: *mut State = (*state_ptr).as_mut_ptr();
-        Ok(f(&mut *s_ptr))
     }
-}*/
+
+    fn shutdown(self) {
+        self.cancel_signal
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = self.gfx_thread.join();
+    }
+}
+
+static STATE: std::sync::Mutex<Option<State>> = std::sync::Mutex::new(None);
+
+fn gfx_thread_function(
+    gfx: std::sync::Arc<std::sync::Mutex<gfx::Core>>,
+    cancel_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    log::Log::global().set_current_thread_name("gfx");
+    info!("gfx thread started");
+
+    while !cancel_signal.load(std::sync::atomic::Ordering::Relaxed) {
+        let _core = gfx.lock().unwrap();
+        // Perform work with mutable access to gfx_core
+        info!("Performing gfx work");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    info!("gfx thread stopped");
+}
 
 #[unsafe(no_mangle)]
-pub extern "C" fn initialize() -> i32 {
-    // Attempt to set the state once. Subsequent calls return InvalidOperation.
-    unsafe {
-        if !core::ptr::read(core::ptr::addr_of!(INITIALIZED)) {
-            let state_ptr = core::ptr::addr_of_mut!(STATE);
-            (*state_ptr).write(State::new());
-            core::ptr::addr_of_mut!(INITIALIZED).write(true);
-            println!("Initializing Rustine library...");
-            Status::Ok as i32
-        } else {
-            eprintln!("Rustine initialize() called more than once; ignoring.");
-            Status::InvalidOperation as i32
+pub extern "C" fn initialize(callback: unsafe extern "C" fn(event: *const log::FfiEvent)) -> i32 {
+    log::Log::global().set_current_thread_name("main");
+
+    let listener = log::FfiCallbackListener::new(callback);
+    let _ = log::Log::global().add_listener(listener);
+
+    let params = gfx::ApiParameters {
+        enable_debugging: true,
+        platform: gfx::Platform::Windows,
+        required_api_version: Version::new(1, 4, 0),
+        app_version: Version::new(0, 1, 0),
+        app_engine_version: Version::new(0, 1, 0),
+        app_name: "Rustine".to_string(),
+        app_engine_name: "Rustine".to_string(),
+    };
+
+    let gfx_core = match gfx::Core::builder(params).select_optimal_device().build() {
+        Ok(core) => core,
+        Err(_) => {
+            return Status::Error as i32;
         }
+    };
+
+    let state = State::new(gfx_core);
+    match STATE.lock() {
+        Ok(mut locked_state) => {
+            if locked_state.is_some() {
+                return Status::InvalidOperation as i32;
+            }
+            *locked_state = Some(state);
+            Status::Ok as i32
+        }
+        Err(_) => Status::Error as i32,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn terminate() -> i32 {
+    match STATE.lock() {
+        Ok(mut locked_state) => {
+            if let Some(state) = locked_state.take() {
+                state.shutdown();
+                Status::Ok as i32
+            } else {
+                Status::Error as i32
+            }
+        }
+        Err(_) => Status::Error as i32,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn send_test_notification_to_gfx_thread(_data: i32) -> i32 {
+    match STATE.lock() {
+        Ok(locked_state) => {
+            if locked_state.is_some() {
+                Status::Ok as i32
+            } else {
+                Status::Error as i32
+            }
+        }
+        Err(_) => Status::Error as i32,
     }
 }

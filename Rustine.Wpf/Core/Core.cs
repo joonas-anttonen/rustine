@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace Rustine.Wpf.Core;
 
@@ -8,6 +9,7 @@ class Core : IDisposable
     bool isInitialized;
 
     readonly Log log = new();
+    Api.FfiLogCallback? logCallback;
 
     public bool IsInitialized => isInitialized;
 
@@ -16,7 +18,56 @@ class Core : IDisposable
         Debug.Assert(!isInitialized, "Core is already initialized.");
         isInitialized = true;
 
-        Api.Api.Initialize();
+        logCallback = OnRustLogEvent;
+        Api.Api.Initialize(logCallback);
+    }
+
+    private void OnRustLogEvent(in Api.FfiEvent ffiEvent)
+    {
+        try
+        {
+            // Convert severity
+            var severity = ffiEvent.Severity switch
+            {
+                0 => Log.Severity.Debug,
+                1 => Log.Severity.Information,
+                2 => Log.Severity.Warning,
+                3 => Log.Severity.Error,
+                _ => Log.Severity.Information,
+            };
+
+            // Convert message from unmanaged memory
+            string message = string.Empty;
+            unsafe
+            {
+                if (ffiEvent.Message != nint.Zero && ffiEvent.MessageLength > 0)
+                {
+                    message = Encoding.UTF8.GetString((byte*)ffiEvent.Message, (int)ffiEvent.MessageLength);
+                }
+            }
+
+            // Convert thread name from unmanaged memory
+            string threadName = "unknown";
+            unsafe
+            {
+                if (ffiEvent.Thread != nint.Zero && ffiEvent.ThreadLength > 0)
+                {
+                    threadName = Encoding.UTF8.GetString((byte*)ffiEvent.Thread, (int)ffiEvent.ThreadLength);
+                }
+            }
+
+            // Reconstruct DateTime from seconds and nanos
+            var epochTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var timestamp = epochTime.AddSeconds(ffiEvent.TimestampSecs).AddMilliseconds(ffiEvent.TimestampNanos / 1_000_000.0);
+
+            // Create a log event and append it
+            var logEvent = new Log.Event(severity, message, timestamp, threadName);
+            log.Append(logEvent);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error in FFI log callback: {ex.Message}");
+        }
     }
 
     protected virtual void Dispose(bool disposing)
@@ -29,6 +80,12 @@ class Core : IDisposable
         if (!isDisposed)
         {
             isDisposed = true;
+
+            if (isInitialized)
+            {
+                Api.Api.Terminate();
+                isInitialized = false;
+            }
         }
     }
 
@@ -67,6 +124,6 @@ class Core : IDisposable
 
     public void Render()
     {
-        
+
     }
 }
