@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-mod parameters;
-pub use parameters::ApiParameters;
 pub mod buffers;
 mod core;
 mod vma;
@@ -16,6 +14,21 @@ use std::fmt;
 use crate::warning;
 
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
+
+#[derive(Debug)]
+pub struct Extent2D {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Parameters for initializing the graphics API.
+#[derive(Debug)]
+pub struct StartupParameters {
+    pub enable_debugging: bool,
+    pub host_platform: Platform,
+    pub host_version: Version,
+    pub host_name: String,
+}
 
 pub struct PixelBuffer {
     image: vulkan_ffi::VkImage,
@@ -173,15 +186,15 @@ pub enum Platform {
     Wayland,
     X11,
     MacOS,
-    Unknown,
 }
 
 /// Represents the result of a graphics operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Success,
-    NotImplemented,
-    NotSupported,
+    NotImplemented(i32),
+    InvalidOperation(i32),
+    NotSupported(i32),
     Unknown(i32),
 }
 
@@ -190,18 +203,29 @@ impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Outcome::Success => write!(f, "Success"),
-            Outcome::NotSupported => write!(f, "Not supported"),
-            Outcome::NotImplemented => write!(f, "Not implemented"),
+            Outcome::InvalidOperation(code) => write!(f, "Invalid operation: {}", code),
+            Outcome::NotSupported(code) => write!(f, "Not supported: {}", code),
+            Outcome::NotImplemented(code) => write!(f, "Not implemented: {}", code),
             Outcome::Unknown(code) => write!(f, "Unknown error: {}", code),
         }
     }
 }
 
 impl Outcome {
+    pub fn to_code(&self) -> i32 {
+        match self {
+            Outcome::Success => 0,
+            Outcome::InvalidOperation(code) => *code,
+            Outcome::NotImplemented(code) => *code,
+            Outcome::NotSupported(code) => *code,
+            Outcome::Unknown(code) => *code,
+        }
+    }
+
     pub fn from_code(code: i32) -> Self {
         match code {
             0 => Outcome::Success,
-            -7 | -8 | -11 => Outcome::NotSupported, // Extension not present, feature not present, format not supported
+            -7 | -8 | -11 => Outcome::NotSupported(code), // Extension not present, feature not present, format not supported
             other => Outcome::Unknown(other),
         }
     }

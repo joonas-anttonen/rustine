@@ -13,6 +13,8 @@ pub struct Core {
     physical_device: PhysicalDevice,
     device: Arc<vulkan::Device>,
     instance: vulkan::Instance,
+    frame_n: u64,
+    frame_extent: Extent2D,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -27,6 +29,27 @@ impl Drop for Core {
 }
 
 impl Core {
+    pub fn new(
+        instance: vulkan::Instance,
+        physical_device: PhysicalDevice,
+        device: Arc<vulkan::Device>,
+        allocator: Arc<vma::Allocator>,
+        test_pixel_buffer: PixelBuffer,
+    ) -> Self {
+        Core {
+            instance,
+            physical_device,
+            device,
+            allocator,
+            test_pixel_buffer,
+            frame_n: 0,
+            frame_extent: Extent2D {
+                width: 0,
+                height: 0,
+            },
+        }
+    }
+
     /// Enumerates all available physical devices (GPUs) accessible via the Vulkan instance.
     pub fn enumerate_physical_devices(&self) -> result::Result<Vec<PhysicalDevice>, Outcome> {
         let devices = vulkan::enumerate_physical_devices(&self.instance)?;
@@ -34,7 +57,7 @@ impl Core {
     }
 
     /// Creates a new `CoreBuilder` to configure and build a `Core` instance.
-    pub fn builder(params: ApiParameters) -> CoreBuilder {
+    pub fn builder(params: StartupParameters) -> CoreBuilder {
         CoreBuilder::new(params)
     }
 
@@ -45,6 +68,18 @@ impl Core {
 
     pub fn vulkan_instance_handle(&self) -> vulkan_ffi::VkInstance {
         self.instance.handle()
+    }
+
+    pub fn next_frame(&mut self) -> u64 {
+        self.frame_n += 1;
+        self.frame_n
+    }
+
+    pub fn frame_extent(&self) -> &Extent2D {
+        &self.frame_extent
+    }
+    pub fn set_frame_extent(&mut self, extent: Extent2D) {
+        self.frame_extent = extent;
     }
 }
 
@@ -68,13 +103,13 @@ pub enum DeviceSelector {
 /// API parameter configuration and physical device selection strategy.
 #[derive(Debug)]
 pub struct CoreBuilder {
-    params: ApiParameters,
+    params: StartupParameters,
     selector: DeviceSelector,
 }
 
 impl CoreBuilder {
     /// Creates a new `CoreBuilder` with the given API parameters.
-    pub fn new(params: ApiParameters) -> Self {
+    pub fn new(params: StartupParameters) -> Self {
         Self {
             params,
             selector: DeviceSelector::Optimal,
@@ -145,7 +180,7 @@ impl CoreBuilder {
 
             match selected {
                 Some(d) => d,
-                None => return Err(Outcome::NotSupported),
+                None => return Err(Outcome::NotSupported(-1)),
             }
         };
 
@@ -167,12 +202,12 @@ impl CoreBuilder {
             ImageSamples::X1,
         )?;
 
-        Ok(Core {
-            test_pixel_buffer: test_pixel_buffer,
+        Ok(Core::new(
+            vk_instance,
+            selected_device,
+            vk_device,
             allocator,
-            physical_device: selected_device,
-            device: vk_device,
-            instance: vk_instance,
-        })
+            test_pixel_buffer,
+        ))
     }
 }

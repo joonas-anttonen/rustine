@@ -1,4 +1,5 @@
 /// Represents a version.
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
     pub major: u32,

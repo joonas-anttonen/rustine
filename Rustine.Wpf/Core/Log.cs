@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Runtime.CompilerServices;
 
 namespace Rustine.Wpf.Core;
 
@@ -35,16 +34,16 @@ public sealed partial class Log : IDisposable
             {
                 return level switch
                 {
-                    Severity.Error => "ERROR",
-                    Severity.Warning => "WARNING",
-                    Severity.Information => "INFO",
-                    Severity.Debug => "DEBUG",
-                    _ => "UNKNOWN",
+                    Severity.Error => "R",
+                    Severity.Warning => "W",
+                    Severity.Information => "I",
+                    Severity.Debug => "D",
+                    _ => throw new ArgumentOutOfRangeException(nameof(level), "Unknown severity level"),
                 };
             }
 
-            string iso8601Timestamp = Timestamp.ToString("o", CultureInfo.InvariantCulture);
-            return $"[{ThreadName}] [{(iso8601 ? iso8601Timestamp : Timestamp)}] [{SeverityToString(Severity)}] {Message}";
+            string iso8601Timestamp = $" [{Timestamp.ToString("o", CultureInfo.InvariantCulture)}] ";
+            return $"[{ThreadName}]{(iso8601 ? iso8601Timestamp : "")}[{SeverityToString(Severity)}] {Message}";
         }
     }
 
@@ -52,14 +51,11 @@ public sealed partial class Log : IDisposable
 
     bool isDisposed;
 
-    readonly ConcurrentDictionary<string, Logger> loggers = [];
+    // Named thread registry
     readonly ConcurrentDictionary<int, string> threadNames = [];
 
-    public event LogEventHandler? Appended;
-
-    public long MaximumFileSize { get; set; } = 10 * 1024 * 1024 /* 10 MB */;
-
-    public string Path { get; } = string.Empty;
+    // Listener registry
+    readonly ConcurrentDictionary<ILogListener, byte> listeners = new();
 
     /// <summary>
     /// Creates a new instance of <see cref="Log"/>.
@@ -69,6 +65,9 @@ public sealed partial class Log : IDisposable
         RegisterCurrentThreadName("Main");
 
         AttachConsole(ATTACH_PARENT_PROCESS);
+
+        // Register default console listener
+        AddListener(new ConsoleLogListener());
     }
 
     public void Dispose()
@@ -79,21 +78,10 @@ public sealed partial class Log : IDisposable
         }
     }
 
-    public Logger GetLogger<T>(bool enableTypeName = true, bool enableCallerName = true)
+    // Listener management
+    public void AddListener(ILogListener listener)
     {
-        return GetLogger(typeof(T).Name, enableTypeName, enableCallerName);
-    }
-
-    public Logger GetLogger(string name, bool enableTypeName = true, bool enableCallerName = true)
-    {
-        if (loggers.TryGetValue(name, out Logger? logger))
-        {
-            return logger;
-        }
-
-        logger = new Logger(this, name, enableTypeName, enableCallerName);
-        _ = loggers.TryAdd(name, logger);
-        return logger;
+        listeners.TryAdd(listener, 0);
     }
 
     /// <summary>
@@ -110,45 +98,15 @@ public sealed partial class Log : IDisposable
     /// Logs a message to the global application log.
     /// Use <see cref="GetLogger"/> to get a instance of <see cref="Logger"/> which can be easier to use.
     /// </summary>
-    public void Append(Severity severity, string message, string typeName = "", [CallerMemberName] string callerName = "")
+    public void Append(Severity severity, string message, string typeName)
     {
         Event ev = new(
             Severity: severity,
-            Message: SynthesizeMessage(message, typeName, callerName),
+            Message: $"{typeName} {message}",
             Timestamp: DateTime.Now,
             ThreadName: threadNames.TryGetValue(Environment.CurrentManagedThreadId, out string? threadName) ? threadName : $"{Environment.CurrentManagedThreadId}");
 
         Append(ev);
-    }
-
-    /// <summary>
-    /// Synthesizes a log message from the provided components. <br/>
-    /// If both <paramref name="typeName"/> and <paramref name="callerName"/> are provided, the format will be: <br/>
-    /// {typeName}::{callerName} {message} <br/>
-    /// If only <paramref name="typeName"/> is provided, the format will be: <br/>
-    /// {typeName} {message} <br/>
-    /// If only <paramref name="callerName"/> is provided, the format will be: <br/>
-    /// {callerName} {message} <br/>
-    /// If neither is provided, the format will be: <br/>
-    /// {message}
-    /// </summary>
-    /// <param name="message"></param>
-    /// <param name="typeName"></param>
-    /// <param name="callerName"></param>
-    public static string SynthesizeMessage(string message, string typeName, string callerName)
-    {
-        const string TypedCallerFormat = "{0}::{1} {2}";
-        const string TypedFormat = "{0} {1}";
-        const string PlainFormat = "{0}";
-
-        string logMsg = (string.IsNullOrEmpty(typeName), string.IsNullOrEmpty(callerName)) switch
-        {
-            (true, true) => string.Format(CultureInfo.InvariantCulture, PlainFormat, message),
-            (true, false) => string.Format(CultureInfo.InvariantCulture, TypedFormat, callerName, message),
-            (false, true) => string.Format(CultureInfo.InvariantCulture, TypedFormat, typeName, message),
-            (false, false) => string.Format(CultureInfo.InvariantCulture, TypedCallerFormat, typeName, callerName, message),
-        };
-        return logMsg;
     }
 
     /// <summary>
@@ -157,67 +115,48 @@ public sealed partial class Log : IDisposable
     /// <param name="ev"></param>
     public void Append(Event ev)
     {
-        // Console
+        // Dispatch to listeners
+        foreach (var listener in listeners.Keys)
         {
-            var previousColor = Console.ForegroundColor;
-            Console.ForegroundColor = ev.Severity switch
-            {
-                Severity.Error => ConsoleColor.Red,
-                Severity.Warning => ConsoleColor.Yellow,
-                Severity.Information => ConsoleColor.White,
-                Severity.Debug => ConsoleColor.Blue,
-                _ => previousColor,
-            };
-            Console.WriteLine(ev.ToString(iso8601: false));
-            Console.ForegroundColor = previousColor;
+            try { listener.OnLog(ev); }
+            catch { /* swallow listener exceptions to not block logging */ }
         }
     }
+
+    // Convenience methods mirroring severity-specific logging used previously
+    public void Error<T>(string message)
+        => Append(Severity.Error, message, typeof(T).Name);
+
+    public void Warning<T>(string message)
+        => Append(Severity.Warning, message, typeof(T).Name);
+
+    public void Info<T>(string message)
+        => Append(Severity.Information, message, typeof(T).Name);
+
+    public void Debug<T>(string message)
+        => Append(Severity.Debug, message, typeof(T).Name);
 }
 
-public class Logger(Log applicationLog, string typeName, bool enableTypeName = true, bool enableCallerName = true)
+// Listener contract and default console implementation
+public interface ILogListener
 {
-    readonly Log log = applicationLog;
-    readonly string typeName = typeName;
-    readonly bool enableTypeName = enableTypeName;
-    readonly bool enableCallerName = enableCallerName;
+    void OnLog(Log.Event ev);
+}
 
-    /// <summary>
-    /// Logs an error message.
-    /// </summary>
-    /// <param name="message"></param>
-    /// <param name="callerName"></param>
-    public void Error(string message = "", [CallerMemberName] string callerName = "")
+public sealed class ConsoleLogListener : ILogListener
+{
+    public void OnLog(Log.Event ev)
     {
-        log.Append(Log.Severity.Error, message, enableTypeName ? typeName : string.Empty, enableCallerName ? callerName : string.Empty);
-    }
-
-    /// <summary>
-    /// Logs a warning message.
-    /// </summary>
-    /// <param name="message"></param>
-    /// <param name="callerName"></param>
-    public void Warning(string message = "", [CallerMemberName] string callerName = "")
-    {
-        log.Append(Log.Severity.Warning, message, enableTypeName ? typeName : string.Empty, enableCallerName ? callerName : string.Empty);
-    }
-
-    /// <summary>
-    /// Logs an information message.
-    /// </summary>
-    /// <param name="message"></param>
-    /// <param name="callerName"></param>
-    public void Info(string message = "", [CallerMemberName] string callerName = "")
-    {
-        log.Append(Log.Severity.Information, message, enableTypeName ? typeName : string.Empty, enableCallerName ? callerName : string.Empty);
-    }
-
-    /// <summary>
-    /// Logs a debug message.
-    /// </summary>
-    /// <param name="message"></param>
-    /// <param name="callerName"></param>
-    public void Debug(string message = "", [CallerMemberName] string callerName = "")
-    {
-        log.Append(Log.Severity.Debug, message, enableTypeName ? typeName : string.Empty, enableCallerName ? callerName : string.Empty);
+        var previousColor = Console.ForegroundColor;
+        Console.ForegroundColor = ev.Severity switch
+        {
+            Log.Severity.Error => ConsoleColor.Red,
+            Log.Severity.Warning => ConsoleColor.Yellow,
+            Log.Severity.Information => ConsoleColor.White,
+            Log.Severity.Debug => ConsoleColor.Blue,
+            _ => previousColor,
+        };
+        Console.WriteLine(ev.ToString(iso8601: false));
+        Console.ForegroundColor = previousColor;
     }
 }

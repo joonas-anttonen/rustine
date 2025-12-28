@@ -12,14 +12,11 @@ fn main() {
     info!("Enter");
 
     {
-        let params = gfx::ApiParameters {
+        let params = gfx::StartupParameters {
             enable_debugging: true,
-            platform: gfx::Platform::Windows,
-            required_api_version: Version::new(1, 4, 0),
-            app_version: Version::new(0, 1, 0),
-            app_engine_version: Version::new(0, 1, 0),
-            app_name: "Rustine".to_string(),
-            app_engine_name: "Rustine".to_string(),
+            host_platform: gfx::Platform::Windows,
+            host_version: Version::new(0, 1, 0),
+            host_name: "rustine-app".to_string(),
         };
 
         let gfx_core = match gfx::Core::builder(params).select_optimal_device().build() {

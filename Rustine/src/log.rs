@@ -158,62 +158,6 @@ impl LogListener for ConsoleLogListener {
     fn flush(&self) {}
 }
 
-// FFI version of `Event`.
-#[repr(C)]
-pub struct FfiEvent {
-    pub severity: i32,
-    pub timestamp_secs: u64,
-    pub timestamp_nanos: u32,
-    pub message: *const u8,
-    pub message_length: usize,
-    pub origin: *const u8,
-    pub origin_length: usize,
-    pub thread: *const u8,
-    pub thread_length: usize,
-}
-
-/// A log listener that invokes a foreign function interface (FFI) callback.
-pub struct FfiCallbackListener {
-    callback: unsafe extern "C" fn(event: *const FfiEvent),
-}
-
-impl FfiCallbackListener {
-    /// Creates a new FFI callback listener with the specified function.
-    pub fn new(callback: unsafe extern "C" fn(event: *const FfiEvent)) -> Self {
-        Self { callback }
-    }
-}
-
-impl LogListener for FfiCallbackListener {
-    fn append(&self, event: &Event) {
-        let duration = event
-            .timestamp
-            .duration_since(time::UNIX_EPOCH)
-            .unwrap_or_default();
-        let ffi_event = FfiEvent {
-            severity: match event.severity {
-                Severity::Debug => 0,
-                Severity::Info => 1,
-                Severity::Warning => 2,
-                Severity::Error => 3,
-            },
-            timestamp_secs: duration.as_secs(),
-            timestamp_nanos: duration.subsec_nanos(),
-            message: event.message.as_ptr(),
-            message_length: event.message.len(),
-            origin: event.origin.as_ptr(),
-            origin_length: event.origin.len(),
-            thread: event.thread.as_ptr(),
-            thread_length: event.thread.len(),
-        };
-        unsafe {
-            (self.callback)(&ffi_event as *const FfiEvent);
-        }
-    }
-
-    fn flush(&self) {}
-}
-
 /// The main logging system that manages listeners and distributes log events.
 ///
 /// Log events are collected with metadata (severity, timestamp, origin) and

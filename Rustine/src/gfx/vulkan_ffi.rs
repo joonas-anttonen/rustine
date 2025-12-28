@@ -201,6 +201,19 @@ pub type VkImage = *mut std::ffi::c_void;
 pub type VkImageView = *mut std::ffi::c_void;
 pub type VkBuffer = *mut std::ffi::c_void;
 
+#[repr(C)]
+pub struct VkExtent2D {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[repr(C)]
+pub struct VkExtent3D {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+}
+
 pub type PFN_vkCreateDebugUtilsMessengerEXT = Option<
     unsafe extern "C" fn(
         VkInstance,
@@ -947,13 +960,6 @@ pub struct VkSubmitInfo {
 }
 
 #[repr(C)]
-pub struct VkExtent3D {
-    pub width: u32,
-    pub height: u32,
-    pub depth: u32,
-}
-
-#[repr(C)]
 pub struct VkQueueFamilyProperties {
     pub queueFlags: u32,
     pub queueCount: u32,
@@ -980,7 +986,7 @@ pub struct VkPhysicalDeviceIDProperties {
     pub sType: u32,
     pub pNext: *const std::ffi::c_void,
     pub deviceUUID: [u8; 16],
-    pub driverUUID: [u8; 8],
+    pub driverUUID: [u8; 16],
     pub deviceLUID: [u8; 8],
     pub deviceNodeMask: u32,
     pub deviceLUIDValid: u32,

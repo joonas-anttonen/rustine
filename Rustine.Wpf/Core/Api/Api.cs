@@ -2,12 +2,20 @@ using System.Runtime.InteropServices;
 
 namespace Rustine.Wpf.Core.Api;
 
-enum Status : int
+public enum Status : int
 {
-    Ok = 0,
-    Error = 1,
+    Error = -1,
+    Success = 0,
     NotSupported = 2,
     InvalidOperation = 3,
+}
+
+public enum Platform : int
+{
+    Windows = 0,
+    Wayland = 1,
+    X11 = 2,
+    MacOS = 3,
 }
 
 /// <summary>
@@ -27,18 +35,49 @@ public struct FfiEvent
     public nuint ThreadLength;        // Length of thread name
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public struct StartupParameters
+{
+    public nint Callback;
+    public uint EnableDebugging;
+    public ulong PhysicalDeviceId;
+    public Platform HostPlatform;
+    public Version HostVersion;
+    public nint HostName;         // Pointer to UTF-8 bytes
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct PresentationParameters
+{
+    public uint Width;
+    public uint Height;
+    public nint SurfaceHandle;
+    public nint SurfaceSyncHandle;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct Version(int Major, int Minor, int Patch)
+{
+    public uint Major = (uint)Major;
+    public uint Minor = (uint)Minor;
+    public uint Patch = (uint)Patch;
+}
+
 /// <summary>
 /// Delegate for the log callback function that receives FFI events from Rust.
 /// </summary>
-public delegate void FfiLogCallback(in FfiEvent ffiEvent);
+public delegate void RustineLogCallback(in FfiEvent ffiEvent);
 
 static partial class Api
 {
     const string LibraryName = "rustine";
 
-    [LibraryImport(LibraryName, EntryPoint = "initialize")]
-    public static partial Status Initialize(FfiLogCallback callback);
+    [LibraryImport(LibraryName, EntryPoint = "rustine_startup")]
+    public static partial Status Startup(nint startupParameters);
 
-    [LibraryImport(LibraryName, EntryPoint = "terminate")]
-    public static partial Status Terminate();
+    [LibraryImport(LibraryName, EntryPoint = "rustine_shutdown")]
+    public static partial Status Shutdown();
+
+    [LibraryImport(LibraryName, EntryPoint = "rustine_gfx_initialize_presentation")]
+    public static partial Status InitializePresentation(nint presentationParameters);
 }

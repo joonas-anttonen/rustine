@@ -382,7 +382,7 @@ unsafe extern "C" fn vulkan_debug_callback(
 }
 
 pub fn create_device(
-    parameters: &super::ApiParameters,
+    parameters: &super::StartupParameters,
     physical_device: ffi::VkPhysicalDevice,
 ) -> Result<Device> {
     let available_device_extensions: collections::HashSet<std::ffi::CString> =
@@ -393,7 +393,7 @@ pub fn create_device(
     let mut enabled_extensions_cstrings: Vec<std::ffi::CString> = Vec::new();
     enabled_extensions_cstrings.push(std::ffi::CString::new("VK_KHR_swapchain").unwrap());
 
-    if parameters.platform == Platform::Windows {
+    if parameters.host_platform == Platform::Windows {
         let external_memory_win32_name = c"VK_KHR_external_memory_win32";
         if available_device_extensions.contains(external_memory_win32_name) {
             warning!("Enabling external memory Win32 extension");
@@ -430,7 +430,7 @@ pub fn create_device(
     let general_queue_family_index = queue_family_properties
         .iter()
         .position(|qf| (qf.queueFlags & ffi::VkQueueFlags::GRAPHICS_BIT as u32) != 0)
-        .ok_or(Outcome::NotSupported)?;
+        .ok_or(Outcome::NotSupported(-1))?;
     let queue_priority: f32 = 1.0;
     let queue_create_info = ffi::VkDeviceQueueCreateInfo {
         sType: ffi::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
@@ -480,7 +480,7 @@ pub fn create_device(
 }
 
 /// Creates a Vulkan instance based on the provided parameters.
-pub fn create_instance(parameters: &super::ApiParameters) -> Result<Instance> {
+pub fn create_instance(parameters: &super::StartupParameters) -> Result<Instance> {
     // 1. Get available instance layers and extensions
     let available_layers: collections::HashSet<std::ffi::CString> =
         enumerate_instance_layers()?.into_iter().collect();
@@ -493,7 +493,7 @@ pub fn create_instance(parameters: &super::ApiParameters) -> Result<Instance> {
     // 2. Add platform-specific surface extensions
     enabled_extensions.push(std::ffi::CString::new("VK_KHR_surface").unwrap());
 
-    match parameters.platform {
+    match parameters.host_platform {
         Platform::Windows => {
             enabled_extensions.push(std::ffi::CString::new("VK_KHR_win32_surface").unwrap());
         }
@@ -506,7 +506,7 @@ pub fn create_instance(parameters: &super::ApiParameters) -> Result<Instance> {
         }
         // Error if unsupported platform
         _ => {
-            return Err(Outcome::NotSupported);
+            return Err(Outcome::NotSupported(-1));
         }
     }
 
@@ -523,8 +523,8 @@ pub fn create_instance(parameters: &super::ApiParameters) -> Result<Instance> {
     }
 
     // 4. Create the Vulkan instance
-    let app_name_cstring = std::ffi::CString::new(parameters.app_name.as_str()).unwrap();
-    let engine_name_cstring = std::ffi::CString::new(parameters.app_engine_name.as_str()).unwrap();
+    let app_name_cstring = std::ffi::CString::new(parameters.host_name.as_str()).unwrap();
+    let engine_name_cstring = std::ffi::CString::new("Rustine").unwrap();
     let enabled_layers_ptrs: Vec<*const std::ffi::c_char> =
         enabled_layers.iter().map(|cs| cs.as_ptr()).collect();
     let enabled_extensions_ptrs: Vec<*const std::ffi::c_char> =
@@ -534,9 +534,9 @@ pub fn create_instance(parameters: &super::ApiParameters) -> Result<Instance> {
         sType: ffi::VkStructureType::APPLICATION_INFO as u32,
         pNext: ptr::null(),
         pApplicationName: app_name_cstring.as_ptr(),
-        applicationVersion: parameters.app_version.to_vk_version(),
+        applicationVersion: parameters.host_version.to_vk_version(),
         pEngineName: engine_name_cstring.as_ptr(),
-        engineVersion: parameters.app_engine_version.to_vk_version(),
+        engineVersion: Version::new(1, 0, 0).to_vk_version(),
         apiVersion: MINIMUM_VULKAN_API_VERSION.to_vk_version(),
     };
 
@@ -577,7 +577,7 @@ pub fn create_instance(parameters: &super::ApiParameters) -> Result<Instance> {
         };
 
         if create_debug_fn.is_none() {
-            return Err(Outcome::NotSupported);
+            return Err(Outcome::NotSupported(-1));
         }
 
         warning!("Debugging Enabled");

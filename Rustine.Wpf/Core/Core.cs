@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text;
 
+using Rustine.Wpf.Core.Api;
+
 namespace Rustine.Wpf.Core;
 
 class Core : IDisposable
@@ -9,7 +11,7 @@ class Core : IDisposable
     bool isInitialized;
 
     readonly Log log = new();
-    Api.FfiLogCallback? logCallback;
+    RustineLogCallback? logCallback;
 
     public bool IsInitialized => isInitialized;
 
@@ -18,15 +20,52 @@ class Core : IDisposable
         Debug.Assert(!isInitialized, "Core is already initialized.");
         isInitialized = true;
 
-        logCallback = OnRustLogEvent;
-        Api.Api.Initialize(logCallback);
+        log.Debug<Core>(nameof(Initialize));
+        logCallback = OnRustineEvent;
+
+        StartupRustine(interopAdapterLuid);
     }
 
-    private void OnRustLogEvent(in Api.FfiEvent ffiEvent)
+    void StartupRustine(ulong interopAdapterLuid)
+    {
+        unsafe
+        {
+            string hostName = "Rustine.Wpf";
+            Span<byte> hostNameBytes = stackalloc byte[1024];
+            int hostNameLength = Encoding.UTF8.GetBytes(hostName.AsSpan(), hostNameBytes);
+            hostNameBytes[Math.Min(hostNameLength, hostNameBytes.Length - 1)] = 0;
+
+            var startupParameters = new StartupParameters
+            {
+                Callback = System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(logCallback!),
+                EnableDebugging = 1,
+                PhysicalDeviceId = interopAdapterLuid,
+                HostPlatform = Platform.Windows,
+                HostVersion = new Api.Version(0, 1, 0),
+                HostName = (nint)System.Runtime.CompilerServices.Unsafe.AsPointer(ref hostNameBytes[0])
+            };
+
+            Status status = Api.Api.Startup((nint)(&startupParameters));
+            if (status != Status.Success)
+            {
+                log.Error<Core>($"Failed to start Rustine core. Status: {status}");
+            }
+        }
+    }
+
+    void ShutdownRustine()
+    {
+        Status status = Api.Api.Shutdown();
+        if (status != Status.Success)
+        {
+            log.Error<Core>($"Failed to shut down Rustine core. Status: {status}");
+        }
+    }
+
+    void OnRustineEvent(in FfiEvent ffiEvent)
     {
         try
         {
-            // Convert severity
             var severity = ffiEvent.Severity switch
             {
                 0 => Log.Severity.Debug,
@@ -36,32 +75,25 @@ class Core : IDisposable
                 _ => Log.Severity.Information,
             };
 
-            // Convert message from unmanaged memory
             string message = string.Empty;
+            string thread = "unknown";
             unsafe
             {
                 if (ffiEvent.Message != nint.Zero && ffiEvent.MessageLength > 0)
                 {
                     message = Encoding.UTF8.GetString((byte*)ffiEvent.Message, (int)ffiEvent.MessageLength);
                 }
-            }
 
-            // Convert thread name from unmanaged memory
-            string threadName = "unknown";
-            unsafe
-            {
                 if (ffiEvent.Thread != nint.Zero && ffiEvent.ThreadLength > 0)
                 {
-                    threadName = Encoding.UTF8.GetString((byte*)ffiEvent.Thread, (int)ffiEvent.ThreadLength);
+                    thread = Encoding.UTF8.GetString((byte*)ffiEvent.Thread, (int)ffiEvent.ThreadLength);
                 }
             }
 
-            // Reconstruct DateTime from seconds and nanos
             var epochTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             var timestamp = epochTime.AddSeconds(ffiEvent.TimestampSecs).AddMilliseconds(ffiEvent.TimestampNanos / 1_000_000.0);
 
-            // Create a log event and append it
-            var logEvent = new Log.Event(severity, message, timestamp, threadName);
+            var logEvent = new Log.Event(severity, message, timestamp, thread);
             log.Append(logEvent);
         }
         catch (Exception ex)
@@ -83,7 +115,7 @@ class Core : IDisposable
 
             if (isInitialized)
             {
-                Api.Api.Terminate();
+                ShutdownRustine();
                 isInitialized = false;
             }
         }
@@ -104,6 +136,23 @@ class Core : IDisposable
     {
         if (!IsInitialized)
             return;
+
+        unsafe
+        {
+            var renderParameters = new PresentationParameters
+            {
+                Width = presentWidth,
+                Height = presentHeight,
+                SurfaceHandle = presentTextureHandle,
+                SurfaceSyncHandle = nint.Zero
+            };
+            
+            Status status = Api.Api.InitializePresentation((nint)(&renderParameters));
+            if (status != Status.Success)
+            {
+                log.Error<Core>($"Failed to initialize Rustine presentation. Status: {status}");
+            }
+        }
 
         //scene.InitializePresenting(
         //    format: Interop.Vulkan.Format.B8G8R8A8Unorm,
