@@ -395,10 +395,16 @@ pub fn create_device(
 
     if parameters.host_platform == Platform::Windows {
         let external_memory_win32_name = c"VK_KHR_external_memory_win32";
+        let keyed_mutex_win32_name = c"VK_KHR_win32_keyed_mutex";
         if available_device_extensions.contains(external_memory_win32_name) {
-            warning!("Enabling external memory Win32 extension");
+            warning!("Enabling VK_KHR_external_memory_win32");
             enabled_extensions_cstrings
-                .push(std::ffi::CString::new("VK_KHR_external_memory_win32").unwrap());
+                .push(std::ffi::CString::new(external_memory_win32_name.to_owned()).unwrap());
+        }
+        if available_device_extensions.contains(keyed_mutex_win32_name) {
+            warning!("Enabling VK_KHR_win32_keyed_mutex");
+            enabled_extensions_cstrings
+                .push(std::ffi::CString::new(keyed_mutex_win32_name.to_owned()).unwrap());
         }
     }
 
@@ -491,17 +497,22 @@ pub fn create_instance(parameters: &super::StartupParameters) -> Result<Instance
     let mut enabled_extensions: Vec<std::ffi::CString> = Vec::new();
 
     // 2. Add platform-specific surface extensions
+    warning!("Enabling VK_KHR_surface");
     enabled_extensions.push(std::ffi::CString::new("VK_KHR_surface").unwrap());
 
     match parameters.host_platform {
         Platform::Windows => {
+            warning!("Enabling VK_KHR_win32_surface");
             enabled_extensions.push(std::ffi::CString::new("VK_KHR_win32_surface").unwrap());
         }
         Platform::X11 => {
+            warning!("Enabling VK_KHR_xlib_surface");
+            warning!("Enabling VK_KHR_xcb_surface");
             enabled_extensions.push(std::ffi::CString::new("VK_KHR_xlib_surface").unwrap());
             enabled_extensions.push(std::ffi::CString::new("VK_KHR_xcb_surface").unwrap());
         }
         Platform::Wayland => {
+            warning!("Enabling VK_KHR_wayland_surface");
             enabled_extensions.push(std::ffi::CString::new("VK_KHR_wayland_surface").unwrap());
         }
         // Error if unsupported platform
@@ -518,6 +529,8 @@ pub fn create_instance(parameters: &super::StartupParameters) -> Result<Instance
 
     let enable_debugging = parameters.enable_debugging && validation_present && debug_utils_present;
     if enable_debugging {
+        warning!("Enabling VK_LAYER_KHRONOS_validation");
+        warning!("Enabling VK_EXT_debug_utils");
         enabled_layers.push(validation_name.to_owned());
         enabled_extensions.push(debug_utils_name.to_owned());
     }
@@ -579,8 +592,6 @@ pub fn create_instance(parameters: &super::StartupParameters) -> Result<Instance
         if create_debug_fn.is_none() {
             return Err(Outcome::NotSupported(-1));
         }
-
-        warning!("Debugging Enabled");
 
         // Create debug messenger info
         let debug_create_info = ffi::VkDebugUtilsMessengerCreateInfoEXT {

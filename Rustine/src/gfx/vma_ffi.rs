@@ -51,7 +51,7 @@ unsafe extern "C" {
         allocator: VmaAllocator,
         pImageCreateInfo: *const VkImageCreateInfo,
         pAllocationCreateInfo: *const VmaAllocationCreateInfo,
-        pMemoryAllocateNext: *mut std::ffi::c_void,
+        pMemoryAllocateNext: *const std::ffi::c_void,
         pImage: *mut VkImage,
         pAllocation: *mut VmaAllocation,
         pAllocationInfo: *mut VmaAllocationInfo,

@@ -60,7 +60,7 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, shutdown_signal: Arc<atomic::
 
             info!("frame {} {:?}", core.next_frame(), core.frame_extent());
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
     info!("gfx thread stopped");
@@ -152,6 +152,18 @@ pub extern "C" fn rustine_gfx_initialize_presentation(
         width: in_params.width,
         height: in_params.height,
     });
+
+    let _res = gfx_core_locked.allocator().create_external_pixel_buffer(
+        gfx::Format::B8G8R8A8_UNORM,
+        in_params.width,
+        in_params.height,
+        gfx::ImageUsage::COLOR_ATTACHMENT,
+        gfx::ImageAspect::COLOR,
+        in_params.surface_handle,
+    );
+    if _res.is_err() {
+        return Outcome::NotSupported(-1).to_code();
+    }
 
     Outcome::Success.to_code()
 }

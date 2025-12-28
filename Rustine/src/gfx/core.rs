@@ -70,6 +70,10 @@ impl Core {
         self.instance.handle()
     }
 
+    pub fn allocator(&self) -> &Arc<vma::Allocator> {
+        &self.allocator
+    }
+
     pub fn next_frame(&mut self) -> u64 {
         self.frame_n += 1;
         self.frame_n

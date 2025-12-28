@@ -202,6 +202,65 @@ pub type VkImageView = *mut std::ffi::c_void;
 pub type VkBuffer = *mut std::ffi::c_void;
 
 #[repr(C)]
+pub struct VkImportMemoryWin32HandleInfoKHR {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub handleType: u32,
+    pub handle: *const std::ffi::c_void,
+    pub name: *const std::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct VkMemoryDedicatedAllocateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub image: VkImage,
+    pub buffer: VkBuffer,
+}
+
+#[repr(C)]
+pub struct VkExternalMemoryImageCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub handleTypes: u32,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkExternalMemoryHandleTypeFlags {
+    OPAQUE_FD_BIT = 0x00000001,
+    OPAQUE_WIN32_BIT = 0x00000002,
+    OPAQUE_WIN32_KMT_BIT = 0x00000004,
+    D3D11_TEXTURE_BIT = 0x00000008,
+    D3D11_TEXTURE_KMT_BIT = 0x00000010,
+    D3D12_HEAP_BIT = 0x00000020,
+    D3D12_RESOURCE_BIT = 0x00000040,
+    DMA_BUF_BIT_EXT = 0x00000200,
+    ANDROID_HARDWARE_BUFFER_BIT_ANDROID = 0x00000400,
+    HOST_ALLOCATION_BIT_EXT = 0x00000080,
+    HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT = 0x00000100,
+    ZIRCON_VMO_BIT_FUCHSIA = 0x00000800,
+    RDMA_ADDRESS_BIT_NV = 0x00001000,
+    SCREEN_BUFFER_BIT_QNX = 0x00004000,
+    MTLBUFFER_BIT_EXT = 0x00010000,
+    MTLTEXTURE_BIT_EXT = 0x00020000,
+    MTLHEAP_BIT_EXT = 0x00040000,
+}
+
+#[repr(C)]
+pub struct VkWin32KeyedMutexAcquireReleaseInfoKHR {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub acquireCount: u32,
+    pub pAcquireSyncs: *const VkDeviceMemory,
+    pub pAcquireKeys: *const u64,
+    pub pAcquireTimeouts: *const u32,
+    pub releaseCount: u32,
+    pub pReleaseSyncs: *const VkDeviceMemory,
+    pub pReleaseKeys: *const u64,
+}
+
+#[repr(C)]
 pub struct VkExtent2D {
     pub width: u32,
     pub height: u32,
@@ -1178,7 +1237,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES = 1000071003,
     PHYSICAL_DEVICE_ID_PROPERTIES = 1000071004,
     VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO = 1000072000,
-    VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO = 1000072001,
+    EXTERNAL_MEMORY_IMAGE_CREATE_INFO = 1000072001,
     VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO = 1000072002,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_FENCE_INFO = 1000112000,
     VK_STRUCTURE_TYPE_EXTERNAL_FENCE_PROPERTIES = 1000112001,
@@ -1440,7 +1499,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_VI_SURFACE_CREATE_INFO_NN = 1000062000,
     VK_STRUCTURE_TYPE_IMAGE_VIEW_ASTC_DECODE_MODE_EXT = 1000067000,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ASTC_DECODE_FEATURES_EXT = 1000067001,
-    VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR = 1000073000,
+    IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR = 1000073000,
     VK_STRUCTURE_TYPE_EXPORT_MEMORY_WIN32_HANDLE_INFO_KHR = 1000073001,
     VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHR = 1000073002,
     VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR = 1000073003,
