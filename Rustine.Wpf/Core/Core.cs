@@ -78,23 +78,27 @@ class Core : IDisposable
 
             string message = string.Empty;
             string thread = "unknown";
+            string origin = "unknown";
             unsafe
             {
                 if (ffiEvent.Message != nint.Zero && ffiEvent.MessageLength > 0)
                 {
                     message = Encoding.UTF8.GetString((byte*)ffiEvent.Message, (int)ffiEvent.MessageLength);
                 }
-
                 if (ffiEvent.Thread != nint.Zero && ffiEvent.ThreadLength > 0)
                 {
                     thread = Encoding.UTF8.GetString((byte*)ffiEvent.Thread, (int)ffiEvent.ThreadLength);
+                }
+                if (ffiEvent.Origin != nint.Zero && ffiEvent.OriginLength > 0)
+                {
+                    origin = Encoding.UTF8.GetString((byte*)ffiEvent.Origin, (int)ffiEvent.OriginLength);
                 }
             }
 
             var epochTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             var timestamp = epochTime.AddSeconds(ffiEvent.TimestampSecs).AddMilliseconds(ffiEvent.TimestampNanos / 1_000_000.0);
 
-            var logEvent = new Log.Event(severity, message, timestamp, thread);
+            var logEvent = new Log.Event(severity, message, timestamp, thread, origin);
             log.Append(logEvent);
         }
         catch (Exception ex)
@@ -147,7 +151,7 @@ class Core : IDisposable
                 SurfaceHandle = presentTextureHandle,
                 SurfaceSyncHandle = nint.Zero
             };
-            
+
             Status status = Api.Api.InitializePresentation((nint)(&renderParameters));
             if (status != Status.Success)
             {
