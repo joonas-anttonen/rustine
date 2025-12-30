@@ -32,6 +32,11 @@ unsafe extern "C" {
         instance: VkInstance,
         pName: *const ffi::c_char,
     ) -> Option<unsafe extern "C" fn()>;
+    pub fn vkDestroySurfaceKHR(
+        instance: VkInstance,
+        surface: VkSurfaceKHR,
+        pAllocator: *const std::ffi::c_void,
+    );
 
     // ========= Physical Device ==========
 
@@ -72,6 +77,29 @@ unsafe extern "C" {
         pQueueFamilyPropertyCount: *mut u32,
         pQueueFamilyProperties: *mut VkQueueFamilyProperties,
     );
+    pub fn vkGetPhysicalDeviceSurfaceSupportKHR(
+        physicalDevice: VkPhysicalDevice,
+        queueFamilyIndex: u32,
+        surface: VkSurfaceKHR,
+        pSupported: *mut u32,
+    ) -> i32;
+    pub fn vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+        physicalDevice: VkPhysicalDevice,
+        surface: VkSurfaceKHR,
+        pSurfaceCapabilities: *mut VkSurfaceCapabilitiesKHR,
+    ) -> i32;
+    pub fn vkGetPhysicalDeviceSurfaceFormatsKHR(
+        physicalDevice: VkPhysicalDevice,
+        surface: VkSurfaceKHR,
+        pSurfaceFormatCount: *mut u32,
+        pSurfaceFormats: *mut VkSurfaceFormatKHR,
+    ) -> i32;
+    pub fn vkGetPhysicalDeviceSurfacePresentModesKHR(
+        physicalDevice: VkPhysicalDevice,
+        surface: VkSurfaceKHR,
+        pPresentModeCount: *mut u32,
+        pPresentModes: *mut VkPresentModeKHR,
+    ) -> i32;
 
     // ========= Device ==========
 
@@ -155,48 +183,6 @@ unsafe extern "C" {
         imageView: VkImageView,
         pAllocator: *const std::ffi::c_void,
     );
-
-    // ========= Queue ==========
-
-    pub fn vkQueueWaitIdle(queue: VkQueue) -> i32;
-    pub fn vkQueueSubmit(
-        queue: VkQueue,
-        submitCount: u32,
-        pSubmits: *const VkSubmitInfo,
-        fence: VkFence,
-    ) -> i32;
-
-    // ========= Command Buffer ==========
-
-    pub fn vkBeginCommandBuffer(
-        commandBuffer: VkCommandBuffer,
-        pBeginInfo: *const VkCommandBufferBeginInfo,
-    ) -> i32;
-    pub fn vkEndCommandBuffer(commandBuffer: VkCommandBuffer) -> i32;
-    pub fn vkResetCommandBuffer(commandBuffer: VkCommandBuffer, flags: u32) -> i32;
-    pub fn vkCmdClearColorImage(
-        commandBuffer: VkCommandBuffer,
-        image: VkImage,
-        imageLayout: VkImageLayout,
-        pColor: *const VkClearColorValue,
-        rangeCount: u32,
-        pRanges: *const VkImageSubresourceRange,
-    );
-    pub fn vkCmdPipelineBarrier2(
-        commandBuffer: VkCommandBuffer,
-        pDependencyInfo: *const VkDependencyInfo,
-    );
-
-    // ========= Surface KHR ==========
-
-    pub fn vkDestroySurfaceKHR(
-        instance: VkInstance,
-        surface: VkSurfaceKHR,
-        pAllocator: *const std::ffi::c_void,
-    );
-
-    // ========= Swapchain KHR ==========
-
     pub fn vkCreateSwapchainKHR(
         device: VkDevice,
         pCreateInfo: *const VkSwapchainCreateInfoKHR,
@@ -221,8 +207,39 @@ unsafe extern "C" {
         semaphore: VkSemaphore,
         fence: VkFence,
         pImageIndex: *mut u32,
+    ) -> VkResult;
+
+    // ========= Queue ==========
+
+    pub fn vkQueueWaitIdle(queue: VkQueue) -> i32;
+    pub fn vkQueueSubmit(
+        queue: VkQueue,
+        submitCount: u32,
+        pSubmits: *const VkSubmitInfo,
+        fence: VkFence,
     ) -> i32;
     pub fn vkQueuePresentKHR(queue: VkQueue, pPresentInfo: *const VkPresentInfoKHR) -> i32;
+
+    // ========= Command Buffer ==========
+
+    pub fn vkBeginCommandBuffer(
+        commandBuffer: VkCommandBuffer,
+        pBeginInfo: *const VkCommandBufferBeginInfo,
+    ) -> i32;
+    pub fn vkEndCommandBuffer(commandBuffer: VkCommandBuffer) -> i32;
+    pub fn vkResetCommandBuffer(commandBuffer: VkCommandBuffer, flags: u32) -> i32;
+    pub fn vkCmdClearColorImage(
+        commandBuffer: VkCommandBuffer,
+        image: VkImage,
+        imageLayout: VkImageLayout,
+        pColor: *const VkClearColorValue,
+        rangeCount: u32,
+        pRanges: *const VkImageSubresourceRange,
+    );
+    pub fn vkCmdPipelineBarrier2(
+        commandBuffer: VkCommandBuffer,
+        pDependencyInfo: *const VkDependencyInfo,
+    );
 }
 
 pub type VkInstance = *mut std::ffi::c_void;
@@ -332,6 +349,7 @@ pub struct VkSurfaceCapabilitiesKHR {
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct VkSurfaceFormatKHR {
     pub format: VkFormat,
     pub colorSpace: VkColorSpaceKHR,
@@ -849,12 +867,14 @@ pub struct VkWin32KeyedMutexAcquireReleaseInfoKHR {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct VkExtent2D {
     pub width: u32,
     pub height: u32,
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct VkExtent3D {
     pub width: u32,
     pub height: u32,
@@ -986,33 +1006,46 @@ pub enum VkSampleCountFlags {
     X64_BIT = 0x00000040,
 }
 
-#[repr(u32)]
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VkImageUsageFlags {
-    TRANSFER_SRC_BIT = 0x00000001,
-    TRANSFER_DST_BIT = 0x00000002,
-    SAMPLED_BIT = 0x00000004,
-    STORAGE_BIT = 0x00000008,
-    COLOR_ATTACHMENT_BIT = 0x00000010,
-    DEPTH_STENCIL_ATTACHMENT_BIT = 0x00000020,
-    TRANSIENT_ATTACHMENT_BIT = 0x00000040,
-    INPUT_ATTACHMENT_BIT = 0x00000080,
-    HOST_TRANSFER_BIT = 0x00400000,
-    VIDEO_DECODE_DST_BIT_KHR = 0x00000400,
-    VIDEO_DECODE_SRC_BIT_KHR = 0x00000800,
-    VIDEO_DECODE_DPB_BIT_KHR = 0x00001000,
-    FRAGMENT_DENSITY_MAP_BIT_EXT = 0x00000200,
-    FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR = 0x00000100,
-    VIDEO_ENCODE_DST_BIT_KHR = 0x00002000,
-    VIDEO_ENCODE_SRC_BIT_KHR = 0x00004000,
-    VIDEO_ENCODE_DPB_BIT_KHR = 0x00008000,
-    ATTACHMENT_FEEDBACK_LOOP_BIT_EXT = 0x00080000,
-    INVOCATION_MASK_BIT_HUAWEI = 0x00040000,
-    SAMPLE_WEIGHT_BIT_QCOM = 0x00100000,
-    SAMPLE_BLOCK_MATCH_BIT_QCOM = 0x00200000,
-    TILE_MEMORY_QCOM = 0x08000000,
-    VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR = 0x02000000,
-    VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR = 0x04000000,
+pub struct VkImageUsageFlags(u32);
+impl std::ops::BitAnd for VkImageUsageFlags {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+impl std::ops::BitOr for VkImageUsageFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl VkImageUsageFlags {
+    pub const TRANSFER_SRC_BIT: Self = Self(0x00000001);
+    pub const TRANSFER_DST_BIT: Self = Self(0x00000002);
+    pub const SAMPLED_BIT: Self = Self(0x00000004);
+    pub const STORAGE_BIT: Self = Self(0x00000008);
+    pub const COLOR_ATTACHMENT_BIT: Self = Self(0x00000010);
+    pub const DEPTH_STENCIL_ATTACHMENT_BIT: Self = Self(0x00000020);
+    pub const TRANSIENT_ATTACHMENT_BIT: Self = Self(0x00000040);
+    pub const INPUT_ATTACHMENT_BIT: Self = Self(0x00000080);
+    pub const HOST_TRANSFER_BIT: Self = Self(0x00400000);
+    pub const VIDEO_DECODE_DST_BIT_KHR: Self = Self(0x00000400);
+    pub const VIDEO_DECODE_SRC_BIT_KHR: Self = Self(0x00000800);
+    pub const VIDEO_DECODE_DPB_BIT_KHR: Self = Self(0x00001000);
+    pub const FRAGMENT_DENSITY_MAP_BIT_EXT: Self = Self(0x00000200);
+    pub const FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR: Self = Self(0x00000100);
+    pub const VIDEO_ENCODE_DST_BIT_KHR: Self = Self(0x00002000);
+    pub const VIDEO_ENCODE_SRC_BIT_KHR: Self = Self(0x00004000);
+    pub const VIDEO_ENCODE_DPB_BIT_KHR: Self = Self(0x00008000);
+    pub const ATTACHMENT_FEEDBACK_LOOP_BIT_EXT: Self = Self(0x00080000);
+    pub const INVOCATION_MASK_BIT_HUAWEI: Self = Self(0x00040000);
+    pub const SAMPLE_WEIGHT_BIT_QCOM: Self = Self(0x00100000);
+    pub const SAMPLE_BLOCK_MATCH_BIT_QCOM: Self = Self(0x00200000);
+    pub const TILE_MEMORY_QCOM: Self = Self(0x08000000);
+    pub const VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR: Self = Self(0x02000000);
+    pub const VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR: Self = Self(0x04000000);
 }
 
 #[repr(C)]
@@ -1063,7 +1096,7 @@ pub struct VkImageCreateInfo {
     pub arrayLayers: u32,
     pub samples: u32,
     pub tiling: VkImageTiling,
-    pub usage: u32,
+    pub usage: VkImageUsageFlags,
     pub sharingMode: VkSharingMode,
     pub queueFamilyIndexCount: u32,
     pub pQueueFamilyIndices: *const u32,
@@ -1687,12 +1720,12 @@ pub enum VkMemoryPropertyFlags {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VkResult(i32);
+pub struct VkResult(pub i32);
 
 impl VkResult {
-    pub const VK_SUCCESS: Self = Self(0);
-    pub const VK_NOT_READY: Self = Self(1);
-    pub const VK_TIMEOUT: Self = Self(2);
+    pub const SUCCESS: Self = Self(0);
+    pub const NOT_READY: Self = Self(1);
+    pub const TIMEOUT: Self = Self(2);
     pub const VK_EVENT_SET: Self = Self(3);
     pub const VK_EVENT_RESET: Self = Self(4);
     pub const VK_INCOMPLETE: Self = Self(5);
@@ -1717,8 +1750,8 @@ impl VkResult {
     pub const VK_ERROR_NOT_PERMITTED: Self = Self(-1000174001);
     pub const VK_ERROR_SURFACE_LOST_KHR: Self = Self(-1000000000);
     pub const VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: Self = Self(-1000000001);
-    pub const VK_SUBOPTIMAL_KHR: Self = Self(1000001003);
-    pub const VK_ERROR_OUT_OF_DATE_KHR: Self = Self(-1000001004);
+    pub const SUBOPTIMAL_KHR: Self = Self(1000001003);
+    pub const OUT_OF_DATE_KHR: Self = Self(-1000001004);
     pub const VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: Self = Self(-1000003001);
     pub const VK_ERROR_VALIDATION_FAILED_EXT: Self = Self(-1000011001);
     pub const VK_ERROR_INVALID_SHADER_NV: Self = Self(-1000012000);
@@ -1739,6 +1772,10 @@ impl VkResult {
     pub const VK_INCOMPATIBLE_SHADER_BINARY_EXT: Self = Self(1000482000);
     pub const VK_PIPELINE_BINARY_MISSING_KHR: Self = Self(1000483000);
     pub const VK_ERROR_NOT_ENOUGH_SPACE_KHR: Self = Self(-1000483000);
+
+    pub const fn as_i32(&self) -> i32 {
+        self.0
+    }
 }
 
 #[repr(u32)]
@@ -2009,7 +2046,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_COPY_IMAGE_TO_IMAGE_INFO = 1000270007,
     VK_STRUCTURE_TYPE_SUBRESOURCE_HOST_MEMCPY_SIZE = 1000270008,
     VK_STRUCTURE_TYPE_HOST_IMAGE_COPY_DEVICE_PERFORMANCE_QUERY = 1000270009,
-    VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR = 1000001000,
+    SWAPCHAIN_CREATE_INFO_KHR = 1000001000,
     VK_STRUCTURE_TYPE_PRESENT_INFO_KHR = 1000001001,
     VK_STRUCTURE_TYPE_DEVICE_GROUP_PRESENT_CAPABILITIES_KHR = 1000060007,
     VK_STRUCTURE_TYPE_IMAGE_SWAPCHAIN_CREATE_INFO_KHR = 1000060008,

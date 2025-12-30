@@ -177,6 +177,87 @@ pub fn enumerate_instance_extensions() -> Result<Vec<std::ffi::CString>> {
     }
 }
 
+pub fn enumerate_physical_device_surface_formats(
+    physical_device: ffi::VkPhysicalDevice,
+    surface: ffi::VkSurfaceKHR,
+) -> Result<Vec<ffi::VkSurfaceFormatKHR>> {
+    let mut format_count: u32 = 0;
+    vk_call!(ffi::vkGetPhysicalDeviceSurfaceFormatsKHR(
+        physical_device,
+        surface,
+        &mut format_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
+
+    let mut formats: Vec<ffi::VkSurfaceFormatKHR> = Vec::with_capacity(format_count as usize);
+    vk_call!(ffi::vkGetPhysicalDeviceSurfaceFormatsKHR(
+        physical_device,
+        surface,
+        &mut format_count as *mut u32,
+        formats.as_mut_ptr(),
+    ))?;
+
+    unsafe {
+        formats.set_len(format_count as usize);
+    }
+
+    Ok(formats)
+}
+
+pub fn enumerate_physical_device_surface_present_modes(
+    physical_device: ffi::VkPhysicalDevice,
+    surface: ffi::VkSurfaceKHR,
+) -> Result<Vec<ffi::VkPresentModeKHR>> {
+    let mut mode_count: u32 = 0;
+    vk_call!(ffi::vkGetPhysicalDeviceSurfacePresentModesKHR(
+        physical_device,
+        surface,
+        &mut mode_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
+
+    let mut modes: Vec<ffi::VkPresentModeKHR> = Vec::with_capacity(mode_count as usize);
+    vk_call!(ffi::vkGetPhysicalDeviceSurfacePresentModesKHR(
+        physical_device,
+        surface,
+        &mut mode_count as *mut u32,
+        modes.as_mut_ptr(),
+    ))?;
+
+    unsafe {
+        modes.set_len(mode_count as usize);
+    }
+
+    Ok(modes)
+}
+
+pub fn enumerate_swapchain_images(
+    device: ffi::VkDevice,
+    swapchain: ffi::VkSwapchainKHR,
+) -> Result<Vec<ffi::VkImage>> {
+    let mut image_count: u32 = 0;
+    vk_call!(ffi::vkGetSwapchainImagesKHR(
+        device,
+        swapchain,
+        &mut image_count as *mut u32,
+        ptr::null_mut(),
+    ))?;
+
+    let mut images: Vec<ffi::VkImage> = Vec::with_capacity(image_count as usize);
+    vk_call!(ffi::vkGetSwapchainImagesKHR(
+        device,
+        swapchain,
+        &mut image_count as *mut u32,
+        images.as_mut_ptr(),
+    ))?;
+
+    unsafe {
+        images.set_len(image_count as usize);
+    }
+
+    Ok(images)
+}
+
 pub fn enumerate_physical_device_extensions(
     physical_device: ffi::VkPhysicalDevice,
 ) -> Result<Vec<std::ffi::CString>> {

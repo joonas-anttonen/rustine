@@ -24,6 +24,8 @@ unsafe extern "C" {
     pub fn glfwDestroyWindow(window: GLFWwindow);
     pub fn glfwWindowShouldClose(window: GLFWwindow) -> i32;
     pub fn glfwWindowHint(hint: i32, value: i32);
+    pub fn glfwSetWindowUserPointer(window: GLFWwindow, pointer: *mut std::ffi::c_void);
+    pub fn glfwGetWindowUserPointer(window: GLFWwindow) -> *mut std::ffi::c_void;
 
     pub fn glfwPollEvents();
     pub fn glfwWaitEvents();

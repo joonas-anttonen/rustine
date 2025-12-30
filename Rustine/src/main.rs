@@ -2,14 +2,14 @@ use rustine::{error, info};
 use rustine::{gfx, gui, log::ConsoleLogListener, log::Log, version::Version};
 
 use std::sync::{Arc, Mutex, atomic};
-use std::{thread, time};
+use std::thread;
 
 fn main() {
     let log = Log::global();
     log.set_current_thread_name("main");
     log.add_listener(ConsoleLogListener::new(true));
 
-    info!("Enter");
+    info!("STARTUP");
 
     {
         let params = gfx::StartupParameters {
@@ -46,14 +46,11 @@ fn main() {
         });
     }
 
-    info!("Exit");
+    info!("SHUTDOWN");
 }
 
 fn gui_thread_function(gui: &gui::Core) {
-    // Keep main thread alive for a bit, then signal cancellation
     while !gui.should_close() {
-        //warning!("Performing gui work");
-
         gui.process_events();
     }
 }
@@ -63,13 +60,35 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, cancel_signal: &atomic::Atomi
 
     info!("gfx thread started");
 
+    let mut skip_frame = false;
+    let start_instant = std::time::Instant::now();
+    let mut last_instant = std::time::Instant::now();
+
     while !cancel_signal.load(atomic::Ordering::Relaxed) {
-        let _core = gfx.lock().unwrap();
+        {
+            let attempted_lock = gfx.try_lock();
+            if attempted_lock.is_err() {
+                skip_frame = true;
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
+            }
+            if skip_frame {
+                info!("CONTINUE");
+                skip_frame = false;
+            }
+            let mut core = attempted_lock.unwrap();
 
-        // Perform work with mutable access to gfx_core
-        info!("Performing gfx work");
+            let now = std::time::Instant::now();
+            let t = now.duration_since(start_instant).as_secs_f64();
+            let dt = now.duration_since(last_instant).as_secs_f32();
+            core.render(t, dt);
+            last_instant = now;
+        }
 
-        thread::sleep(time::Duration::from_millis(100));
+        // NOTE: Sleeping seems necessary
+        // If we don't sleep, the host thread struggles to acquire the lock,
+        // causing unresponsiveness, especially when resizing the window.
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
     info!("gfx thread stopped");

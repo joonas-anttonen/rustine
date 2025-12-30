@@ -2,8 +2,8 @@
 
 mod glfw_ffi;
 
-use crate::gfx::{self, vulkan_ffi};
-use crate::{debug, warning};
+use crate::gfx::{self, presentation, vulkan_ffi};
+use crate::{debug, lib_ffi, warning};
 
 use std::sync::{Arc, Mutex};
 
@@ -17,9 +17,11 @@ impl Drop for Core {
     fn drop(&mut self) {
         warning!("Core::drop");
 
+        let mut gfx = self.gfx.lock().unwrap();
+        gfx.drop_queue();
+
         unsafe {
             if !self.gfx_surface.is_null() {
-                let gfx = self.gfx.lock().unwrap();
                 vulkan_ffi::vkDestroySurfaceKHR(
                     gfx.vulkan_instance_handle(),
                     self.gfx_surface,
@@ -78,20 +80,55 @@ impl Core {
             surface_handle
         };
 
-        Core {
+        let core = Core {
             gfx,
             gfx_surface,
             glfw_window,
+        };
+
+        // TODO: Think carefully about safety and ownership here
+        unsafe {
+            glfw_ffi::glfwSetWindowUserPointer(
+                core.glfw_window,
+                &core as *const Core as *mut std::ffi::c_void,
+            );
         }
+
+        unsafe {
+            Self::glfw_framebuffer_size_callback(core.glfw_window, 800, 600);
+        }
+        core
     }
 
     unsafe extern "C" fn glfw_framebuffer_size_callback(
-        _window: glfw_ffi::GLFWwindow,
-        _width: i32,
-        _height: i32,
+        window: glfw_ffi::GLFWwindow,
+        width: i32,
+        height: i32,
     ) {
-        // Handle framebuffer size changes if needed
-        debug!("Framebuffer size changed: {}x{}", _width, _height);
+        unsafe {
+            let gui_ptr = glfw_ffi::glfwGetWindowUserPointer(window) as *mut Core;
+            if !gui_ptr.is_null() {
+                debug!("Framebuffer size changed: {}x{}", width, height);
+
+                let gui = &mut *gui_ptr;
+                let mut gfx = gui.gfx.lock().unwrap();
+
+                gfx.drop_queue();
+
+                let presentation_parameters = lib_ffi::PresentationParameters {
+                    width: width as u32,
+                    height: height as u32,
+                    surface_handle: gui.gfx_surface as *const std::ffi::c_void,
+                    vertical_sync: 0,
+                };
+                let presentation_provider =
+                    presentation::SwapchainProvider::new(gfx.device(), presentation_parameters);
+                gfx.initialize_queue(
+                    gfx::presentation::PresentationMethod::Swapchain,
+                    presentation_provider,
+                );
+            }
+        }
     }
 
     pub fn should_close(&self) -> bool {

@@ -6,8 +6,8 @@ mod vma_ffi;
 pub mod vulkan;
 pub mod vulkan_ffi;
 pub use core::Core;
-pub mod queue;
 pub mod presentation;
+pub mod queue;
 pub use presentation::AcquireStatus;
 pub use queue::Queue;
 pub use queue::SubmitStatus;
@@ -159,8 +159,8 @@ impl CommandBuffer {
     pub fn is_complete(&self) -> bool {
         let status = unsafe { vulkan_ffi::vkGetFenceStatus(self.pool.device.handle(), self.fence) };
         match status {
-            vulkan_ffi::VkResult::VK_SUCCESS => true,
-            vulkan_ffi::VkResult::VK_NOT_READY => false,
+            vulkan_ffi::VkResult::SUCCESS => true,
+            vulkan_ffi::VkResult::NOT_READY => false,
             _ => {
                 error!("Failed to get fence status: {:?}", status);
                 false
@@ -326,9 +326,27 @@ impl CommandBuffer {
         }
     }
 
-    pub fn pixel_buffer_barrier(
+    pub fn present_image_barrier(
+        &self,
+        image: &presentation::PresentationImage,
+        old_layout: ImageLayout,
+        new_layout: ImageLayout,
+    ) {
+        self.raw_image_barrier(image.image, old_layout, new_layout);
+    }
+
+    pub fn image_barrier(
         &self,
         buffer: &PixelBuffer,
+        old_layout: ImageLayout,
+        new_layout: ImageLayout,
+    ) {
+        self.raw_image_barrier(buffer.image(), old_layout, new_layout);
+    }
+
+    fn raw_image_barrier(
+        &self,
+        image: vulkan_ffi::VkImage,
         old_layout: ImageLayout,
         new_layout: ImageLayout,
     ) {
@@ -343,7 +361,7 @@ impl CommandBuffer {
             newLayout: new_layout.to_vk(),
             srcQueueFamilyIndex: vulkan_ffi::VK_QUEUE_FAMILY_IGNORED,
             dstQueueFamilyIndex: vulkan_ffi::VK_QUEUE_FAMILY_IGNORED,
-            image: buffer.image,
+            image: image,
             subresourceRange: vulkan_ffi::VkImageSubresourceRange {
                 // TODO: Support more aspects
                 aspectMask: vulkan_ffi::VkImageAspectFlags::COLOR_BIT as u32,
@@ -370,9 +388,17 @@ impl CommandBuffer {
         }
     }
 
+    pub fn clear_present_image(&self, image: &presentation::PresentationImage, color: [f32; 4]) {
+        self.raw_clear_pixel_buffer(image.image, color);
+    }
+
     /// Clears the given pixel buffer to the specified color.
     /// Current layout of `buffer` must be `SHARED_PRESENT_KHR`, `GENERAL` or `TRANSFER_DST_OPTIMAL`.
     pub fn clear_pixel_buffer(&self, buffer: &PixelBuffer, color: [f32; 4]) {
+        self.raw_clear_pixel_buffer(buffer.image(), color);
+    }
+
+    pub fn raw_clear_pixel_buffer(&self, image: vulkan_ffi::VkImage, color: [f32; 4]) {
         let clear_color = vulkan_ffi::VkClearColorValue { float32: color };
         let image_subresource_range = vulkan_ffi::VkImageSubresourceRange {
             aspectMask: vulkan_ffi::VkImageAspectFlags::COLOR_BIT as u32,
@@ -384,7 +410,7 @@ impl CommandBuffer {
         unsafe {
             vulkan_ffi::vkCmdClearColorImage(
                 self.handle,
-                buffer.image,
+                image,
                 vulkan_ffi::VkImageLayout::GENERAL,
                 &clear_color,
                 1,
@@ -434,6 +460,14 @@ impl Drop for PixelBuffer {
 impl PixelBuffer {
     pub fn device_memory(&self) -> vulkan_ffi::VkDeviceMemory {
         self.allocation_info.deviceMemory
+    }
+
+    pub fn image(&self) -> vulkan_ffi::VkImage {
+        self.image
+    }
+
+    pub fn image_view(&self) -> vulkan_ffi::VkImageView {
+        self.image_view
     }
 }
 
@@ -533,20 +567,15 @@ impl std::ops::BitOr for ImageAspect {
 
 /// Represents the usage flags for a pixel buffer (image).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ImageUsage(u32);
+pub struct ImageUsage(vulkan_ffi::VkImageUsageFlags);
 impl ImageUsage {
-    pub const TRANSFER_SRC: Self = Self(vulkan_ffi::VkImageUsageFlags::TRANSFER_SRC_BIT as u32);
-    pub const TRANSFER_DST: Self = Self(vulkan_ffi::VkImageUsageFlags::TRANSFER_DST_BIT as u32);
-    pub const SAMPLED: Self = Self(vulkan_ffi::VkImageUsageFlags::SAMPLED_BIT as u32);
-    pub const STORAGE: Self = Self(vulkan_ffi::VkImageUsageFlags::STORAGE_BIT as u32);
-    pub const COLOR_ATTACHMENT: Self =
-        Self(vulkan_ffi::VkImageUsageFlags::COLOR_ATTACHMENT_BIT as u32);
+    pub const TRANSFER_SRC: Self = Self(vulkan_ffi::VkImageUsageFlags::TRANSFER_SRC_BIT);
+    pub const TRANSFER_DST: Self = Self(vulkan_ffi::VkImageUsageFlags::TRANSFER_DST_BIT);
+    pub const SAMPLED: Self = Self(vulkan_ffi::VkImageUsageFlags::SAMPLED_BIT);
+    pub const STORAGE: Self = Self(vulkan_ffi::VkImageUsageFlags::STORAGE_BIT);
+    pub const COLOR_ATTACHMENT: Self = Self(vulkan_ffi::VkImageUsageFlags::COLOR_ATTACHMENT_BIT);
     pub const DEPTH_ATTACHMENT: Self =
-        Self(vulkan_ffi::VkImageUsageFlags::DEPTH_STENCIL_ATTACHMENT_BIT as u32);
-
-    pub fn contains(&self, other: Self) -> bool {
-        (self.0 & other.0) == other.0
-    }
+        Self(vulkan_ffi::VkImageUsageFlags::DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 impl std::ops::BitOr for ImageUsage {
     type Output = Self;
@@ -595,6 +624,7 @@ pub enum Status {
     InvalidOperation(i32),
     NotSupported(i32),
     Timeout(i32),
+    OutOfDate(i32),
     Unknown(i32),
 }
 
@@ -607,6 +637,7 @@ impl fmt::Display for Status {
             Status::NotSupported(code) => write!(f, "Not supported: {}", code),
             Status::NotImplemented(code) => write!(f, "Not implemented: {}", code),
             Status::Timeout(code) => write!(f, "Timeout: {}", code),
+            Status::OutOfDate(code) => write!(f, "Out of date: {}", code),
             Status::Unknown(code) => write!(f, "Unknown error: {}", code),
         }
     }
@@ -620,6 +651,7 @@ impl Status {
             Status::NotImplemented(code) => *code,
             Status::NotSupported(code) => *code,
             Status::Timeout(code) => *code,
+            Status::OutOfDate(code) => *code,
             Status::Unknown(code) => *code,
         }
     }
@@ -631,6 +663,7 @@ impl Status {
             -4 => Status::InvalidOperation(code),        // Invalid operation
             -1 => Status::NotImplemented(code),          // Not implemented
             2 => Status::Timeout(code),                  // Timeout
+            -1000001004 => Status::OutOfDate(code),               // Out of date
             other => Status::Unknown(other),
         }
     }

@@ -83,26 +83,45 @@ impl Core {
         self.frame_n
     }
 
+    pub fn drop_queue(&mut self) {
+        self.queue = None;
+    }
+
     pub fn initialize_queue(
         &mut self,
         presentation_method: PresentationMethod,
         presentation_provider: impl PresentationProvider + 'static,
     ) {
-        let queue = Queue::new(&self.device, presentation_method, presentation_provider);
-
-        self.queue = Some(queue);
+        self.queue = Some(Queue::new(
+            &self.device,
+            presentation_method,
+            presentation_provider,
+        ));
     }
     pub fn render(&mut self, t: f64, _dt: f32) {
         self.next_frame();
 
         if let Some(queue) = &mut self.queue {
-            queue.enqueue_present(|cmd, pixel_buffer| {
-                cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
-                cmd.clear_pixel_buffer(
-                    pixel_buffer,
-                    [0.5, 0.5, ((t * 1.0).sin() * 0.5 + 0.5) as f32, 1.0],
+            queue.enqueue_present(|cmd, present_image| {
+                cmd.present_image_barrier(
+                    present_image,
+                    ImageLayout::UNDEFINED,
+                    ImageLayout::GENERAL,
                 );
-                cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
+                cmd.clear_present_image(
+                    present_image,
+                    [
+                        ((t * 1.0).sin() * 0.25 + 0.5) as f32,
+                        ((t * 5.0).sin() * 0.25 + 0.5) as f32,
+                        ((t * 10.0).sin() * 0.25 + 0.5) as f32,
+                        1.0,
+                    ],
+                );
+                cmd.present_image_barrier(
+                    present_image,
+                    ImageLayout::GENERAL,
+                    ImageLayout::PRESENT_SRC_KHR,
+                );
             });
         }
     }
