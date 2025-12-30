@@ -194,23 +194,53 @@ unsafe extern "C" {
         surface: VkSurfaceKHR,
         pAllocator: *const std::ffi::c_void,
     );
+
+    // ========= Swapchain KHR ==========
+
+    pub fn vkCreateSwapchainKHR(
+        device: VkDevice,
+        pCreateInfo: *const VkSwapchainCreateInfoKHR,
+        pAllocator: *const std::ffi::c_void,
+        pSwapchain: *mut VkSwapchainKHR,
+    ) -> i32;
+    pub fn vkDestroySwapchainKHR(
+        device: VkDevice,
+        swapchain: VkSwapchainKHR,
+        pAllocator: *const std::ffi::c_void,
+    );
+    pub fn vkGetSwapchainImagesKHR(
+        device: VkDevice,
+        swapchain: VkSwapchainKHR,
+        pSwapchainImageCount: *mut u32,
+        pSwapchainImages: *mut VkImage,
+    ) -> i32;
+    pub fn vkAcquireNextImageKHR(
+        device: VkDevice,
+        swapchain: VkSwapchainKHR,
+        timeout: u64,
+        semaphore: VkSemaphore,
+        fence: VkFence,
+        pImageIndex: *mut u32,
+    ) -> i32;
+    pub fn vkQueuePresentKHR(queue: VkQueue, pPresentInfo: *const VkPresentInfoKHR) -> i32;
 }
 
 pub type VkInstance = *mut std::ffi::c_void;
+pub type VkPhysicalDevice = *mut std::ffi::c_void;
 pub type VkDevice = *mut std::ffi::c_void;
 pub type VkDeviceMemory = *mut std::ffi::c_void;
 pub type VkDeviceSize = u64;
-pub type VkPhysicalDevice = *mut std::ffi::c_void;
 pub type VkQueue = *mut std::ffi::c_void;
 pub type VkFence = *mut std::ffi::c_void;
 pub type VkSemaphore = *mut std::ffi::c_void;
-pub type VkCommandBuffer = *mut std::ffi::c_void;
 pub type VkCommandPool = *mut std::ffi::c_void;
-pub type VkDebugUtilsMessengerEXT = *mut std::ffi::c_void;
-pub type VkSurfaceKHR = *mut std::ffi::c_void;
+pub type VkCommandBuffer = *mut std::ffi::c_void;
 pub type VkImage = *mut std::ffi::c_void;
 pub type VkImageView = *mut std::ffi::c_void;
 pub type VkBuffer = *mut std::ffi::c_void;
+pub type VkSurfaceKHR = *mut std::ffi::c_void;
+pub type VkSwapchainKHR = *mut std::ffi::c_void;
+pub type VkDebugUtilsMessengerEXT = *mut std::ffi::c_void;
 
 pub const VK_ATTACHMENT_UNUSED: u32 = u32::MAX;
 pub const VK_FALSE: u32 = 0;
@@ -227,6 +257,119 @@ pub const VK_UUID_SIZE: usize = 16;
 pub const VK_MAX_EXTENSION_NAME_SIZE: usize = 256;
 pub const VK_MAX_DESCRIPTION_SIZE: usize = 256;
 pub const VK_MAX_MEMORY_HEAPS: u32 = 16;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkPresentModeKHR(u32);
+impl VkPresentModeKHR {
+    pub const IMMEDIATE_KHR: Self = Self(0);
+    pub const MAILBOX_KHR: Self = Self(1);
+    pub const FIFO_KHR: Self = Self(2);
+    pub const FIFO_RELAXED_KHR: Self = Self(3);
+    pub const SHARED_DEMAND_REFRESH_KHR: Self = Self(1000111000);
+    pub const SHARED_CONTINUOUS_REFRESH_KHR: Self = Self(1000111001);
+    pub const FIFO_LATEST_READY_EXT: Self = Self(1000361000);
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkColorSpaceKHR(u32);
+impl VkColorSpaceKHR {
+    pub const SRGB_NONLINEAR_KHR: Self = Self(0);
+    pub const DISPLAY_P3_NONLINEAR_EXT: Self = Self(1000104001);
+    pub const EXTENDED_SRGB_LINEAR_EXT: Self = Self(1000104002);
+    pub const DISPLAY_P3_LINEAR_EXT: Self = Self(1000104003);
+    pub const DCI_P3_NONLINEAR_EXT: Self = Self(1000104004);
+    pub const BT709_LINEAR_EXT: Self = Self(1000104005);
+    pub const BT709_NONLINEAR_EXT: Self = Self(1000104006);
+    pub const BT2020_LINEAR_EXT: Self = Self(1000104007);
+    pub const HDR10_ST2084_EXT: Self = Self(1000104008);
+    pub const HDR10_HLG_EXT: Self = Self(1000104010);
+    pub const ADOBERGB_LINEAR_EXT: Self = Self(1000104011);
+    pub const ADOBERGB_NONLINEAR_EXT: Self = Self(1000104012);
+    pub const PASS_THROUGH_EXT: Self = Self(1000104013);
+    pub const EXTENDED_SRGB_NONLINEAR_EXT: Self = Self(1000104014);
+    pub const DISPLAY_NATIVE_AMD: Self = Self(1000213000);
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkSurfaceTransformFlagsKHR(u32);
+impl VkSurfaceTransformFlagsKHR {
+    pub const IDENTITY_BIT_KHR: Self = Self(0x00000001);
+    pub const ROTATE_90_BIT_KHR: Self = Self(0x00000002);
+    pub const ROTATE_180_BIT_KHR: Self = Self(0x00000004);
+    pub const ROTATE_270_BIT_KHR: Self = Self(0x00000008);
+    pub const HORIZONTAL_MIRROR_BIT_KHR: Self = Self(0x00000010);
+    pub const HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR: Self = Self(0x00000020);
+    pub const HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR: Self = Self(0x00000040);
+    pub const HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR: Self = Self(0x00000080);
+    pub const INHERIT_BIT_KHR: Self = Self(0x00000100);
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkCompositeAlphaFlagsKHR(u32);
+impl VkCompositeAlphaFlagsKHR {
+    pub const OPAQUE_BIT_KHR: Self = Self(0x00000001);
+    pub const PRE_MULTIPLIED_BIT_KHR: Self = Self(0x00000002);
+    pub const POST_MULTIPLIED_BIT_KHR: Self = Self(0x00000004);
+    pub const INHERIT_BIT_KHR: Self = Self(0x00000008);
+}
+
+#[repr(C)]
+pub struct VkSurfaceCapabilitiesKHR {
+    pub minImageCount: u32,
+    pub maxImageCount: u32,
+    pub currentExtent: VkExtent2D,
+    pub minImageExtent: VkExtent2D,
+    pub maxImageExtent: VkExtent2D,
+    pub maxImageArrayLayers: u32,
+    pub supportedTransforms: VkSurfaceTransformFlagsKHR,
+    pub currentTransform: VkSurfaceTransformFlagsKHR,
+    pub supportedCompositeAlpha: VkCompositeAlphaFlagsKHR,
+    pub supportedUsageFlags: VkImageUsageFlags,
+}
+
+#[repr(C)]
+pub struct VkSurfaceFormatKHR {
+    pub format: VkFormat,
+    pub colorSpace: VkColorSpaceKHR,
+}
+
+#[repr(C)]
+pub struct VkSwapchainCreateInfoKHR {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub surface: VkSurfaceKHR,
+    pub minImageCount: u32,
+    pub imageFormat: VkFormat,
+    pub imageColorSpace: VkColorSpaceKHR,
+    pub imageExtent: VkExtent2D,
+    pub imageArrayLayers: u32,
+    pub imageUsage: VkImageUsageFlags,
+    pub imageSharingMode: VkSharingMode,
+    pub queueFamilyIndexCount: u32,
+    pub pQueueFamilyIndices: *const u32,
+    pub preTransform: VkSurfaceTransformFlagsKHR,
+    pub compositeAlpha: VkCompositeAlphaFlagsKHR,
+    pub presentMode: VkPresentModeKHR,
+    pub clipped: u32,
+    pub oldSwapchain: VkSwapchainKHR,
+}
+
+#[repr(C)]
+pub struct VkPresentInfoKHR {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub waitSemaphoreCount: u32,
+    pub pWaitSemaphores: *const VkSemaphore,
+    pub swapchainCount: u32,
+    pub pSwapchains: *const VkSwapchainKHR,
+    pub pImageIndices: *const u32,
+    pub pResults: *mut VkResult,
+}
 
 #[repr(C)]
 pub struct VkPhysicalDeviceVulkan11Features {
@@ -1346,8 +1489,8 @@ pub struct VkDebugUtilsMessengerCreateInfoEXT {
     pub sType: u32,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
-    pub messageSeverity: u32,
-    pub messageType: u32,
+    pub messageSeverity: VkDebugUtilsMessageSeverityFlagsEXT,
+    pub messageType: VkDebugUtilsMessageTypeFlagsEXT,
     pub pfnUserCallback: Option<
         unsafe extern "C" fn(
             u32,
@@ -2905,18 +3048,34 @@ pub enum VkFormatFeatureFlagBits {
     VK_FORMAT_FEATURE_VIDEO_ENCODE_DPB_BIT_KHR = 0x10000000,
 }
 
-#[repr(u32)]
-pub enum VkDebugUtilsMessageSeverityFlagsEXT {
-    VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT = 0x00000001,
-    VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT = 0x00000010,
-    WARNING_BIT_EXT = 0x00000100,
-    ERROR_BIT_EXT = 0x00001000,
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkDebugUtilsMessageSeverityFlagsEXT(u32);
+impl std::ops::BitOr for VkDebugUtilsMessageSeverityFlagsEXT {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl VkDebugUtilsMessageSeverityFlagsEXT {
+    pub const VERBOSE_BIT_EXT: Self = Self(0x00000001);
+    pub const INFO_BIT_EXT: Self = Self(0x00000010);
+    pub const WARNING_BIT_EXT: Self = Self(0x00000100);
+    pub const ERROR_BIT_EXT: Self = Self(0x00001000);
 }
 
-#[repr(u32)]
-pub enum VkDebugUtilsMessageTypeFlagsEXT {
-    GENERAL_BIT_EXT = 0x00000001,
-    VALIDATION_BIT_EXT = 0x00000002,
-    VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT = 0x00000004,
-    VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT = 0x00000008,
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkDebugUtilsMessageTypeFlagsEXT(u32);
+impl std::ops::BitOr for VkDebugUtilsMessageTypeFlagsEXT {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl VkDebugUtilsMessageTypeFlagsEXT {
+    pub const GENERAL_BIT_EXT: Self = Self(0x00000001);
+    pub const VALIDATION_BIT_EXT: Self = Self(0x00000002);
+    pub const PERFORMANCE_BIT_EXT: Self = Self(0x00000004);
+    pub const DEVICE_ADDRESS_BINDING_BIT_EXT: Self = Self(0x00000008);
 }

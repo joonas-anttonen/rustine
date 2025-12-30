@@ -7,6 +7,9 @@ pub mod vulkan;
 pub mod vulkan_ffi;
 pub use core::Core;
 pub mod presentation;
+pub mod queue;
+pub use queue::Queue;
+pub use queue::SubmitStatus;
 
 use crate::version::Version;
 use std::fmt;
@@ -65,17 +68,8 @@ impl CommandPool {
             &mut fence_handle
         ))?;
 
-        // Create semaphore
-        /*let semaphore_type_info = vulkan_ffi::VkSemaphoreTypeCreateInfo {
-            sType: vulkan_ffi::VkStructureType::SEMAPHORE_TYPE_CREATE_INFO as u32,
-            pNext: std::ptr::null(),
-            semaphoreType: vulkan_ffi::VkSemaphoreType::TIMELINE,
-            initialValue: 0,
-        };*/
-
         let semaphore_info = vulkan_ffi::VkSemaphoreCreateInfo {
             sType: vulkan_ffi::VkStructureType::SEMAPHORE_CREATE_INFO as u32,
-            //pNext: &semaphore_type_info as *const _ as *const _,
             pNext: std::ptr::null(),
             flags: 0,
         };

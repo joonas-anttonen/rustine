@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use crate::{error, gfx, gfx::vulkan, warning};
+use crate::{error, gfx, gfx::Queue, gfx::SubmitStatus, warning};
 use std::sync::Arc;
 
 pub struct Presenter {
-    queue: Arc<vulkan::Queue>,
+    queue: Arc<Queue>,
     command_pool: Arc<gfx::CommandPool>,
     available_commands: std::collections::VecDeque<gfx::CommandBuffer>,
     recorded_commands: std::collections::VecDeque<gfx::CommandBuffer>,
@@ -22,7 +22,7 @@ impl Drop for Presenter {
 }
 
 impl Presenter {
-    pub fn new(queue: Arc<vulkan::Queue>, output_frame: gfx::PixelBuffer) -> Self {
+    pub fn new(queue: Arc<Queue>, output_frame: gfx::PixelBuffer) -> Self {
         let command_pool = queue.allocate_command_pool();
 
         let mut available_commands = std::collections::VecDeque::new();
@@ -42,12 +42,7 @@ impl Presenter {
     }
 
     // Takes a closure that records commands into a command buffer for the frame
-    pub fn record_frame(
-        &mut self,
-        recorder: impl FnOnce(&gfx::CommandBuffer, &gfx::PixelBuffer),
-    ) -> () {
-        //warning!("Presenter::record_frame");
-
+    pub fn record_frame(&mut self, recorder: impl FnOnce(&gfx::CommandBuffer, &gfx::PixelBuffer)) {
         // Check the front of the queued commands to see if any have completed
         while let Some(front) = self.queued_commands.front() {
             if front.is_complete() {
@@ -82,11 +77,11 @@ impl Presenter {
             .pop_front()
             .expect("No available command buffers");
 
+        command_buffer.begin();
         recorder(&command_buffer, &self.output_frame);
+        command_buffer.end();
 
         self.recorded_commands.push_back(command_buffer);
-
-        ()
     }
 
     pub fn present_frame(&mut self) {
@@ -100,19 +95,19 @@ impl Presenter {
         //self.queue.submit(&commands);
         //self.queued_commands.push_back(commands);
 
-        let submit_status =
-            self.queue
-                .submit_with_keyed_mutex(&commands, &self.output_frame, 1, 0);
+        let submit_status = self
+            .queue
+            .submit_with_keyed_mutex(&commands, &self.output_frame, 1, 0);
         match submit_status {
-            vulkan::SubmitStatus::Success => {
+            SubmitStatus::Success => {
                 self.queued_commands.push_back(commands);
             }
-            vulkan::SubmitStatus::Timeout => {
+            SubmitStatus::Timeout => {
                 //warning!("Presenter::present_frame: Submit timed out");
                 commands.reset();
                 self.available_commands.push_back(commands);
             }
-            vulkan::SubmitStatus::Error(err) => {
+            SubmitStatus::Error(err) => {
                 error!("Presenter::present_frame: Submit error: {:?}", err);
                 commands.reset();
                 self.available_commands.push_back(commands);

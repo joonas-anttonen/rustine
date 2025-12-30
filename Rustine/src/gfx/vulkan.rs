@@ -5,6 +5,7 @@ use std::{collections, ptr};
 use crate::{error, warning};
 use crate::{gfx::*, version::Version};
 
+use crate::gfx::queue::Queue;
 use crate::gfx::vulkan_ffi as ffi;
 
 /// Wraps a Vulkan function call and converts the result to `gfx::Result`.
@@ -19,6 +20,17 @@ macro_rules! vk_call {
     }};
 }
 
+/// Converts a reference to a Vulkan `pNext` pointer.
+#[macro_export]
+macro_rules! vk_next {
+    ($ptr:expr) => {
+        &$ptr as *const _ as *const _
+    };
+    (mut $ptr:expr) => {
+        &mut $ptr as *mut _ as *mut _
+    };
+}
+
 /// Represents a Vulkan instance.
 pub struct Instance {
     handle: ffi::VkInstance,
@@ -28,136 +40,6 @@ pub struct Instance {
 impl Instance {
     pub fn handle(&self) -> ffi::VkInstance {
         self.handle
-    }
-}
-
-pub enum SubmitStatus {
-    Success,
-    Timeout,
-    Error(crate::gfx::Outcome),
-}
-
-pub struct Queue {
-    handle: ffi::VkQueue,
-    family_index: u32,
-    device: Arc<vulkan::Device>,
-}
-
-impl Drop for Queue {
-    fn drop(&mut self) {
-        warning!("Queue::drop");
-    }
-}
-
-impl Queue {
-    pub fn new(handle: ffi::VkQueue, family_index: u32, device: Arc<vulkan::Device>) -> Arc<Self> {
-        Arc::new(Queue {
-            handle,
-            family_index,
-            device,
-        })
-    }
-
-    pub fn allocate_command_pool(self: &Arc<Self>) -> Arc<CommandPool> {
-        let command_pool_create_info = ffi::VkCommandPoolCreateInfo {
-            sType: ffi::VkStructureType::COMMAND_POOL_CREATE_INFO as u32,
-            pNext: ptr::null(),
-            flags: ffi::VkCommandPoolCreateFlags::TRANSIENT_BIT
-                | ffi::VkCommandPoolCreateFlags::RESET_COMMAND_BUFFER_BIT,
-            queueFamilyIndex: self.family_index,
-        };
-
-        let mut command_pool_handle: ffi::VkCommandPool = ptr::null_mut();
-        vk_call!(ffi::vkCreateCommandPool(
-            self.device.handle(),
-            &command_pool_create_info,
-            ptr::null(),
-            &mut command_pool_handle,
-        ))
-        .map_err(|err| error!("vkCreateCommandPool {:?}", err))
-        .unwrap();
-
-        Arc::new(CommandPool {
-            handle: command_pool_handle,
-            device: Arc::clone(&self.device),
-        })
-    }
-
-    pub fn wait_idle(self: &Arc<Self>) {
-        vk_call!(ffi::vkQueueWaitIdle(self.handle)).expect("vkQueueWaitIdle");
-    }
-
-    pub fn submit(self: &Arc<Self>, commands: &CommandBuffer) {
-        let submit_info = vulkan_ffi::VkSubmitInfo {
-            sType: vulkan_ffi::VkStructureType::SUBMIT_INFO as u32,
-            pNext: std::ptr::null(),
-            waitSemaphoreCount: 0,
-            pWaitSemaphores: std::ptr::null(),
-            pWaitDstStageMask: std::ptr::null(),
-            commandBufferCount: 1,
-            pCommandBuffers: &commands.handle,
-            signalSemaphoreCount: 0,
-            pSignalSemaphores: std::ptr::null(),
-        };
-
-        vk_call!(vulkan_ffi::vkQueueSubmit(
-            self.handle,
-            1,
-            &submit_info,
-            commands.fence,
-        ))
-        .expect("vkQueueSubmit failures should be handled");
-    }
-
-    pub fn submit_with_keyed_mutex(
-        self: &Arc<Self>,
-        commands: &CommandBuffer,
-        shared_pixel_buffer: &PixelBuffer,
-        acquire_key: u64,
-        release_key: u64,
-    ) -> SubmitStatus {
-        let timeout = 10u32;
-
-        let keyed_mutex_acquire_release_info = vulkan_ffi::VkWin32KeyedMutexAcquireReleaseInfoKHR {
-            sType: vulkan_ffi::VkStructureType::WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR as u32,
-            pNext: std::ptr::null(),
-            acquireCount: 1,
-            pAcquireSyncs: &shared_pixel_buffer.device_memory(),
-            pAcquireKeys: &acquire_key,
-            pAcquireTimeouts: &timeout,
-            releaseCount: 1,
-            pReleaseSyncs: &shared_pixel_buffer.device_memory(),
-            pReleaseKeys: &release_key,
-        };
-        let submit_info = vulkan_ffi::VkSubmitInfo {
-            sType: vulkan_ffi::VkStructureType::SUBMIT_INFO as u32,
-            pNext: &keyed_mutex_acquire_release_info as *const _ as *const _,
-            waitSemaphoreCount: 0,
-            pWaitSemaphores: std::ptr::null(),
-            pWaitDstStageMask: std::ptr::null(),
-            commandBufferCount: 1,
-            pCommandBuffers: &commands.handle,
-            signalSemaphoreCount: 0,
-            pSignalSemaphores: std::ptr::null(),
-        };
-        let result = vk_call!(vulkan_ffi::vkQueueSubmit(
-            self.handle,
-            1,
-            &submit_info,
-            commands.fence,
-        ));
-        self.wait_idle();
-
-        match result {
-            Ok(()) => SubmitStatus::Success,
-            Err(err) => {
-                if let crate::gfx::Outcome::Timeout(_) = err {
-                    SubmitStatus::Timeout
-                } else {
-                    SubmitStatus::Error(err)
-                }
-            }
-        }
     }
 }
 
@@ -387,8 +269,7 @@ pub fn enumerate_physical_devices(instance: &Instance) -> Result<Vec<PhysicalDev
             let mut properties = unsafe {
                 ffi::VkPhysicalDeviceProperties2 {
                     sType: ffi::VkStructureType::PHYSICAL_DEVICE_PROPERTIES_2 as u32,
-                    pNext: &mut id_properties as *mut ffi::VkPhysicalDeviceIDProperties
-                        as *mut std::ffi::c_void,
+                    pNext: vk_next!(mut id_properties),
                     ..std::mem::zeroed()
                 }
             };
@@ -492,23 +373,19 @@ pub fn create_device(
         .map(|cs| cs.as_ptr())
         .collect();
 
-    let mut physical_device_features = unsafe {
+    let physical_device_features = unsafe {
         let mut physical_device_synchronization2 = ffi::VkPhysicalDeviceSynchronization2Features {
             sType: ffi::VkStructureType::PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES as u32,
             ..std::mem::zeroed()
         };
         let mut physical_device_dynamic_rendering = ffi::VkPhysicalDeviceDynamicRenderingFeatures {
             sType: ffi::VkStructureType::PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES as u32,
-            pNext: &mut physical_device_synchronization2
-                as *mut ffi::VkPhysicalDeviceSynchronization2Features
-                as *mut std::ffi::c_void,
+            pNext: vk_next!(mut physical_device_synchronization2),
             ..std::mem::zeroed()
         };
         let mut physical_device_features = ffi::VkPhysicalDeviceFeatures2 {
             sType: ffi::VkStructureType::PHYSICAL_DEVICE_FEATURES_2 as u32,
-            pNext: &mut physical_device_dynamic_rendering
-                as *mut ffi::VkPhysicalDeviceDynamicRenderingFeatures
-                as *mut std::ffi::c_void,
+            pNext: vk_next!(mut physical_device_dynamic_rendering),
             ..std::mem::zeroed()
         };
 
@@ -543,8 +420,7 @@ pub fn create_device(
     };
     let device_create_info = ffi::VkDeviceCreateInfo {
         sType: ffi::VkStructureType::DEVICE_CREATE_INFO as u32,
-        pNext: &mut physical_device_features as *mut ffi::VkPhysicalDeviceFeatures2
-            as *mut std::ffi::c_void,
+        pNext: vk_next!(physical_device_features),
         flags: 0,
         queueCreateInfoCount: 1,
         pQueueCreateInfos: &queue_create_info as *const ffi::VkDeviceQueueCreateInfo,
@@ -683,10 +559,10 @@ pub fn create_instance(parameters: &super::StartupParameters) -> Result<Instance
             sType: ffi::VkStructureType::DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT as u32,
             pNext: ptr::null(),
             flags: 0,
-            messageSeverity: ffi::VkDebugUtilsMessageSeverityFlagsEXT::ERROR_BIT_EXT as u32
-                | ffi::VkDebugUtilsMessageSeverityFlagsEXT::WARNING_BIT_EXT as u32,
-            messageType: ffi::VkDebugUtilsMessageTypeFlagsEXT::GENERAL_BIT_EXT as u32
-                | ffi::VkDebugUtilsMessageTypeFlagsEXT::VALIDATION_BIT_EXT as u32,
+            messageSeverity: ffi::VkDebugUtilsMessageSeverityFlagsEXT::ERROR_BIT_EXT
+                | ffi::VkDebugUtilsMessageSeverityFlagsEXT::WARNING_BIT_EXT,
+            messageType: ffi::VkDebugUtilsMessageTypeFlagsEXT::GENERAL_BIT_EXT
+                | ffi::VkDebugUtilsMessageTypeFlagsEXT::VALIDATION_BIT_EXT,
             pfnUserCallback: Some(vulkan_debug_callback),
             pUserData: ptr::null_mut(),
         };

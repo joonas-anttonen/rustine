@@ -128,17 +128,12 @@ impl Core {
 
         if let Some(presenter) = &mut self.presenter {
             presenter.record_frame(|cmd, pixel_buffer| {
-                //warning!("Recording frame {}", self.frame_n);
-                cmd.begin();
-
                 cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
                 cmd.clear_pixel_buffer(
                     pixel_buffer,
                     [0.5, 0.5, ((t * 1.0).sin() * 0.5 + 0.5) as f32, 1.0],
                 );
                 cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
-
-                cmd.end();
             });
             presenter.present_frame();
         }
