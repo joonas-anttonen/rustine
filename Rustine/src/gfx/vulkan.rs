@@ -5,7 +5,6 @@ use std::{collections, ptr};
 use crate::{error, warning};
 use crate::{gfx::*, version::Version};
 
-use crate::gfx::queue::Queue;
 use crate::gfx::vulkan_ffi as ffi;
 
 /// Wraps a Vulkan function call and converts the result to `gfx::Result`.
@@ -59,7 +58,11 @@ impl Device {
         self.physical_device
     }
 
-    pub fn create_general_queue(self: &Arc<Self>) -> Arc<Queue> {
+    pub fn general_queue_family_index(&self) -> u32 {
+        self.general_queue_family_index
+    }
+
+    pub fn create_general_queue(self: &Arc<Self>) -> ffi::VkQueue {
         let mut queue_handle: ffi::VkQueue = ptr::null_mut();
         unsafe {
             ffi::vkGetDeviceQueue(
@@ -70,11 +73,7 @@ impl Device {
             );
         }
 
-        Queue::new(
-            queue_handle,
-            self.general_queue_family_index,
-            Arc::clone(self),
-        )
+        queue_handle
     }
 }
 

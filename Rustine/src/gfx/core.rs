@@ -1,4 +1,4 @@
-use crate::{gfx::*, warning};
+use crate::{gfx::queue::Queue, gfx::presentation::SharedImageProvider, gfx::*, warning};
 
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ use std::sync::Arc;
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
     test_pixel_buffer: PixelBuffer,
-    presenter: Option<presentation::Presenter>,
+    queue: Option<Queue>,
     allocator: Arc<vma::Allocator>,
     physical_device: PhysicalDevice,
     device: Arc<vulkan::Device>,
@@ -48,7 +48,7 @@ impl Core {
                 width: 0,
                 height: 0,
             },
-            presenter: None,
+            queue: None,
         }
     }
 
@@ -101,25 +101,21 @@ impl Core {
             )
             .unwrap();
 
-        let shared_image_provider =
-            presentation::SharedImageProvider::new(presentation_pixel_buffer);
+        let shared_image_provider = SharedImageProvider::new(presentation_pixel_buffer);
 
-        let presenter = presentation::Presenter::new(
-            self.device().create_general_queue(),
-            shared_image_provider,
-        );
+        let queue = Queue::new(&self.device, shared_image_provider);
 
         self.frame_extent = Extent2D {
             width: in_params.width,
             height: in_params.height,
         };
-        self.presenter = Some(presenter);
+        self.queue = Some(queue);
     }
     pub fn render(&mut self, t: f64, _dt: f32) {
         self.next_frame();
 
-        if let Some(presenter) = &mut self.presenter {
-            presenter.enqueue_present_keyed_mutex(|cmd, pixel_buffer| {
+        if let Some(queue) = &mut self.queue {
+            queue.enqueue_present_keyed_mutex(|cmd, pixel_buffer| {
                 cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
                 cmd.clear_pixel_buffer(
                     pixel_buffer,

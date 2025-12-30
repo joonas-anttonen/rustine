@@ -6,9 +6,9 @@ mod vma_ffi;
 pub mod vulkan;
 pub mod vulkan_ffi;
 pub use core::Core;
-pub mod presentation;
+mod queue;
+mod presentation;
 pub use presentation::AcquireStatus;
-pub mod queue;
 pub use queue::Queue;
 pub use queue::SubmitStatus;
 
@@ -35,8 +35,29 @@ impl Drop for CommandPool {
 }
 
 impl CommandPool {
-    pub fn new(handle: vulkan_ffi::VkCommandPool, device: Arc<vulkan::Device>) -> Arc<Self> {
-        Arc::new(CommandPool { handle, device })
+    pub fn new(family_index: u32, device: &Arc<vulkan::Device>) -> Arc<Self> {
+        let command_pool_create_info = vulkan_ffi::VkCommandPoolCreateInfo {
+            sType: vulkan_ffi::VkStructureType::COMMAND_POOL_CREATE_INFO as u32,
+            pNext: std::ptr::null(),
+            flags: vulkan_ffi::VkCommandPoolCreateFlags::TRANSIENT_BIT
+                | vulkan_ffi::VkCommandPoolCreateFlags::RESET_COMMAND_BUFFER_BIT,
+            queueFamilyIndex: family_index,
+        };
+
+        let mut command_pool_handle: vulkan_ffi::VkCommandPool = std::ptr::null_mut();
+        vk_call!(vulkan_ffi::vkCreateCommandPool(
+            device.handle(),
+            &command_pool_create_info,
+            std::ptr::null(),
+            &mut command_pool_handle,
+        ))
+        .map_err(|err| error!("vkCreateCommandPool {:?}", err))
+        .unwrap();
+
+        Arc::new(CommandPool {
+            handle: command_pool_handle,
+            device: Arc::clone(&device),
+        })
     }
 
     pub fn allocate_command_buffer(self: &Arc<Self>) -> Result<CommandBuffer> {

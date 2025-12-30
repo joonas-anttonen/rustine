@@ -1,9 +1,12 @@
 #![allow(dead_code)]
 
-use crate::{error, gfx::vulkan, gfx::vulkan_ffi, vk_call, warning};
-use std::sync::Arc;
+use crate::{error, vk_call, warning};
+use crate::{
+    gfx::CommandBuffer, gfx::CommandPool, gfx::PixelBuffer, gfx::presentation::AcquireStatus,
+    gfx::presentation::PresentationProvider, gfx::vulkan, gfx::vulkan_ffi,
+};
 
-use crate::gfx::{CommandBuffer, CommandPool, PixelBuffer};
+use std::{collections::VecDeque, sync::Arc};
 
 pub enum SubmitStatus {
     Success,
@@ -12,60 +15,197 @@ pub enum SubmitStatus {
 }
 
 pub struct Queue {
-    handle: vulkan_ffi::VkQueue,
-    family_index: u32,
-    device: Arc<vulkan::Device>,
+    queue_handle: vulkan_ffi::VkQueue,
+    command_pool: Arc<CommandPool>,
+    available_commands: VecDeque<CommandBuffer>,
+    recorded_commands: VecDeque<CommandBuffer>,
+    queued_commands: VecDeque<CommandBuffer>,
+
+    presentation_provider: Box<dyn PresentationProvider>,
 }
 
 impl Drop for Queue {
     fn drop(&mut self) {
         warning!("Queue::drop");
+
+        self.wait_for_idle();
     }
 }
 
 impl Queue {
     pub fn new(
-        handle: vulkan_ffi::VkQueue,
-        family_index: u32,
-        device: Arc<vulkan::Device>,
-    ) -> Arc<Self> {
-        Arc::new(Queue {
-            handle,
-            family_index,
-            device,
-        })
+        device: &Arc<vulkan::Device>,
+        presentation_provider: impl PresentationProvider + 'static,
+    ) -> Self {
+        let family_index = device.general_queue_family_index();
+        let queue_handle = device.create_general_queue();
+
+        let command_pool = CommandPool::new(family_index, &device);
+
+        let mut available_commands = VecDeque::new();
+
+        for _ in 0..3 {
+            available_commands.push_back(command_pool.allocate_command_buffer().unwrap());
+        }
+
+        Queue {
+            queue_handle,
+            command_pool,
+            available_commands,
+            recorded_commands: VecDeque::new(),
+            queued_commands: VecDeque::new(),
+            presentation_provider: Box::new(presentation_provider),
+        }
     }
 
-    pub fn allocate_command_pool(self: &Arc<Self>) -> Arc<CommandPool> {
-        let command_pool_create_info = vulkan_ffi::VkCommandPoolCreateInfo {
-            sType: vulkan_ffi::VkStructureType::COMMAND_POOL_CREATE_INFO as u32,
-            pNext: std::ptr::null(),
-            flags: vulkan_ffi::VkCommandPoolCreateFlags::TRANSIENT_BIT
-                | vulkan_ffi::VkCommandPoolCreateFlags::RESET_COMMAND_BUFFER_BIT,
-            queueFamilyIndex: self.family_index,
+    pub fn wait_for_idle(&self) {
+        vk_call!(vulkan_ffi::vkQueueWaitIdle(self.queue_handle)).expect("vkQueueWaitIdle");
+    }
+
+    fn collect_completed_commands(&mut self) {
+        while let Some(front) = self.queued_commands.front() {
+            if front.is_complete() {
+                let completed = self.queued_commands.pop_front().unwrap();
+                completed.reset();
+                self.available_commands.push_back(completed);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn ensure_available_command(&mut self) {
+        if self.available_commands.is_empty() {
+            if self.queued_commands.is_empty() {
+                error!(
+                    "Queue::ensure_available_command: No available command buffers and no queued commands"
+                );
+            } else {
+                warning!(
+                    "Queue::ensure_available_command: No available command buffers, waiting for the first queued command to complete"
+                );
+                let first_queued = self.queued_commands.front().unwrap();
+                first_queued.wait_for_completion(10_000_000).unwrap();
+                let completed = self.queued_commands.pop_front().unwrap();
+                completed.reset();
+                self.available_commands.push_back(completed);
+            }
+        }
+    }
+
+    pub fn enqueue_present(&mut self, command_recorder: impl FnOnce(&CommandBuffer, &PixelBuffer)) {
+        self.collect_completed_commands();
+        self.ensure_available_command();
+
+        let command_buffer = self
+            .available_commands
+            .pop_front()
+            .expect("No available command buffers");
+
+        let output_frame = match self.presentation_provider.acquire() {
+            AcquireStatus::Success(frame) => frame,
+            AcquireStatus::Timeout => {
+                warning!("Queue::present: Acquire timed out");
+                self.available_commands.push_back(command_buffer);
+                return;
+            }
+            AcquireStatus::OutOfDate => {
+                warning!("Queue::present: Acquire out of date");
+                self.available_commands.push_back(command_buffer);
+                return;
+            }
+            AcquireStatus::Error(err) => {
+                error!("Queue::present: Acquire error: {:?}", err);
+                self.available_commands.push_back(command_buffer);
+                return;
+            }
         };
 
-        let mut command_pool_handle: vulkan_ffi::VkCommandPool = std::ptr::null_mut();
-        vk_call!(vulkan_ffi::vkCreateCommandPool(
-            self.device.handle(),
-            &command_pool_create_info,
-            std::ptr::null(),
-            &mut command_pool_handle,
-        ))
-        .map_err(|err| error!("vkCreateCommandPool {:?}", err))
-        .unwrap();
+        command_buffer.begin();
+        command_recorder(&command_buffer, &output_frame);
+        command_buffer.end();
 
-        Arc::new(CommandPool {
-            handle: command_pool_handle,
-            device: Arc::clone(&self.device),
-        })
+        self.recorded_commands.push_back(command_buffer);
+
+        /*let commands = self
+            .recorded_commands
+            .pop_front()
+            .expect("No recorded command buffers to present");
+
+        let submit_status = self
+            .queue
+            .submit_present(&commands, _, _);
+        match submit_status {
+            SubmitStatus::Success => {
+                self.queued_commands.push_back(commands);
+            }
+            SubmitStatus::Timeout => {
+                //warning!("Queue::present_frame: Submit timed out");
+                commands.reset();
+                self.available_commands.push_back(commands);
+            }
+            SubmitStatus::Error(err) => {
+                error!("Queue::present_frame: Submit error: {:?}", err);
+                commands.reset();
+                self.available_commands.push_back(commands);
+            }
+        }*/
     }
 
-    pub fn wait_idle(self: &Arc<Self>) {
-        vk_call!(vulkan_ffi::vkQueueWaitIdle(self.handle)).expect("vkQueueWaitIdle");
+    pub fn enqueue_present_keyed_mutex(
+        &mut self,
+        command_recorder: impl FnOnce(&CommandBuffer, &PixelBuffer),
+    ) {
+        self.collect_completed_commands();
+        self.ensure_available_command();
+
+        let command_buffer = self
+            .available_commands
+            .pop_front()
+            .expect("No available command buffers");
+
+        let output_frame = match self.presentation_provider.acquire() {
+            AcquireStatus::Success(frame) => frame,
+            AcquireStatus::Timeout => {
+                warning!("Queue::present: Acquire timed out");
+                self.available_commands.push_back(command_buffer);
+                return;
+            }
+            AcquireStatus::OutOfDate => {
+                warning!("Queue::present: Acquire out of date");
+                self.available_commands.push_back(command_buffer);
+                return;
+            }
+            AcquireStatus::Error(err) => {
+                error!("Queue::present: Acquire error: {:?}", err);
+                self.available_commands.push_back(command_buffer);
+                return;
+            }
+        };
+
+        command_buffer.begin();
+        command_recorder(&command_buffer, &output_frame);
+        command_buffer.end();
+
+        let submit_status = self.submit_with_keyed_mutex(&command_buffer, &output_frame, 1, 0);
+        match submit_status {
+            SubmitStatus::Success => {
+                self.queued_commands.push_back(command_buffer);
+            }
+            SubmitStatus::Timeout => {
+                //warning!("Queue::present_frame: Submit timed out");
+                command_buffer.reset();
+                self.available_commands.push_back(command_buffer);
+            }
+            SubmitStatus::Error(err) => {
+                error!("Queue::present_frame: Submit error: {:?}", err);
+                command_buffer.reset();
+                self.available_commands.push_back(command_buffer);
+            }
+        }
     }
 
-    pub fn submit(self: &Arc<Self>, commands: &CommandBuffer) {
+    pub fn submit(&self, commands: &CommandBuffer) {
         let submit_info = vulkan_ffi::VkSubmitInfo {
             sType: vulkan_ffi::VkStructureType::SUBMIT_INFO as u32,
             pNext: std::ptr::null(),
@@ -79,7 +219,7 @@ impl Queue {
         };
 
         vk_call!(vulkan_ffi::vkQueueSubmit(
-            self.handle,
+            self.queue_handle,
             1,
             &submit_info,
             commands.fence,
@@ -88,7 +228,7 @@ impl Queue {
     }
 
     pub fn submit_present(
-        self: &Arc<Self>,
+        &self,
         swapchain: vulkan_ffi::VkSwapchainKHR,
         image_index: u32,
     ) -> SubmitStatus {
@@ -103,7 +243,10 @@ impl Queue {
             pResults: std::ptr::null_mut(),
         };
 
-        let result = vk_call!(vulkan_ffi::vkQueuePresentKHR(self.handle, &present_info));
+        let result = vk_call!(vulkan_ffi::vkQueuePresentKHR(
+            self.queue_handle,
+            &present_info
+        ));
         match result {
             Ok(()) => SubmitStatus::Success,
             Err(err) => {
@@ -117,7 +260,7 @@ impl Queue {
     }
 
     pub fn submit_with_keyed_mutex(
-        self: &Arc<Self>,
+        &self,
         command_buffer: &CommandBuffer,
         shared_pixel_buffer: &PixelBuffer,
         acquire_key: u64,
@@ -148,12 +291,12 @@ impl Queue {
             pSignalSemaphores: std::ptr::null(),
         };
         let result = vk_call!(vulkan_ffi::vkQueueSubmit(
-            self.handle,
+            self.queue_handle,
             1,
             &submit_info,
             command_buffer.fence,
         ));
-        self.wait_idle();
+        self.wait_for_idle();
 
         match result {
             Ok(()) => SubmitStatus::Success,
