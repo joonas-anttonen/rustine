@@ -14,6 +14,7 @@ class Core : IDisposable
     RustineLogCallback? logCallback;
 
     public bool IsInitialized => isInitialized;
+    public Log Log => log;
 
     public async Task Initialize(ulong interopAdapterLuid)
     {

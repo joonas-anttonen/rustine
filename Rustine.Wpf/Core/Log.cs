@@ -34,7 +34,7 @@ public sealed partial class Log : IDisposable
             {
                 return level switch
                 {
-                    Severity.Error => "R",
+                    Severity.Error => "E",
                     Severity.Warning => "W",
                     Severity.Information => "I",
                     Severity.Debug => "D",

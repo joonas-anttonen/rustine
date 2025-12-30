@@ -31,9 +31,139 @@ impl Instance {
     }
 }
 
+pub enum SubmitStatus {
+    Success,
+    Timeout,
+    Error(crate::gfx::Outcome),
+}
+
+pub struct Queue {
+    handle: ffi::VkQueue,
+    family_index: u32,
+    device: Arc<vulkan::Device>,
+}
+
+impl Drop for Queue {
+    fn drop(&mut self) {
+        warning!("Queue::drop");
+    }
+}
+
+impl Queue {
+    pub fn new(handle: ffi::VkQueue, family_index: u32, device: Arc<vulkan::Device>) -> Arc<Self> {
+        Arc::new(Queue {
+            handle,
+            family_index,
+            device,
+        })
+    }
+
+    pub fn allocate_command_pool(self: &Arc<Self>) -> Arc<CommandPool> {
+        let command_pool_create_info = ffi::VkCommandPoolCreateInfo {
+            sType: ffi::VkStructureType::COMMAND_POOL_CREATE_INFO as u32,
+            pNext: ptr::null(),
+            flags: ffi::VkCommandPoolCreateFlags::TRANSIENT_BIT
+                | ffi::VkCommandPoolCreateFlags::RESET_COMMAND_BUFFER_BIT,
+            queueFamilyIndex: self.family_index,
+        };
+
+        let mut command_pool_handle: ffi::VkCommandPool = ptr::null_mut();
+        vk_call!(ffi::vkCreateCommandPool(
+            self.device.handle(),
+            &command_pool_create_info,
+            ptr::null(),
+            &mut command_pool_handle,
+        ))
+        .map_err(|err| error!("vkCreateCommandPool {:?}", err))
+        .unwrap();
+
+        Arc::new(CommandPool {
+            handle: command_pool_handle,
+            device: Arc::clone(&self.device),
+        })
+    }
+
+    pub fn wait_idle(self: &Arc<Self>) {
+        vk_call!(ffi::vkQueueWaitIdle(self.handle)).expect("vkQueueWaitIdle");
+    }
+
+    pub fn submit(self: &Arc<Self>, commands: &CommandBuffer) {
+        let submit_info = vulkan_ffi::VkSubmitInfo {
+            sType: vulkan_ffi::VkStructureType::SUBMIT_INFO as u32,
+            pNext: std::ptr::null(),
+            waitSemaphoreCount: 0,
+            pWaitSemaphores: std::ptr::null(),
+            pWaitDstStageMask: std::ptr::null(),
+            commandBufferCount: 1,
+            pCommandBuffers: &commands.handle,
+            signalSemaphoreCount: 0,
+            pSignalSemaphores: std::ptr::null(),
+        };
+
+        vk_call!(vulkan_ffi::vkQueueSubmit(
+            self.handle,
+            1,
+            &submit_info,
+            commands.fence,
+        ))
+        .expect("vkQueueSubmit failures should be handled");
+    }
+
+    pub fn submit_with_keyed_mutex(
+        self: &Arc<Self>,
+        commands: &CommandBuffer,
+        shared_pixel_buffer: &PixelBuffer,
+        acquire_key: u64,
+        release_key: u64,
+    ) -> SubmitStatus {
+        let timeout = 10u32;
+
+        let keyed_mutex_acquire_release_info = vulkan_ffi::VkWin32KeyedMutexAcquireReleaseInfoKHR {
+            sType: vulkan_ffi::VkStructureType::WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR as u32,
+            pNext: std::ptr::null(),
+            acquireCount: 1,
+            pAcquireSyncs: &shared_pixel_buffer.device_memory(),
+            pAcquireKeys: &acquire_key,
+            pAcquireTimeouts: &timeout,
+            releaseCount: 1,
+            pReleaseSyncs: &shared_pixel_buffer.device_memory(),
+            pReleaseKeys: &release_key,
+        };
+        let submit_info = vulkan_ffi::VkSubmitInfo {
+            sType: vulkan_ffi::VkStructureType::SUBMIT_INFO as u32,
+            pNext: &keyed_mutex_acquire_release_info as *const _ as *const _,
+            waitSemaphoreCount: 0,
+            pWaitSemaphores: std::ptr::null(),
+            pWaitDstStageMask: std::ptr::null(),
+            commandBufferCount: 1,
+            pCommandBuffers: &commands.handle,
+            signalSemaphoreCount: 0,
+            pSignalSemaphores: std::ptr::null(),
+        };
+        let result = vk_call!(vulkan_ffi::vkQueueSubmit(
+            self.handle,
+            1,
+            &submit_info,
+            commands.fence,
+        ));
+        self.wait_idle();
+
+        match result {
+            Ok(()) => SubmitStatus::Success,
+            Err(err) => {
+                if let crate::gfx::Outcome::Timeout(_) = err {
+                    SubmitStatus::Timeout
+                } else {
+                    SubmitStatus::Error(err)
+                }
+            }
+        }
+    }
+}
+
 /// Represents a Vulkan logical device.
 pub struct Device {
-    queue: ffi::VkQueue,
+    general_queue_family_index: u32,
     handle: ffi::VkDevice,
     physical_device: ffi::VkPhysicalDevice,
 }
@@ -47,72 +177,22 @@ impl Device {
         self.physical_device
     }
 
-    pub fn queue_handle(&self) -> ffi::VkQueue {
-        self.queue
-    }
-}
-
-/// Represents a command pool owned by a single thread.
-pub struct CommandPool {
-    handle: ffi::VkCommandPool,
-    available_command_buffers: collections::VecDeque<CommandBuffer>,
-}
-
-impl CommandPool {
-    /// Creates a new command pool with pre-allocated command buffers.
-    pub fn new(pool: ffi::VkCommandPool, buffers: Vec<CommandBuffer>) -> Self {
-        CommandPool {
-            handle: pool,
-            available_command_buffers: collections::VecDeque::from(buffers),
+    pub fn create_general_queue(self: &Arc<Self>) -> Arc<Queue> {
+        let mut queue_handle: ffi::VkQueue = ptr::null_mut();
+        unsafe {
+            ffi::vkGetDeviceQueue(
+                self.handle,
+                self.general_queue_family_index,
+                0,
+                &mut queue_handle,
+            );
         }
-    }
 
-    /// Checks if the pool has no available command buffers.
-    pub fn is_empty(&self) -> bool {
-        self.available_command_buffers.is_empty()
-    }
-
-    /// Rents a command buffer from the pool, or returns None if empty.
-    pub fn rent_buffer(&mut self) -> Option<CommandBuffer> {
-        self.available_command_buffers.pop_front()
-    }
-
-    /// Returns a command buffer to the pool.
-    pub fn return_buffer(&mut self, buffer: CommandBuffer) {
-        self.available_command_buffers.push_back(buffer);
-    }
-}
-
-/// Represents a command buffer allocated from a command pool.
-pub struct CommandBuffer {
-    handle: ffi::VkCommandBuffer,
-    fence: ffi::VkFence,
-}
-
-impl CommandBuffer {
-    /// Creates a new command buffer with the given handle and fence.
-    pub fn new(handle: ffi::VkCommandBuffer, fence: ffi::VkFence) -> Self {
-        CommandBuffer { handle, fence }
-    }
-
-    /// Begins recording commands into the command buffer.
-    pub fn begin(&self) {
-        let begin_info = ffi::VkCommandBufferBeginInfo {
-            sType: ffi::VkStructureType::COMMAND_BUFFER_BEGIN_INFO as u32,
-            pNext: ptr::null(),
-            flags: 0,
-            pInheritanceInfo: ptr::null(),
-        };
-        vk_call!(ffi::vkBeginCommandBuffer(self.handle, &begin_info)).unwrap_or_else(|r| {
-            error!("Failed to begin command buffer: {:?}", r);
-        });
-    }
-
-    /// Ends recording commands into the command buffer.
-    pub fn end(&self) {
-        vk_call!(ffi::vkEndCommandBuffer(self.handle)).unwrap_or_else(|r| {
-            error!("Failed to end command buffer: {:?}", r);
-        });
+        Queue::new(
+            queue_handle,
+            self.general_queue_family_index,
+            Arc::clone(self),
+        )
     }
 }
 
@@ -366,18 +446,17 @@ unsafe extern "C" fn vulkan_debug_callback(
     callback_data: *const ffi::VkDebugUtilsMessengerCallbackDataEXT,
     _user_data: *mut std::ffi::c_void,
 ) -> u32 {
-    if callback_data.is_null() {
-        return 0;
-    }
     unsafe {
-        let data = &*callback_data;
-        if data.pMessage.is_null() {
-            return 0;
+        if !callback_data.is_null() {
+            let data = &*callback_data;
+            if !data.pMessage.is_null() {
+                error!(
+                    "{}",
+                    std::ffi::CStr::from_ptr(data.pMessage).to_string_lossy()
+                );
+            }
         }
-
-        let message = std::ffi::CStr::from_ptr(data.pMessage).to_string_lossy();
-        error!("{}", message);
-        0
+        ffi::VK_FALSE
     }
 }
 
@@ -413,36 +492,52 @@ pub fn create_device(
         .map(|cs| cs.as_ptr())
         .collect();
 
-    let mut physical_device_dynamic_rendering = unsafe {
-        ffi::VkPhysicalDeviceDynamicRenderingFeatures {
-            sType: ffi::VkStructureType::PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES as u32,
-            ..std::mem::zeroed()
-        }
-    };
     let mut physical_device_features = unsafe {
-        ffi::VkPhysicalDeviceFeatures2 {
+        let mut physical_device_synchronization2 = ffi::VkPhysicalDeviceSynchronization2Features {
+            sType: ffi::VkStructureType::PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES as u32,
+            ..std::mem::zeroed()
+        };
+        let mut physical_device_dynamic_rendering = ffi::VkPhysicalDeviceDynamicRenderingFeatures {
+            sType: ffi::VkStructureType::PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES as u32,
+            pNext: &mut physical_device_synchronization2
+                as *mut ffi::VkPhysicalDeviceSynchronization2Features
+                as *mut std::ffi::c_void,
+            ..std::mem::zeroed()
+        };
+        let mut physical_device_features = ffi::VkPhysicalDeviceFeatures2 {
             sType: ffi::VkStructureType::PHYSICAL_DEVICE_FEATURES_2 as u32,
             pNext: &mut physical_device_dynamic_rendering
                 as *mut ffi::VkPhysicalDeviceDynamicRenderingFeatures
                 as *mut std::ffi::c_void,
             ..std::mem::zeroed()
-        }
-    };
-    unsafe {
+        };
+
         ffi::vkGetPhysicalDeviceFeatures2(physical_device, &mut physical_device_features);
-    }
+
+        // Ensure synchronization2 support
+        if physical_device_synchronization2.synchronization2 == ffi::VK_FALSE {
+            return Err(Outcome::NotSupported(-1));
+        }
+        // Ensure dynamic rendering support
+        if physical_device_dynamic_rendering.dynamicRendering == ffi::VK_FALSE {
+            return Err(Outcome::NotSupported(-1));
+        }
+
+        physical_device_features
+    };
 
     let queue_family_properties = enumerate_physical_device_queue_families(physical_device);
     let general_queue_family_index = queue_family_properties
         .iter()
         .position(|qf| (qf.queueFlags & ffi::VkQueueFlags::GRAPHICS_BIT as u32) != 0)
+        .map(|idx| idx as u32)
         .ok_or(Outcome::NotSupported(-1))?;
     let queue_priority: f32 = 1.0;
     let queue_create_info = ffi::VkDeviceQueueCreateInfo {
         sType: ffi::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
         pNext: ptr::null(),
         flags: 0,
-        queueFamilyIndex: general_queue_family_index as u32,
+        queueFamilyIndex: general_queue_family_index,
         queueCount: 1,
         pQueuePriorities: &queue_priority as *const f32,
     };
@@ -468,20 +563,10 @@ pub fn create_device(
         &mut device_handle,
     ))?;
 
-    let mut queue_handle: ffi::VkQueue = ptr::null_mut();
-    unsafe {
-        ffi::vkGetDeviceQueue(
-            device_handle,
-            general_queue_family_index as u32,
-            0,
-            &mut queue_handle,
-        );
-    }
-
     Ok(Device {
         handle: device_handle,
         physical_device,
-        queue: queue_handle,
+        general_queue_family_index,
     })
 }
 

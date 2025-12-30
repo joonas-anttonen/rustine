@@ -57,6 +57,7 @@ public partial class MainWindow : Window
         public void Release()
         {
             D3D9InteropTexture.Release();
+            //VulkanInteropMutex.ReleaseSync(key: 1);
             VulkanInteropMutex.Release();
             VulkanInteropTexture.Release();
             WpfInteropSurface.Release();
@@ -90,13 +91,14 @@ public partial class MainWindow : Window
         InitializeDirectX();
 
         await core.Initialize(interopAdapterLuid: directXResources.AdapterLuid);
+
+        System.Windows.Media.CompositionTarget.Rendering += CompositionTarget_Rendering;
     }
 
     void Window_Closed(object sender, EventArgs e)
     {
-        core.Dispose();
-
         presentationResources.Release();
+        core.Dispose();
 
 #if DIRECTX_DEBUG
             {
@@ -152,19 +154,26 @@ public partial class MainWindow : Window
             {
                 deferRenderTimer.Stop();
 
-                // TODO: Utilize mutex in WCR
-                // Can avoid some swap locking in the main thread if render thread directly renders to the interop texture.
-                // For now, we just acquire/release around the copy operation because it is needed by D3D11.
-                presentationResources.VulkanInteropMutex.AcquireSync(key: 0, milliseconds: 0xFFFFFFFF);
-                directXResources.D3D11DeviceContext.CopyResource(
-                    dst: presentationResources.D3D9InteropTexture.Get(),
-                    src: presentationResources.VulkanInteropTexture.Get());
-                presentationResources.VulkanInteropMutex.ReleaseSync(key: 0);
+                const int S_OK = 0;
+                const int WAIT_TIMEOUT = 258;
 
-                presentTarget.Lock();
-                presentTarget.SetBackBuffer(System.Windows.Interop.D3DResourceType.IDirect3DSurface9, presentationResources.WpfInteropSurface.Get());
-                presentTarget.AddDirtyRect(new Int32Rect(0, 0, presentTarget.PixelWidth, presentTarget.PixelHeight));
-                presentTarget.Unlock();
+                uint mutexStatus = presentationResources.VulkanInteropMutex.AcquireSync(key: 0, milliseconds: 16);
+                if (mutexStatus == S_OK)
+                {
+                    directXResources.D3D11DeviceContext.CopyResource(
+                        dst: presentationResources.D3D9InteropTexture.Get(),
+                        src: presentationResources.VulkanInteropTexture.Get());
+
+                    mutexStatus = presentationResources.VulkanInteropMutex.ReleaseSync(key: 1);
+                    if (mutexStatus != S_OK)
+                    {
+                        core.Log.Error<MainWindow>($"Failed to release Vulkan interop mutex: {mutexStatus}");
+                    }
+
+                    presentTarget.Lock();
+                    presentTarget.SetBackBuffer(System.Windows.Interop.D3DResourceType.IDirect3DSurface9, presentationResources.WpfInteropSurface.Get());
+                    presentTarget.AddDirtyRect(new Int32Rect(0, 0, presentTarget.PixelWidth, presentTarget.PixelHeight));
+                    presentTarget.Unlock();
 
 #if DIRECTX_DEBUG
                     {
@@ -181,6 +190,27 @@ public partial class MainWindow : Window
                         d3d11InfoQueue.Release();
                     }
 #endif
+                }
+                else if (mutexStatus == WAIT_TIMEOUT)
+                {
+                    // Delay next frame to allow mutex to become available
+                    //initializeRenderTime = renderingWatch.Elapsed;
+                    //deferRenderTimer.Start();
+
+                    //mutexStatus = presentationResources.VulkanInteropMutex.ReleaseSync(key: 1);
+                    //if (mutexStatus != S_OK)
+                    //{
+                    core.Log.Error<MainWindow>($"TIMEOUT: {mutexStatus}");
+                    //}
+                    //else
+                    //{
+                    //    core.Log.Warning<MainWindow>("TIMEOUT");
+                    //}
+                }
+                else
+                {
+                    core.Log.Error<MainWindow>($"Failed to acquire Vulkan interop mutex: {mutexStatus}");
+                }
             }
         }
     }
@@ -268,7 +298,10 @@ public partial class MainWindow : Window
 
             presentationResources = CreatePresentSurface(presentWidth, presentHeight);
 
+            var begin = renderingWatch.Elapsed;
             core.InitializeRender(presentWidth, presentHeight, presentationResources.VulkanInteropHandle);
+            var end = renderingWatch.Elapsed;
+            core.Log.Info<MainWindow>($"Core.InitializeRender {(end - begin).TotalMilliseconds} ms");
 
             localPresentation.Release();
 

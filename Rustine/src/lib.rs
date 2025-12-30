@@ -48,19 +48,35 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, shutdown_signal: Arc<atomic::
     log::Log::global().set_current_thread_name("gfx");
     info!("gfx thread started");
 
+    let mut skip_frame = false;
+    let start_instant = std::time::Instant::now();
+    let mut last_instant = std::time::Instant::now();
+
     while !shutdown_signal.load(atomic::Ordering::Relaxed) {
         {
             let attempted_lock = gfx.try_lock();
             if attempted_lock.is_err() {
-                warning!("gfx thread: gfx core is locked, skipping frame");
-                //std::thread::sleep(std::time::Duration::from_millis(100));
+                skip_frame = true;
+                std::thread::sleep(std::time::Duration::from_millis(1));
                 continue;
+            }
+            if skip_frame {
+                info!("CONTINUE");
+                skip_frame = false;
             }
             let mut core = attempted_lock.unwrap();
 
-            info!("frame {} {:?}", core.next_frame(), core.frame_extent());
+            let now = std::time::Instant::now();
+            let t = now.duration_since(start_instant).as_secs_f64();
+            let dt = now.duration_since(last_instant).as_secs_f32();
+            core.render(t, dt);
+            last_instant = now;
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // NOTE: Sleeping seems necessary
+        // If we don't sleep, the host thread struggles to acquire the lock,
+        // causing unresponsiveness, especially when resizing the window.
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
     info!("gfx thread stopped");
@@ -148,22 +164,7 @@ pub extern "C" fn rustine_gfx_initialize_presentation(
 
     let gfx_core = &state.as_ref().unwrap().gfx;
     let mut gfx_core_locked = gfx_core.lock().unwrap();
-    gfx_core_locked.set_frame_extent(gfx::Extent2D {
-        width: in_params.width,
-        height: in_params.height,
-    });
-
-    let _res = gfx_core_locked.allocator().create_external_pixel_buffer(
-        gfx::Format::B8G8R8A8_UNORM,
-        in_params.width,
-        in_params.height,
-        gfx::ImageUsage::COLOR_ATTACHMENT,
-        gfx::ImageAspect::COLOR,
-        in_params.surface_handle,
-    );
-    if _res.is_err() {
-        return Outcome::NotSupported(-1).to_code();
-    }
+    gfx_core_locked.initialize_presenter(&in_params);
 
     Outcome::Success.to_code()
 }

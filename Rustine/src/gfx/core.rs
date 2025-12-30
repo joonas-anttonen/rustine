@@ -1,6 +1,6 @@
 use crate::{gfx::*, warning};
 
-use std::{result, sync::Arc};
+use std::sync::Arc;
 
 /// The core graphics subsystem, managing Vulkan initialization and device selection.
 ///
@@ -15,6 +15,7 @@ pub struct Core {
     instance: vulkan::Instance,
     frame_n: u64,
     frame_extent: Extent2D,
+    presenter: Option<presentation::Presenter>,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -47,11 +48,12 @@ impl Core {
                 width: 0,
                 height: 0,
             },
+            presenter: None,
         }
     }
 
     /// Enumerates all available physical devices (GPUs) accessible via the Vulkan instance.
-    pub fn enumerate_physical_devices(&self) -> result::Result<Vec<PhysicalDevice>, Outcome> {
+    pub fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>> {
         let devices = vulkan::enumerate_physical_devices(&self.instance)?;
         Ok(devices)
     }
@@ -70,6 +72,10 @@ impl Core {
         self.instance.handle()
     }
 
+    pub fn device(&self) -> &Arc<vulkan::Device> {
+        &self.device
+    }
+
     pub fn allocator(&self) -> &Arc<vma::Allocator> {
         &self.allocator
     }
@@ -82,8 +88,60 @@ impl Core {
     pub fn frame_extent(&self) -> &Extent2D {
         &self.frame_extent
     }
-    pub fn set_frame_extent(&mut self, extent: Extent2D) {
-        self.frame_extent = extent;
+    pub fn initialize_presenter(&mut self, in_params: &crate::lib_ffi::PresentationParameters) {
+        let presentation_pixel_buffer = self
+            .allocator()
+            .create_external_pixel_buffer(
+                Format::B8G8R8A8_UNORM,
+                in_params.width,
+                in_params.height,
+                ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
+                ImageAspect::COLOR,
+                in_params.surface_handle,
+            )
+            .unwrap();
+
+        let presenter = presentation::Presenter::new(
+            self.device().create_general_queue(),
+            presentation_pixel_buffer,
+        );
+        /*presenter.record_frame(|cmd, pixel_buffer| {
+            warning!("Recording initial frame");
+            cmd.begin();
+
+            cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::UNDEFINED, ImageLayout::GENERAL);
+            cmd.clear_pixel_buffer(pixel_buffer, [0.5, 0.7, 1.0, 1.0]);
+            cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
+
+            cmd.end();
+        });
+        presenter.present_frame();*/
+
+        self.frame_extent = Extent2D {
+            width: in_params.width,
+            height: in_params.height,
+        };
+        self.presenter = Some(presenter);
+    }
+    pub fn render(&mut self, t: f64, _dt: f32) {
+        self.next_frame();
+
+        if let Some(presenter) = &mut self.presenter {
+            presenter.record_frame(|cmd, pixel_buffer| {
+                //warning!("Recording frame {}", self.frame_n);
+                cmd.begin();
+
+                cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
+                cmd.clear_pixel_buffer(
+                    pixel_buffer,
+                    [0.5, 0.5, ((t * 1.0).sin() * 0.5 + 0.5) as f32, 1.0],
+                );
+                cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
+
+                cmd.end();
+            });
+            presenter.present_frame();
+        }
     }
 }
 

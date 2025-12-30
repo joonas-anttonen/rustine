@@ -1455,6 +1455,10 @@ internal unsafe struct IDXGIKeyedMutex
     /// <returns>Returns S_OK if successful. If the device attempted to release a keyed mutex that is not valid or owned by the device, ReleaseSync returns E_FAIL.</returns>
     public uint ReleaseSync(ulong key)
     {
+        const uint E_FAIL = unchecked(0x80004005);
+        if (lpVtbl == null)
+            return E_FAIL;
+
         return (*lpVtbl)->ReleaseSync((IDXGIKeyedMutex*)lpVtbl, key);
     }
 }

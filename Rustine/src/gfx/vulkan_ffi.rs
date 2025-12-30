@@ -125,7 +125,7 @@ unsafe extern "C" {
     ) -> i32;
     pub fn vkDestroyFence(device: VkDevice, fence: VkFence, pAllocator: *const std::ffi::c_void);
     pub fn vkResetFences(device: VkDevice, fenceCount: u32, pFences: *const VkFence) -> i32;
-    pub fn vkGetFenceStatus(device: VkDevice, fence: VkFence) -> i32;
+    pub fn vkGetFenceStatus(device: VkDevice, fence: VkFence) -> VkResult;
     pub fn vkWaitForFences(
         device: VkDevice,
         fenceCount: u32,
@@ -174,6 +174,18 @@ unsafe extern "C" {
     ) -> i32;
     pub fn vkEndCommandBuffer(commandBuffer: VkCommandBuffer) -> i32;
     pub fn vkResetCommandBuffer(commandBuffer: VkCommandBuffer, flags: u32) -> i32;
+    pub fn vkCmdClearColorImage(
+        commandBuffer: VkCommandBuffer,
+        image: VkImage,
+        imageLayout: VkImageLayout,
+        pColor: *const VkClearColorValue,
+        rangeCount: u32,
+        pRanges: *const VkImageSubresourceRange,
+    );
+    pub fn vkCmdPipelineBarrier2(
+        commandBuffer: VkCommandBuffer,
+        pDependencyInfo: *const VkDependencyInfo,
+    );
 
     // ========= Surface KHR ==========
 
@@ -182,7 +194,6 @@ unsafe extern "C" {
         surface: VkSurfaceKHR,
         pAllocator: *const std::ffi::c_void,
     );
-
 }
 
 pub type VkInstance = *mut std::ffi::c_void;
@@ -200,6 +211,440 @@ pub type VkSurfaceKHR = *mut std::ffi::c_void;
 pub type VkImage = *mut std::ffi::c_void;
 pub type VkImageView = *mut std::ffi::c_void;
 pub type VkBuffer = *mut std::ffi::c_void;
+
+pub const VK_ATTACHMENT_UNUSED: u32 = u32::MAX;
+pub const VK_FALSE: u32 = 0;
+pub const VK_LOD_CLAMP_NONE: f32 = 1000.0;
+pub const VK_QUEUE_FAMILY_IGNORED: u32 = u32::MAX;
+pub const VK_REMAINING_ARRAY_LAYERS: u32 = u32::MAX;
+pub const VK_REMAINING_MIP_LEVELS: u32 = u32::MAX;
+pub const VK_SUBPASS_EXTERNAL: u32 = u32::MAX;
+pub const VK_TRUE: u32 = 1;
+pub const VK_WHOLE_SIZE: u64 = u64::MAX;
+pub const VK_MAX_MEMORY_TYPES: u32 = 32;
+pub const VK_MAX_PHYSICAL_DEVICE_NAME_SIZE: usize = 256;
+pub const VK_UUID_SIZE: usize = 16;
+pub const VK_MAX_EXTENSION_NAME_SIZE: usize = 256;
+pub const VK_MAX_DESCRIPTION_SIZE: usize = 256;
+pub const VK_MAX_MEMORY_HEAPS: u32 = 16;
+
+#[repr(C)]
+pub struct VkPhysicalDeviceVulkan11Features {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub storageBuffer16BitAccess: u32,
+    pub uniformAndStorageBuffer16BitAccess: u32,
+    pub storagePushConstant16: u32,
+    pub storageInputOutput16: u32,
+    pub multiview: u32,
+    pub multiviewGeometryShader: u32,
+    pub multiviewTessellationShader: u32,
+    pub variablePointersStorageBuffer: u32,
+    pub variablePointers: u32,
+    pub protectedMemory: u32,
+    pub samplerYcbcrConversion: u32,
+    pub shaderDrawParameters: u32,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceVulkan12Features {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub samplerMirrorClampToEdge: u32,
+    pub drawIndirectCount: u32,
+    pub storageBuffer8BitAccess: u32,
+    pub uniformAndStorageBuffer8BitAccess: u32,
+    pub storagePushConstant8: u32,
+    pub shaderBufferInt64Atomics: u32,
+    pub shaderSharedInt64Atomics: u32,
+    pub shaderFloat16: u32,
+    pub shaderInt8: u32,
+    pub descriptorIndexing: u32,
+    pub shaderInputAttachmentArrayDynamicIndexing: u32,
+    pub shaderUniformTexelBufferArrayDynamicIndexing: u32,
+    pub shaderStorageTexelBufferArrayDynamicIndexing: u32,
+    pub shaderUniformBufferArrayNonUniformIndexing: u32,
+    pub shaderSampledImageArrayNonUniformIndexing: u32,
+    pub shaderStorageBufferArrayNonUniformIndexing: u32,
+    pub shaderStorageImageArrayNonUniformIndexing: u32,
+    pub shaderInputAttachmentArrayNonUniformIndexing: u32,
+    pub shaderUniformTexelBufferArrayNonUniformIndexing: u32,
+    pub shaderStorageTexelBufferArrayNonUniformIndexing: u32,
+    pub descriptorBindingUniformBufferUpdateAfterBind: u32,
+    pub descriptorBindingSampledImageUpdateAfterBind: u32,
+    pub descriptorBindingStorageImageUpdateAfterBind: u32,
+    pub descriptorBindingStorageBufferUpdateAfterBind: u32,
+    pub descriptorBindingUniformTexelBufferUpdateAfterBind: u32,
+    pub descriptorBindingStorageTexelBufferUpdateAfterBind: u32,
+    pub descriptorBindingUpdateUnusedWhilePending: u32,
+    pub descriptorBindingPartiallyBound: u32,
+    pub descriptorBindingVariableDescriptorCount: u32,
+    pub runtimeDescriptorArray: u32,
+    pub samplerFilterMinmax: u32,
+    pub scalarBlockLayout: u32,
+    pub imagelessFramebuffer: u32,
+    pub uniformBufferStandardLayout: u32,
+    pub shaderSubgroupExtendedTypes: u32,
+    pub separateDepthStencilLayouts: u32,
+    pub hostQueryReset: u32,
+    pub timelineSemaphore: u32,
+    pub bufferDeviceAddress: u32,
+    pub bufferDeviceAddressCaptureReplay: u32,
+    pub bufferDeviceAddressMultiDevice: u32,
+    pub vulkanMemoryModel: u32,
+    pub vulkanMemoryModelDeviceScope: u32,
+    pub vulkanMemoryModelAvailabilityVisibilityChains: u32,
+    pub shaderOutputViewportIndex: u32,
+    pub shaderOutputLayer: u32,
+    pub subgroupBroadcastDynamicId: u32,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceTimelineSemaphoreFeatures {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub timelineSemaphore: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkSemaphoreType(u32);
+impl VkSemaphoreType {
+    pub const BINARY: Self = Self(0);
+    pub const TIMELINE: Self = Self(1);
+}
+
+#[repr(C)]
+pub struct VkSemaphoreTypeCreateInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub semaphoreType: VkSemaphoreType,
+    pub initialValue: u64,
+}
+
+#[repr(C)]
+pub struct VkTimelineSemaphoreSubmitInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub waitSemaphoreValueCount: u32,
+    pub pWaitSemaphoreValues: *const u64,
+    pub signalSemaphoreValueCount: u32,
+    pub pSignalSemaphoreValues: *const u64,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceVulkan13Features {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub robustImageAccess: u32,
+    pub inlineUniformBlock: u32,
+    pub descriptorBindingInlineUniformBlockUpdateAfterBind: u32,
+    pub pipelineCreationCacheControl: u32,
+    pub privateData: u32,
+    pub shaderDemoteToHelperInvocation: u32,
+    pub shaderTerminateInvocation: u32,
+    pub subgroupSizeControl: u32,
+    pub computeFullSubgroups: u32,
+    pub synchronization2: u32,
+    pub textureCompressionASTC_HDR: u32,
+    pub shaderZeroInitializeWorkgroupMemory: u32,
+    pub dynamicRendering: u32,
+    pub shaderIntegerDotProduct: u32,
+    pub maintenance4: u32,
+}
+
+#[repr(C)]
+pub struct VkPhysicalDeviceVulkan14Features {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub globalPriorityQuery: u32,
+    pub shaderSubgroupRotate: u32,
+    pub shaderSubgroupRotateClustered: u32,
+    pub shaderFloatControls2: u32,
+    pub shaderExpectAssume: u32,
+    pub rectangularLines: u32,
+    pub bresenhamLines: u32,
+    pub smoothLines: u32,
+    pub stippledRectangularLines: u32,
+    pub stippledBresenhamLines: u32,
+    pub stippledSmoothLines: u32,
+    pub vertexAttributeInstanceRateDivisor: u32,
+    pub vertexAttributeInstanceRateZeroDivisor: u32,
+    pub indexTypeUint8: u32,
+    pub dynamicRenderingLocalRead: u32,
+    pub maintenance5: u32,
+    pub maintenance6: u32,
+    pub pipelineProtectedAccess: u32,
+    pub pipelineRobustness: u32,
+    pub hostImageCopy: u32,
+    pub pushDescriptor: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkAccessFlags2(u64);
+impl std::ops::BitOr for VkAccessFlags2 {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl VkAccessFlags2 {
+    pub const NONE: Self = Self(0);
+    pub const INDIRECT_COMMAND_READ_BIT: Self = Self(0x00000001);
+    pub const INDEX_READ_BIT: Self = Self(0x00000002);
+    pub const VERTEX_ATTRIBUTE_READ_BIT: Self = Self(0x00000004);
+    pub const UNIFORM_READ_BIT: Self = Self(0x00000008);
+    pub const INPUT_ATTACHMENT_READ_BIT: Self = Self(0x00000010);
+    pub const SHADER_READ_BIT: Self = Self(0x00000020);
+    pub const SHADER_WRITE_BIT: Self = Self(0x00000040);
+    pub const COLOR_ATTACHMENT_READ_BIT: Self = Self(0x00000080);
+    pub const COLOR_ATTACHMENT_WRITE_BIT: Self = Self(0x00000100);
+    pub const DEPTH_STENCIL_ATTACHMENT_READ_BIT: Self = Self(0x00000200);
+    pub const DEPTH_STENCIL_ATTACHMENT_WRITE_BIT: Self = Self(0x00000400);
+    pub const TRANSFER_READ_BIT: Self = Self(0x00000800);
+    pub const TRANSFER_WRITE_BIT: Self = Self(0x00001000);
+    pub const HOST_READ_BIT: Self = Self(0x00002000);
+    pub const HOST_WRITE_BIT: Self = Self(0x00004000);
+    pub const MEMORY_READ_BIT: Self = Self(0x00008000);
+    pub const MEMORY_WRITE_BIT: Self = Self(0x00010000);
+    pub const SHADER_SAMPLED_READ_BIT: Self = Self(0x100000000);
+    pub const SHADER_STORAGE_READ_BIT: Self = Self(0x200000000);
+    pub const SHADER_STORAGE_WRITE_BIT: Self = Self(0x400000000);
+    pub const VIDEO_DECODE_READ_BIT_KHR: Self = Self(0x800000000);
+    pub const VIDEO_DECODE_WRITE_BIT_KHR: Self = Self(0x1000000000);
+    pub const VIDEO_ENCODE_READ_BIT_KHR: Self = Self(0x2000000000);
+    pub const VIDEO_ENCODE_WRITE_BIT_KHR: Self = Self(0x4000000000);
+    pub const SHADER_TILE_ATTACHMENT_READ_BIT_QCOM: Self = Self(0x8000000000000);
+    pub const SHADER_TILE_ATTACHMENT_WRITE_BIT_QCOM: Self = Self(0x10000000000000);
+    pub const NONE_KHR: Self = Self(0);
+    pub const INDIRECT_COMMAND_READ_BIT_KHR: Self = Self(0x00000001);
+    pub const INDEX_READ_BIT_KHR: Self = Self(0x00000002);
+    pub const VERTEX_ATTRIBUTE_READ_BIT_KHR: Self = Self(0x00000004);
+    pub const UNIFORM_READ_BIT_KHR: Self = Self(0x00000008);
+    pub const INPUT_ATTACHMENT_READ_BIT_KHR: Self = Self(0x00000010);
+    pub const SHADER_READ_BIT_KHR: Self = Self(0x00000020);
+    pub const SHADER_WRITE_BIT_KHR: Self = Self(0x00000040);
+    pub const COLOR_ATTACHMENT_READ_BIT_KHR: Self = Self(0x00000080);
+    pub const COLOR_ATTACHMENT_WRITE_BIT_KHR: Self = Self(0x00000100);
+    pub const DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR: Self = Self(0x00000200);
+    pub const DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR: Self = Self(0x00000400);
+    pub const TRANSFER_READ_BIT_KHR: Self = Self(0x00000800);
+    pub const TRANSFER_WRITE_BIT_KHR: Self = Self(0x00001000);
+    pub const HOST_READ_BIT_KHR: Self = Self(0x00002000);
+    pub const HOST_WRITE_BIT_KHR: Self = Self(0x00004000);
+    pub const MEMORY_READ_BIT_KHR: Self = Self(0x00008000);
+    pub const MEMORY_WRITE_BIT_KHR: Self = Self(0x00010000);
+    pub const SHADER_SAMPLED_READ_BIT_KHR: Self = Self(0x100000000);
+    pub const SHADER_STORAGE_READ_BIT_KHR: Self = Self(0x200000000);
+    pub const SHADER_STORAGE_WRITE_BIT_KHR: Self = Self(0x400000000);
+    pub const TRANSFORM_FEEDBACK_WRITE_BIT_EXT: Self = Self(0x02000000);
+    pub const TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT: Self = Self(0x04000000);
+    pub const TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT: Self = Self(0x08000000);
+    pub const CONDITIONAL_RENDERING_READ_BIT_EXT: Self = Self(0x00100000);
+    pub const COMMAND_PREPROCESS_READ_BIT_NV: Self = Self(0x00020000);
+    pub const COMMAND_PREPROCESS_WRITE_BIT_NV: Self = Self(0x00040000);
+    pub const COMMAND_PREPROCESS_READ_BIT_EXT: Self = Self(0x00020000);
+    pub const COMMAND_PREPROCESS_WRITE_BIT_EXT: Self = Self(0x00040000);
+    pub const FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR: Self = Self(0x00800000);
+    pub const SHADING_RATE_IMAGE_READ_BIT_NV: Self = Self(0x00800000);
+    pub const ACCELERATION_STRUCTURE_READ_BIT_KHR: Self = Self(0x00200000);
+    pub const ACCELERATION_STRUCTURE_WRITE_BIT_KHR: Self = Self(0x00400000);
+    pub const ACCELERATION_STRUCTURE_READ_BIT_NV: Self = Self(0x00200000);
+    pub const ACCELERATION_STRUCTURE_WRITE_BIT_NV: Self = Self(0x00400000);
+    pub const FRAGMENT_DENSITY_MAP_READ_BIT_EXT: Self = Self(0x01000000);
+    pub const COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT: Self = Self(0x00080000);
+    pub const DESCRIPTOR_BUFFER_READ_BIT_EXT: Self = Self(0x20000000000);
+    pub const INVOCATION_MASK_READ_BIT_HUAWEI: Self = Self(0x8000000000);
+    pub const SHADER_BINDING_TABLE_READ_BIT_KHR: Self = Self(0x10000000000);
+    pub const MICROMAP_READ_BIT_EXT: Self = Self(0x100000000000);
+    pub const MICROMAP_WRITE_BIT_EXT: Self = Self(0x200000000000);
+    pub const OPTICAL_FLOW_READ_BIT_NV: Self = Self(0x40000000000);
+    pub const OPTICAL_FLOW_WRITE_BIT_NV: Self = Self(0x80000000000);
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkPipelineStageFlags2(u64);
+impl std::ops::BitOr for VkPipelineStageFlags2 {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl VkPipelineStageFlags2 {
+    pub const NONE: Self = Self(0);
+    pub const TOP_OF_PIPE_BIT: Self = Self(0x00000001);
+    pub const DRAW_INDIRECT_BIT: Self = Self(0x00000002);
+    pub const VERTEX_INPUT_BIT: Self = Self(0x00000004);
+    pub const VERTEX_SHADER_BIT: Self = Self(0x00000008);
+    pub const TESSELLATION_CONTROL_SHADER_BIT: Self = Self(0x00000010);
+    pub const TESSELLATION_EVALUATION_SHADER_BIT: Self = Self(0x00000020);
+    pub const GEOMETRY_SHADER_BIT: Self = Self(0x00000040);
+    pub const FRAGMENT_SHADER_BIT: Self = Self(0x00000080);
+    pub const EARLY_FRAGMENT_TESTS_BIT: Self = Self(0x00000100);
+    pub const LATE_FRAGMENT_TESTS_BIT: Self = Self(0x00000200);
+    pub const COLOR_ATTACHMENT_OUTPUT_BIT: Self = Self(0x00000400);
+    pub const COMPUTE_SHADER_BIT: Self = Self(0x00000800);
+    pub const ALL_TRANSFER_BIT: Self = Self(0x00001000);
+    pub const TRANSFER_BIT: Self = Self(0x00001000);
+    pub const BOTTOM_OF_PIPE_BIT: Self = Self(0x00002000);
+    pub const HOST_BIT: Self = Self(0x00004000);
+    pub const ALL_GRAPHICS_BIT: Self = Self(0x00008000);
+    pub const ALL_COMMANDS_BIT: Self = Self(0x00010000);
+    pub const COPY_BIT: Self = Self(0x100000000);
+    pub const RESOLVE_BIT: Self = Self(0x200000000);
+    pub const BLIT_BIT: Self = Self(0x400000000);
+    pub const CLEAR_BIT: Self = Self(0x800000000);
+    pub const INDEX_INPUT_BIT: Self = Self(0x1000000000);
+    pub const VERTEX_ATTRIBUTE_INPUT_BIT: Self = Self(0x2000000000);
+    pub const PRE_RASTERIZATION_SHADERS_BIT: Self = Self(0x4000000000);
+    pub const VIDEO_DECODE_BIT_KHR: Self = Self(0x04000000);
+    pub const VIDEO_ENCODE_BIT_KHR: Self = Self(0x08000000);
+    pub const NONE_KHR: Self = Self(0);
+    pub const TOP_OF_PIPE_BIT_KHR: Self = Self(0x00000001);
+    pub const DRAW_INDIRECT_BIT_KHR: Self = Self(0x00000002);
+    pub const VERTEX_INPUT_BIT_KHR: Self = Self(0x00000004);
+    pub const VERTEX_SHADER_BIT_KHR: Self = Self(0x00000008);
+    pub const TESSELLATION_CONTROL_SHADER_BIT_KHR: Self = Self(0x00000010);
+    pub const TESSELLATION_EVALUATION_SHADER_BIT_KHR: Self = Self(0x00000020);
+    pub const GEOMETRY_SHADER_BIT_KHR: Self = Self(0x00000040);
+    pub const FRAGMENT_SHADER_BIT_KHR: Self = Self(0x00000080);
+    pub const EARLY_FRAGMENT_TESTS_BIT_KHR: Self = Self(0x00000100);
+    pub const LATE_FRAGMENT_TESTS_BIT_KHR: Self = Self(0x00000200);
+    pub const COLOR_ATTACHMENT_OUTPUT_BIT_KHR: Self = Self(0x00000400);
+    pub const COMPUTE_SHADER_BIT_KHR: Self = Self(0x00000800);
+    pub const ALL_TRANSFER_BIT_KHR: Self = Self(0x00001000);
+    pub const TRANSFER_BIT_KHR: Self = Self(0x00001000);
+    pub const BOTTOM_OF_PIPE_BIT_KHR: Self = Self(0x00002000);
+    pub const HOST_BIT_KHR: Self = Self(0x00004000);
+    pub const ALL_GRAPHICS_BIT_KHR: Self = Self(0x00008000);
+    pub const ALL_COMMANDS_BIT_KHR: Self = Self(0x00010000);
+    pub const COPY_BIT_KHR: Self = Self(0x100000000);
+    pub const RESOLVE_BIT_KHR: Self = Self(0x200000000);
+    pub const BLIT_BIT_KHR: Self = Self(0x400000000);
+    pub const CLEAR_BIT_KHR: Self = Self(0x800000000);
+    pub const INDEX_INPUT_BIT_KHR: Self = Self(0x1000000000);
+    pub const VERTEX_ATTRIBUTE_INPUT_BIT_KHR: Self = Self(0x2000000000);
+    pub const PRE_RASTERIZATION_SHADERS_BIT_KHR: Self = Self(0x4000000000);
+    pub const TRANSFORM_FEEDBACK_BIT_EXT: Self = Self(0x01000000);
+    pub const CONDITIONAL_RENDERING_BIT_EXT: Self = Self(0x00040000);
+    pub const COMMAND_PREPROCESS_BIT_NV: Self = Self(0x00020000);
+    pub const COMMAND_PREPROCESS_BIT_EXT: Self = Self(0x00020000);
+    pub const FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR: Self = Self(0x00400000);
+    pub const SHADING_RATE_IMAGE_BIT_NV: Self = Self(0x00400000);
+    pub const ACCELERATION_STRUCTURE_BUILD_BIT_KHR: Self = Self(0x02000000);
+    pub const RAY_TRACING_SHADER_BIT_KHR: Self = Self(0x00200000);
+    pub const RAY_TRACING_SHADER_BIT_NV: Self = Self(0x00200000);
+    pub const ACCELERATION_STRUCTURE_BUILD_BIT_NV: Self = Self(0x02000000);
+    pub const FRAGMENT_DENSITY_PROCESS_BIT_EXT: Self = Self(0x00800000);
+    pub const TASK_SHADER_BIT_NV: Self = Self(0x00080000);
+    pub const MESH_SHADER_BIT_NV: Self = Self(0x00100000);
+    pub const TASK_SHADER_BIT_EXT: Self = Self(0x00080000);
+    pub const MESH_SHADER_BIT_EXT: Self = Self(0x00100000);
+    pub const SUBPASS_SHADER_BIT_HUAWEI: Self = Self(0x8000000000);
+    pub const SUBPASS_SHADING_BIT_HUAWEI: Self = Self(0x8000000000);
+    pub const INVOCATION_MASK_BIT_HUAWEI: Self = Self(0x10000000000);
+    pub const ACCELERATION_STRUCTURE_COPY_BIT_KHR: Self = Self(0x10000000);
+    pub const MICROMAP_BUILD_BIT_EXT: Self = Self(0x40000000);
+    pub const CLUSTER_CULLING_SHADER_BIT_HUAWEI: Self = Self(0x20000000000);
+    pub const OPTICAL_FLOW_BIT_NV: Self = Self(0x20000000);
+    pub const CONVERT_COOPERATIVE_VECTOR_MATRIX_BIT_NV: Self = Self(0x100000000000);
+}
+
+#[repr(C)]
+pub struct VkMemoryBarrier2 {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub srcStageMask: VkPipelineStageFlags2,
+    pub srcAccessMask: VkAccessFlags2,
+    pub dstStageMask: VkPipelineStageFlags2,
+    pub dstAccessMask: VkAccessFlags2,
+}
+
+#[repr(C)]
+pub struct VkBufferMemoryBarrier2 {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub srcStageMask: VkPipelineStageFlags2,
+    pub srcAccessMask: VkAccessFlags2,
+    pub dstStageMask: VkPipelineStageFlags2,
+    pub dstAccessMask: VkAccessFlags2,
+    pub srcQueueFamilyIndex: u32,
+    pub dstQueueFamilyIndex: u32,
+    pub buffer: VkBuffer,
+    pub offset: VkDeviceSize,
+    pub size: VkDeviceSize,
+}
+
+#[repr(C)]
+pub struct VkImageMemoryBarrier2 {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub srcStageMask: VkPipelineStageFlags2,
+    pub srcAccessMask: VkAccessFlags2,
+    pub dstStageMask: VkPipelineStageFlags2,
+    pub dstAccessMask: VkAccessFlags2,
+    pub oldLayout: VkImageLayout,
+    pub newLayout: VkImageLayout,
+    pub srcQueueFamilyIndex: u32,
+    pub dstQueueFamilyIndex: u32,
+    pub image: VkImage,
+    pub subresourceRange: VkImageSubresourceRange,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkDependencyFlags {
+    BY_REGION_BIT = 0x00000001,
+    DEVICE_GROUP_BIT = 0x00000004,
+    VIEW_LOCAL_BIT = 0x00000002,
+    FEEDBACK_LOOP_BIT_EXT = 0x00000008,
+    QUEUE_FAMILY_OWNERSHIP_TRANSFER_USE_ALL_STAGES_BIT_KHR = 0x00000020,
+}
+
+#[repr(C)]
+pub struct VkDependencyInfo {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub dependencyFlags: u32,
+    pub memoryBarrierCount: u32,
+    pub pMemoryBarriers: *const VkMemoryBarrier2,
+    pub bufferMemoryBarrierCount: u32,
+    pub pBufferMemoryBarriers: *const VkBufferMemoryBarrier2,
+    pub imageMemoryBarrierCount: u32,
+    pub pImageMemoryBarriers: *const VkImageMemoryBarrier2,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union VkClearColorValue {
+    pub float32: [f32; 4],
+    pub int32: [i32; 4],
+    pub uint32: [u32; 4],
+}
+
+impl VkClearColorValue {
+    pub fn from_f32(v: [f32; 4]) -> Self {
+        Self { float32: v }
+    }
+    pub fn from_i32(v: [i32; 4]) -> Self {
+        Self { int32: v }
+    }
+    pub fn from_u32(v: [u32; 4]) -> Self {
+        Self { uint32: v }
+    }
+
+    pub unsafe fn as_f32(&self) -> &[f32; 4] {
+        unsafe { &self.float32 }
+    }
+    pub unsafe fn as_i32(&self) -> &[i32; 4] {
+        unsafe { &self.int32 }
+    }
+    pub unsafe fn as_u32(&self) -> &[u32; 4] {
+        unsafe { &self.uint32 }
+    }
+}
 
 #[repr(C)]
 pub struct VkImportMemoryWin32HandleInfoKHR {
@@ -427,39 +872,40 @@ pub enum VkImageUsageFlags {
     VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR = 0x04000000,
 }
 
-#[repr(u32)]
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VkImageLayout {
-    UNDEFINED = 0,
-    GENERAL = 1,
-    COLOR_ATTACHMENT_OPTIMAL = 2,
-    DEPTH_STENCIL_ATTACHMENT_OPTIMAL = 3,
-    DEPTH_STENCIL_READ_ONLY_OPTIMAL = 4,
-    SHADER_READ_ONLY_OPTIMAL = 5,
-    TRANSFER_SRC_OPTIMAL = 6,
-    TRANSFER_DST_OPTIMAL = 7,
-    PREINITIALIZED = 8,
-    DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL = 1000117000,
-    DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL = 1000117001,
-    DEPTH_ATTACHMENT_OPTIMAL = 1000241000,
-    DEPTH_READ_ONLY_OPTIMAL = 1000241001,
-    STENCIL_ATTACHMENT_OPTIMAL = 1000241002,
-    STENCIL_READ_ONLY_OPTIMAL = 1000241003,
-    READ_ONLY_OPTIMAL = 1000314000,
-    ATTACHMENT_OPTIMAL = 1000314001,
-    RENDERING_LOCAL_READ = 1000232000,
-    PRESENT_SRC_KHR = 1000001002,
-    VIDEO_DECODE_DST_KHR = 1000024000,
-    VIDEO_DECODE_SRC_KHR = 1000024001,
-    VIDEO_DECODE_DPB_KHR = 1000024002,
-    SHARED_PRESENT_KHR = 1000111000,
-    FRAGMENT_DENSITY_MAP_OPTIMAL_EXT = 1000218000,
-    FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR = 1000164003,
-    VIDEO_ENCODE_DST_KHR = 1000299000,
-    VIDEO_ENCODE_SRC_KHR = 1000299001,
-    VIDEO_ENCODE_DPB_KHR = 1000299002,
-    ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT = 1000339000,
-    VIDEO_ENCODE_QUANTIZATION_MAP_KHR = 1000553000,
+pub struct VkImageLayout(u32);
+impl VkImageLayout {
+    pub const UNDEFINED: Self = Self(0);
+    pub const GENERAL: Self = Self(1);
+    pub const COLOR_ATTACHMENT_OPTIMAL: Self = Self(2);
+    pub const DEPTH_STENCIL_ATTACHMENT_OPTIMAL: Self = Self(3);
+    pub const DEPTH_STENCIL_READ_ONLY_OPTIMAL: Self = Self(4);
+    pub const SHADER_READ_ONLY_OPTIMAL: Self = Self(5);
+    pub const TRANSFER_SRC_OPTIMAL: Self = Self(6);
+    pub const TRANSFER_DST_OPTIMAL: Self = Self(7);
+    pub const PREINITIALIZED: Self = Self(8);
+    pub const DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL: Self = Self(1000117000);
+    pub const DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL: Self = Self(1000117001);
+    pub const DEPTH_ATTACHMENT_OPTIMAL: Self = Self(1000241000);
+    pub const DEPTH_READ_ONLY_OPTIMAL: Self = Self(1000241001);
+    pub const STENCIL_ATTACHMENT_OPTIMAL: Self = Self(1000241002);
+    pub const STENCIL_READ_ONLY_OPTIMAL: Self = Self(1000241003);
+    pub const READ_ONLY_OPTIMAL: Self = Self(1000314000);
+    pub const ATTACHMENT_OPTIMAL: Self = Self(1000314001);
+    pub const RENDERING_LOCAL_READ: Self = Self(1000232000);
+    pub const PRESENT_SRC_KHR: Self = Self(1000001002);
+    pub const VIDEO_DECODE_DST_KHR: Self = Self(1000024000);
+    pub const VIDEO_DECODE_SRC_KHR: Self = Self(1000024001);
+    pub const VIDEO_DECODE_DPB_KHR: Self = Self(1000024002);
+    pub const SHARED_PRESENT_KHR: Self = Self(1000111000);
+    pub const FRAGMENT_DENSITY_MAP_OPTIMAL_EXT: Self = Self(1000218000);
+    pub const FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR: Self = Self(1000164003);
+    pub const VIDEO_ENCODE_DST_KHR: Self = Self(1000299000);
+    pub const VIDEO_ENCODE_SRC_KHR: Self = Self(1000299001);
+    pub const VIDEO_ENCODE_DPB_KHR: Self = Self(1000299002);
+    pub const ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT: Self = Self(1000339000);
+    pub const VIDEO_ENCODE_QUANTIZATION_MAP_KHR: Self = Self(1000553000);
 }
 
 #[repr(C)]
@@ -573,7 +1019,7 @@ pub struct VkSemaphoreCreateInfo {
 pub struct VkFenceCreateInfo {
     pub sType: u32,
     pub pNext: *const std::ffi::c_void,
-    pub flags: VkFenceCreateFlags,
+    pub flags: u32,
 }
 
 #[repr(u32)]
@@ -620,12 +1066,30 @@ pub enum VkCommandBufferLevel {
     SECONDARY = 1,
 }
 
-#[repr(u32)]
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VkCommandPoolCreateFlags {
-    TRANSIENT_BIT = 0x00000001,
-    RESET_COMMAND_BUFFER_BIT = 0x00000002,
-    PROTECTED_BIT = 0x00000004,
+pub struct VkCommandPoolCreateFlags(u32);
+impl std::ops::BitOr for VkCommandPoolCreateFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl VkCommandPoolCreateFlags {
+    /// Specifies that command buffers allocated from the pool will be short-lived,
+    /// meaning that they will be reset or freed in a relatively short timeframe.
+    /// This flag may be used by the implementation
+    /// to control memory allocation behavior within the pool.
+    pub const TRANSIENT_BIT: Self = Self(0x00000001);
+    /// Allows any command buffer allocated from a pool
+    /// to be individually reset to the initial state;
+    /// either by calling `vkResetCommandBuffer`,
+    /// or via the implicit reset when calling `vkBeginCommandBuffer`.
+    /// If this flag is not set on a pool, then `vkResetCommandBuffer`
+    /// must not be called for any command buffer allocated from that pool.
+    pub const RESET_COMMAND_BUFFER_BIT: Self = Self(0x00000002);
+    /// specifies that command buffers allocated from the pool are protected command buffers.
+    pub const PROTECTED_BIT: Self = Self(0x00000004);
 }
 
 #[repr(u32)]
@@ -638,7 +1102,7 @@ pub enum VkCommandPoolResetFlags {
 pub struct VkCommandPoolCreateInfo {
     pub sType: u32,
     pub pNext: *const std::ffi::c_void,
-    pub flags: u32,
+    pub flags: VkCommandPoolCreateFlags,
     pub queueFamilyIndex: u32,
 }
 
@@ -1078,58 +1542,60 @@ pub enum VkMemoryPropertyFlags {
     RDMA_CAPABLE_BIT_NV = 0x00000100,
 }
 
-#[repr(i32)]
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VkResult {
-    VK_SUCCESS = 0,
-    VK_NOT_READY = 1,
-    VK_TIMEOUT = 2,
-    VK_EVENT_SET = 3,
-    VK_EVENT_RESET = 4,
-    VK_INCOMPLETE = 5,
-    VK_ERROR_OUT_OF_HOST_MEMORY = -1,
-    VK_ERROR_OUT_OF_DEVICE_MEMORY = -2,
-    VK_ERROR_INITIALIZATION_FAILED = -3,
-    VK_ERROR_DEVICE_LOST = -4,
-    VK_ERROR_MEMORY_MAP_FAILED = -5,
-    VK_ERROR_LAYER_NOT_PRESENT = -6,
-    VK_ERROR_EXTENSION_NOT_PRESENT = -7,
-    VK_ERROR_FEATURE_NOT_PRESENT = -8,
-    VK_ERROR_INCOMPATIBLE_DRIVER = -9,
-    VK_ERROR_TOO_MANY_OBJECTS = -10,
-    VK_ERROR_FORMAT_NOT_SUPPORTED = -11,
-    VK_ERROR_FRAGMENTED_POOL = -12,
-    VK_ERROR_UNKNOWN = -13,
-    VK_ERROR_OUT_OF_POOL_MEMORY = -1000069000,
-    VK_ERROR_INVALID_EXTERNAL_HANDLE = -1000072003,
-    VK_ERROR_FRAGMENTATION = -1000161000,
-    VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS = -1000257000,
-    VK_PIPELINE_COMPILE_REQUIRED = 1000297000,
-    VK_ERROR_NOT_PERMITTED = -1000174001,
-    VK_ERROR_SURFACE_LOST_KHR = -1000000000,
-    VK_ERROR_NATIVE_WINDOW_IN_USE_KHR = -1000000001,
-    VK_SUBOPTIMAL_KHR = 1000001003,
-    VK_ERROR_OUT_OF_DATE_KHR = -1000001004,
-    VK_ERROR_INCOMPATIBLE_DISPLAY_KHR = -1000003001,
-    VK_ERROR_VALIDATION_FAILED_EXT = -1000011001,
-    VK_ERROR_INVALID_SHADER_NV = -1000012000,
-    VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR = -1000023000,
-    VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR = -1000023001,
-    VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR = -1000023002,
-    VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR = -1000023003,
-    VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR = -1000023004,
-    VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR = -1000023005,
-    VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT = -1000158000,
-    VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT = -1000255000,
-    VK_THREAD_IDLE_KHR = 1000268000,
-    VK_THREAD_DONE_KHR = 1000268001,
-    VK_OPERATION_DEFERRED_KHR = 1000268002,
-    VK_OPERATION_NOT_DEFERRED_KHR = 1000268003,
-    VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR = -1000299000,
-    VK_ERROR_COMPRESSION_EXHAUSTED_EXT = -1000338000,
-    VK_INCOMPATIBLE_SHADER_BINARY_EXT = 1000482000,
-    VK_PIPELINE_BINARY_MISSING_KHR = 1000483000,
-    VK_ERROR_NOT_ENOUGH_SPACE_KHR = -1000483000,
+pub struct VkResult(i32);
+
+impl VkResult {
+    pub const VK_SUCCESS: Self = Self(0);
+    pub const VK_NOT_READY: Self = Self(1);
+    pub const VK_TIMEOUT: Self = Self(2);
+    pub const VK_EVENT_SET: Self = Self(3);
+    pub const VK_EVENT_RESET: Self = Self(4);
+    pub const VK_INCOMPLETE: Self = Self(5);
+    pub const VK_ERROR_OUT_OF_HOST_MEMORY: Self = Self(-1);
+    pub const VK_ERROR_OUT_OF_DEVICE_MEMORY: Self = Self(-2);
+    pub const VK_ERROR_INITIALIZATION_FAILED: Self = Self(-3);
+    pub const VK_ERROR_DEVICE_LOST: Self = Self(-4);
+    pub const VK_ERROR_MEMORY_MAP_FAILED: Self = Self(-5);
+    pub const VK_ERROR_LAYER_NOT_PRESENT: Self = Self(-6);
+    pub const VK_ERROR_EXTENSION_NOT_PRESENT: Self = Self(-7);
+    pub const VK_ERROR_FEATURE_NOT_PRESENT: Self = Self(-8);
+    pub const VK_ERROR_INCOMPATIBLE_DRIVER: Self = Self(-9);
+    pub const VK_ERROR_TOO_MANY_OBJECTS: Self = Self(-10);
+    pub const VK_ERROR_FORMAT_NOT_SUPPORTED: Self = Self(-11);
+    pub const VK_ERROR_FRAGMENTED_POOL: Self = Self(-12);
+    pub const VK_ERROR_UNKNOWN: Self = Self(-13);
+    pub const VK_ERROR_OUT_OF_POOL_MEMORY: Self = Self(-1000069000);
+    pub const VK_ERROR_INVALID_EXTERNAL_HANDLE: Self = Self(-1000072003);
+    pub const VK_ERROR_FRAGMENTATION: Self = Self(-1000161000);
+    pub const VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: Self = Self(-1000257000);
+    pub const VK_PIPELINE_COMPILE_REQUIRED: Self = Self(1000297000);
+    pub const VK_ERROR_NOT_PERMITTED: Self = Self(-1000174001);
+    pub const VK_ERROR_SURFACE_LOST_KHR: Self = Self(-1000000000);
+    pub const VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: Self = Self(-1000000001);
+    pub const VK_SUBOPTIMAL_KHR: Self = Self(1000001003);
+    pub const VK_ERROR_OUT_OF_DATE_KHR: Self = Self(-1000001004);
+    pub const VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: Self = Self(-1000003001);
+    pub const VK_ERROR_VALIDATION_FAILED_EXT: Self = Self(-1000011001);
+    pub const VK_ERROR_INVALID_SHADER_NV: Self = Self(-1000012000);
+    pub const VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR: Self = Self(-1000023000);
+    pub const VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR: Self = Self(-1000023001);
+    pub const VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR: Self = Self(-1000023002);
+    pub const VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR: Self = Self(-1000023003);
+    pub const VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR: Self = Self(-1000023004);
+    pub const VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR: Self = Self(-1000023005);
+    pub const VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT: Self = Self(-1000158000);
+    pub const VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT: Self = Self(-1000255000);
+    pub const VK_THREAD_IDLE_KHR: Self = Self(1000268000);
+    pub const VK_THREAD_DONE_KHR: Self = Self(1000268001);
+    pub const VK_OPERATION_DEFERRED_KHR: Self = Self(1000268002);
+    pub const VK_OPERATION_NOT_DEFERRED_KHR: Self = Self(1000268003);
+    pub const VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR: Self = Self(-1000299000);
+    pub const VK_ERROR_COMPRESSION_EXHAUSTED_EXT: Self = Self(-1000338000);
+    pub const VK_INCOMPATIBLE_SHADER_BINARY_EXT: Self = Self(1000482000);
+    pub const VK_PIPELINE_BINARY_MISSING_KHR: Self = Self(1000483000);
+    pub const VK_ERROR_NOT_ENOUGH_SPACE_KHR: Self = Self(-1000483000);
 }
 
 #[repr(u32)]
@@ -1138,12 +1604,12 @@ pub enum VkStructureType {
     INSTANCE_CREATE_INFO = 1,
     DEVICE_QUEUE_CREATE_INFO = 2,
     DEVICE_CREATE_INFO = 3,
-    VK_STRUCTURE_TYPE_SUBMIT_INFO = 4,
+    SUBMIT_INFO = 4,
     VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO = 5,
     VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE = 6,
     VK_STRUCTURE_TYPE_BIND_SPARSE_INFO = 7,
-    VK_STRUCTURE_TYPE_FENCE_CREATE_INFO = 8,
-    VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO = 9,
+    FENCE_CREATE_INFO = 8,
+    SEMAPHORE_CREATE_INFO = 9,
     VK_STRUCTURE_TYPE_EVENT_CREATE_INFO = 10,
     VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO = 11,
     VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO = 12,
@@ -1287,9 +1753,9 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT = 1000241001,
     VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT = 1000241002,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES = 1000261000,
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES = 1000207000,
+    PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES = 1000207000,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES = 1000207001,
-    VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO = 1000207002,
+    SEMAPHORE_TYPE_CREATE_INFO = 1000207002,
     VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO = 1000207003,
     VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO = 1000207004,
     VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO = 1000207005,
@@ -1308,14 +1774,14 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_DEVICE_PRIVATE_DATA_CREATE_INFO = 1000295001,
     VK_STRUCTURE_TYPE_PRIVATE_DATA_SLOT_CREATE_INFO = 1000295002,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES = 1000297000,
-    VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 = 1000314000,
+    MEMORY_BARRIER_2 = 1000314000,
     VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 = 1000314001,
-    VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 = 1000314002,
-    VK_STRUCTURE_TYPE_DEPENDENCY_INFO = 1000314003,
+    IMAGE_MEMORY_BARRIER_2 = 1000314002,
+    DEPENDENCY_INFO = 1000314003,
     VK_STRUCTURE_TYPE_SUBMIT_INFO_2 = 1000314004,
     VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO = 1000314005,
     VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO = 1000314006,
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES = 1000314007,
+    PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES = 1000314007,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_WORKGROUP_MEMORY_FEATURES = 1000325000,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ROBUSTNESS_FEATURES = 1000335000,
     VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2 = 1000337000,
@@ -1506,7 +1972,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR = 1000074000,
     VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR = 1000074001,
     VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR = 1000074002,
-    VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR = 1000075000,
+    WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR = 1000075000,
     VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR = 1000078000,
     VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR = 1000078001,
     VK_STRUCTURE_TYPE_D3D12_FENCE_SUBMIT_INFO_KHR = 1000078002,

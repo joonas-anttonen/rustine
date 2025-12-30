@@ -17,7 +17,6 @@ pub struct PresentationParameters {
     pub width: u32,
     pub height: u32,
     pub surface_handle: *const std::ffi::c_void,
-    pub surface_sync_handle: *const std::ffi::c_void,
 }
 
 // FFI version of `Event`.

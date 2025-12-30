@@ -160,6 +160,7 @@ impl Allocator {
             image,
             image_view,
             allocation,
+            allocation_info,
             allocator: Arc::clone(&self),
         })
     }
@@ -235,6 +236,7 @@ impl Allocator {
             image,
             image_view,
             allocation,
+            allocation_info,
             allocator: Arc::clone(&self),
         })
     }
