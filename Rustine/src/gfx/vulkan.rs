@@ -13,8 +13,8 @@ use crate::gfx::vulkan_ffi as ffi;
 macro_rules! vk_call {
     ($expr:expr) => {{
         let res = unsafe { $expr };
-        match crate::gfx::Outcome::from_code(res) {
-            crate::gfx::Outcome::Success => Ok(()),
+        match crate::gfx::Status::from_code(res) {
+            crate::gfx::Status::Success => Ok(()),
             other => Err(other),
         }
     }};
@@ -393,11 +393,11 @@ pub fn create_device(
 
         // Ensure synchronization2 support
         if physical_device_synchronization2.synchronization2 == ffi::VK_FALSE {
-            return Err(Outcome::NotSupported(-1));
+            return Err(Status::NotSupported(-1));
         }
         // Ensure dynamic rendering support
         if physical_device_dynamic_rendering.dynamicRendering == ffi::VK_FALSE {
-            return Err(Outcome::NotSupported(-1));
+            return Err(Status::NotSupported(-1));
         }
 
         physical_device_features
@@ -408,7 +408,7 @@ pub fn create_device(
         .iter()
         .position(|qf| (qf.queueFlags & ffi::VkQueueFlags::GRAPHICS_BIT as u32) != 0)
         .map(|idx| idx as u32)
-        .ok_or(Outcome::NotSupported(-1))?;
+        .ok_or(Status::NotSupported(-1))?;
     let queue_priority: f32 = 1.0;
     let queue_create_info = ffi::VkDeviceQueueCreateInfo {
         sType: ffi::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
@@ -478,7 +478,7 @@ pub fn create_instance(parameters: &super::StartupParameters) -> Result<Instance
         }
         // Error if unsupported platform
         _ => {
-            return Err(Outcome::NotSupported(-1));
+            return Err(Status::NotSupported(-1));
         }
     }
 
@@ -551,7 +551,7 @@ pub fn create_instance(parameters: &super::StartupParameters) -> Result<Instance
         };
 
         if create_debug_fn.is_none() {
-            return Err(Outcome::NotSupported(-1));
+            return Err(Status::NotSupported(-1));
         }
 
         // Create debug messenger info

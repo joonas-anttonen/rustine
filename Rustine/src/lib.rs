@@ -4,7 +4,7 @@ pub mod log;
 pub mod version;
 pub use version::Version;
 
-use crate::gfx::Outcome;
+use crate::gfx::Status;
 use std::{sync::Arc, sync::Mutex, sync::atomic};
 
 mod lib_ffi;
@@ -86,7 +86,7 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, shutdown_signal: Arc<atomic::
 pub extern "C" fn rustine_startup(startup_parameters: *const lib_ffi::StartupParameters) -> i32 {
     let mut state = STATE.lock().unwrap();
     if state.is_some() {
-        return Outcome::InvalidOperation(-1).to_code();
+        return Status::InvalidOperation(-1).to_code();
     }
 
     // 1. Take a clone of the parameters to avoid excessive 'unsafe'.
@@ -133,7 +133,7 @@ pub extern "C" fn rustine_startup(startup_parameters: *const lib_ffi::StartupPar
     };
 
     *state = Some(State::new(gfx_core));
-    Outcome::Success.to_code()
+    Status::Success.to_code()
 }
 
 #[unsafe(no_mangle)]
@@ -142,12 +142,12 @@ pub extern "C" fn rustine_shutdown() -> i32 {
         Ok(mut locked_state) => {
             if let Some(state) = locked_state.take() {
                 state.shutdown();
-                Outcome::Success.to_code()
+                Status::Success.to_code()
             } else {
-                Outcome::NotSupported(-1).to_code()
+                Status::NotSupported(-1).to_code()
             }
         }
-        Err(_) => Outcome::NotSupported(-1).to_code(),
+        Err(_) => Status::NotSupported(-1).to_code(),
     }
 }
 
@@ -157,7 +157,7 @@ pub extern "C" fn rustine_gfx_initialize_presentation(
 ) -> i32 {
     let state = STATE.lock().unwrap();
     if state.is_none() {
-        return Outcome::InvalidOperation(-1).to_code();
+        return Status::InvalidOperation(-1).to_code();
     }
 
     let in_params = unsafe { (*params).clone() };
@@ -166,5 +166,5 @@ pub extern "C" fn rustine_gfx_initialize_presentation(
     let mut gfx_core_locked = gfx_core.lock().unwrap();
     gfx_core_locked.initialize_presenter(&in_params);
 
-    Outcome::Success.to_code()
+    Status::Success.to_code()
 }

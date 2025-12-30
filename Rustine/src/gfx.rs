@@ -7,6 +7,7 @@ pub mod vulkan;
 pub mod vulkan_ffi;
 pub use core::Core;
 pub mod presentation;
+pub use presentation::AcquireStatus;
 pub mod queue;
 pub use queue::Queue;
 pub use queue::SubmitStatus;
@@ -567,7 +568,7 @@ pub enum Platform {
 
 /// Represents the result of a graphics operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome {
+pub enum Status {
     Success,
     NotImplemented(i32),
     InvalidOperation(i32),
@@ -576,40 +577,40 @@ pub enum Outcome {
     Unknown(i32),
 }
 
-impl std::error::Error for Outcome {}
-impl fmt::Display for Outcome {
+impl std::error::Error for Status {}
+impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Outcome::Success => write!(f, "Success"),
-            Outcome::InvalidOperation(code) => write!(f, "Invalid operation: {}", code),
-            Outcome::NotSupported(code) => write!(f, "Not supported: {}", code),
-            Outcome::NotImplemented(code) => write!(f, "Not implemented: {}", code),
-            Outcome::Timeout(code) => write!(f, "Timeout: {}", code),
-            Outcome::Unknown(code) => write!(f, "Unknown error: {}", code),
+            Status::Success => write!(f, "Success"),
+            Status::InvalidOperation(code) => write!(f, "Invalid operation: {}", code),
+            Status::NotSupported(code) => write!(f, "Not supported: {}", code),
+            Status::NotImplemented(code) => write!(f, "Not implemented: {}", code),
+            Status::Timeout(code) => write!(f, "Timeout: {}", code),
+            Status::Unknown(code) => write!(f, "Unknown error: {}", code),
         }
     }
 }
 
-impl Outcome {
+impl Status {
     pub fn to_code(&self) -> i32 {
         match self {
-            Outcome::Success => 0,
-            Outcome::InvalidOperation(code) => *code,
-            Outcome::NotImplemented(code) => *code,
-            Outcome::NotSupported(code) => *code,
-            Outcome::Timeout(code) => *code,
-            Outcome::Unknown(code) => *code,
+            Status::Success => 0,
+            Status::InvalidOperation(code) => *code,
+            Status::NotImplemented(code) => *code,
+            Status::NotSupported(code) => *code,
+            Status::Timeout(code) => *code,
+            Status::Unknown(code) => *code,
         }
     }
 
     pub fn from_code(code: i32) -> Self {
         match code {
-            0 => Outcome::Success,
-            -7 | -8 | -11 => Outcome::NotSupported(code), // Extension not present, feature not present, format not supported
-            -4 => Outcome::InvalidOperation(code),        // Invalid operation
-            -1 => Outcome::NotImplemented(code),          // Not implemented
-            2 => Outcome::Timeout(code),                  // Timeout
-            other => Outcome::Unknown(other),
+            0 => Status::Success,
+            -7 | -8 | -11 => Status::NotSupported(code), // Extension not present, feature not present, format not supported
+            -4 => Status::InvalidOperation(code),        // Invalid operation
+            -1 => Status::NotImplemented(code),          // Not implemented
+            2 => Status::Timeout(code),                  // Timeout
+            other => Status::Unknown(other),
         }
     }
 }
@@ -647,4 +648,4 @@ impl std::fmt::Display for PhysicalDevice {
 }
 
 /// Represents the result of a graphics operation.
-pub type Result<T> = std::result::Result<T, Outcome>;
+pub type Result<T> = std::result::Result<T, Status>;

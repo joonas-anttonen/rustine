@@ -8,7 +8,7 @@ use crate::gfx::{CommandBuffer, CommandPool, PixelBuffer};
 pub enum SubmitStatus {
     Success,
     Timeout,
-    Error(crate::gfx::Outcome),
+    Error(crate::gfx::Status),
 }
 
 pub struct Queue {
@@ -91,7 +91,7 @@ impl Queue {
         self: &Arc<Self>,
         swapchain: vulkan_ffi::VkSwapchainKHR,
         image_index: u32,
-    ) {
+    ) -> SubmitStatus {
         let present_info = vulkan_ffi::VkPresentInfoKHR {
             sType: vulkan_ffi::VkStructureType::VK_STRUCTURE_TYPE_PRESENT_INFO_KHR as u32,
             pNext: std::ptr::null(),
@@ -103,8 +103,17 @@ impl Queue {
             pResults: std::ptr::null_mut(),
         };
 
-        vk_call!(vulkan_ffi::vkQueuePresentKHR(self.handle, &present_info))
-            .expect("vkQueuePresentKHR failures should be handled");
+        let result = vk_call!(vulkan_ffi::vkQueuePresentKHR(self.handle, &present_info));
+        match result {
+            Ok(()) => SubmitStatus::Success,
+            Err(err) => {
+                if let crate::gfx::Status::Timeout(_) = err {
+                    SubmitStatus::Timeout
+                } else {
+                    SubmitStatus::Error(err)
+                }
+            }
+        }
     }
 
     pub fn submit_with_keyed_mutex(
@@ -149,7 +158,7 @@ impl Queue {
         match result {
             Ok(()) => SubmitStatus::Success,
             Err(err) => {
-                if let crate::gfx::Outcome::Timeout(_) = err {
+                if let crate::gfx::Status::Timeout(_) = err {
                     SubmitStatus::Timeout
                 } else {
                     SubmitStatus::Error(err)

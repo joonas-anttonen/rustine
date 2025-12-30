@@ -9,13 +9,13 @@ use std::sync::Arc;
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
     test_pixel_buffer: PixelBuffer,
+    presenter: Option<presentation::Presenter>,
     allocator: Arc<vma::Allocator>,
     physical_device: PhysicalDevice,
     device: Arc<vulkan::Device>,
     instance: vulkan::Instance,
     frame_n: u64,
     frame_extent: Extent2D,
-    presenter: Option<presentation::Presenter>,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -101,21 +101,13 @@ impl Core {
             )
             .unwrap();
 
+        let shared_image_provider =
+            presentation::SharedImageProvider::new(presentation_pixel_buffer);
+
         let presenter = presentation::Presenter::new(
             self.device().create_general_queue(),
-            presentation_pixel_buffer,
+            shared_image_provider,
         );
-        /*presenter.record_frame(|cmd, pixel_buffer| {
-            warning!("Recording initial frame");
-            cmd.begin();
-
-            cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::UNDEFINED, ImageLayout::GENERAL);
-            cmd.clear_pixel_buffer(pixel_buffer, [0.5, 0.7, 1.0, 1.0]);
-            cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
-
-            cmd.end();
-        });
-        presenter.present_frame();*/
 
         self.frame_extent = Extent2D {
             width: in_params.width,
@@ -127,7 +119,7 @@ impl Core {
         self.next_frame();
 
         if let Some(presenter) = &mut self.presenter {
-            presenter.record_frame(|cmd, pixel_buffer| {
+            presenter.enqueue_present_keyed_mutex(|cmd, pixel_buffer| {
                 cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
                 cmd.clear_pixel_buffer(
                     pixel_buffer,
@@ -135,7 +127,6 @@ impl Core {
                 );
                 cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
             });
-            presenter.present_frame();
         }
     }
 }
@@ -237,7 +228,7 @@ impl CoreBuilder {
 
             match selected {
                 Some(d) => d,
-                None => return Err(Outcome::NotSupported(-1)),
+                None => return Err(Status::NotSupported(-1)),
             }
         };
 
