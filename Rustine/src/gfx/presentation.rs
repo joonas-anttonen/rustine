@@ -7,6 +7,12 @@ pub enum AcquireStatus<'a> {
     Error(crate::gfx::Status),
 }
 
+pub enum PresentationMethod {
+    Headless,
+    SharedImage,
+    Swapchain,
+}
+
 pub trait PresentationProvider {
     fn acquire(&self) -> AcquireStatus<'_>;
 }

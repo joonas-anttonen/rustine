@@ -1,4 +1,7 @@
-use crate::{gfx::queue::Queue, gfx::presentation::SharedImageProvider, gfx::*, warning};
+use crate::{
+    gfx::presentation::PresentationMethod, gfx::presentation::PresentationProvider,
+    gfx::queue::Queue, gfx::*, warning,
+};
 
 use std::sync::Arc;
 
@@ -15,7 +18,6 @@ pub struct Core {
     device: Arc<vulkan::Device>,
     instance: vulkan::Instance,
     frame_n: u64,
-    frame_extent: Extent2D,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -44,10 +46,6 @@ impl Core {
             allocator,
             test_pixel_buffer,
             frame_n: 0,
-            frame_extent: Extent2D {
-                width: 0,
-                height: 0,
-            },
             queue: None,
         }
     }
@@ -85,37 +83,20 @@ impl Core {
         self.frame_n
     }
 
-    pub fn frame_extent(&self) -> &Extent2D {
-        &self.frame_extent
-    }
-    pub fn initialize_presenter(&mut self, in_params: &crate::lib_ffi::PresentationParameters) {
-        let presentation_pixel_buffer = self
-            .allocator()
-            .create_external_pixel_buffer(
-                Format::B8G8R8A8_UNORM,
-                in_params.width,
-                in_params.height,
-                ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
-                ImageAspect::COLOR,
-                in_params.surface_handle,
-            )
-            .unwrap();
+    pub fn initialize_queue(
+        &mut self,
+        presentation_method: PresentationMethod,
+        presentation_provider: impl PresentationProvider + 'static,
+    ) {
+        let queue = Queue::new(&self.device, presentation_method, presentation_provider);
 
-        let shared_image_provider = SharedImageProvider::new(presentation_pixel_buffer);
-
-        let queue = Queue::new(&self.device, shared_image_provider);
-
-        self.frame_extent = Extent2D {
-            width: in_params.width,
-            height: in_params.height,
-        };
         self.queue = Some(queue);
     }
     pub fn render(&mut self, t: f64, _dt: f32) {
         self.next_frame();
 
         if let Some(queue) = &mut self.queue {
-            queue.enqueue_present_keyed_mutex(|cmd, pixel_buffer| {
+            queue.enqueue_present(|cmd, pixel_buffer| {
                 cmd.pixel_buffer_barrier(pixel_buffer, ImageLayout::GENERAL, ImageLayout::GENERAL);
                 cmd.clear_pixel_buffer(
                     pixel_buffer,

@@ -3,7 +3,8 @@
 use crate::{error, vk_call, warning};
 use crate::{
     gfx::CommandBuffer, gfx::CommandPool, gfx::PixelBuffer, gfx::presentation::AcquireStatus,
-    gfx::presentation::PresentationProvider, gfx::vulkan, gfx::vulkan_ffi,
+    gfx::presentation::PresentationMethod, gfx::presentation::PresentationProvider, gfx::vulkan,
+    gfx::vulkan_ffi,
 };
 
 use std::{collections::VecDeque, sync::Arc};
@@ -21,6 +22,7 @@ pub struct Queue {
     recorded_commands: VecDeque<CommandBuffer>,
     queued_commands: VecDeque<CommandBuffer>,
 
+    presentation_method: PresentationMethod,
     presentation_provider: Box<dyn PresentationProvider>,
 }
 
@@ -35,6 +37,7 @@ impl Drop for Queue {
 impl Queue {
     pub fn new(
         device: &Arc<vulkan::Device>,
+        presentation_method: PresentationMethod,
         presentation_provider: impl PresentationProvider + 'static,
     ) -> Self {
         let family_index = device.general_queue_family_index();
@@ -54,6 +57,7 @@ impl Queue {
             available_commands,
             recorded_commands: VecDeque::new(),
             queued_commands: VecDeque::new(),
+            presentation_method,
             presentation_provider: Box::new(presentation_provider),
         }
     }
@@ -97,68 +101,75 @@ impl Queue {
         self.collect_completed_commands();
         self.ensure_available_command();
 
-        let command_buffer = self
-            .available_commands
-            .pop_front()
-            .expect("No available command buffers");
+        match self.presentation_method {
+            PresentationMethod::Headless => {
+                warning!(
+                    "Queue::enqueue_present: Headless presentation method does not support presenting"
+                );
+            }
+            PresentationMethod::SharedImage => self.enqueue_present_keyed_mutex(command_recorder),
+            PresentationMethod::Swapchain => {
+                let command_buffer = self
+                    .available_commands
+                    .pop_front()
+                    .expect("No available command buffers");
 
-        let output_frame = match self.presentation_provider.acquire() {
-            AcquireStatus::Success(frame) => frame,
-            AcquireStatus::Timeout => {
-                warning!("Queue::present: Acquire timed out");
-                self.available_commands.push_back(command_buffer);
-                return;
-            }
-            AcquireStatus::OutOfDate => {
-                warning!("Queue::present: Acquire out of date");
-                self.available_commands.push_back(command_buffer);
-                return;
-            }
-            AcquireStatus::Error(err) => {
-                error!("Queue::present: Acquire error: {:?}", err);
-                self.available_commands.push_back(command_buffer);
-                return;
-            }
-        };
+                let output_frame = match self.presentation_provider.acquire() {
+                    AcquireStatus::Success(frame) => frame,
+                    AcquireStatus::Timeout => {
+                        warning!("Queue::present: Acquire timed out");
+                        self.available_commands.push_back(command_buffer);
+                        return;
+                    }
+                    AcquireStatus::OutOfDate => {
+                        warning!("Queue::present: Acquire out of date");
+                        self.available_commands.push_back(command_buffer);
+                        return;
+                    }
+                    AcquireStatus::Error(err) => {
+                        error!("Queue::present: Acquire error: {:?}", err);
+                        self.available_commands.push_back(command_buffer);
+                        return;
+                    }
+                };
 
-        command_buffer.begin();
-        command_recorder(&command_buffer, &output_frame);
-        command_buffer.end();
+                command_buffer.begin();
+                command_recorder(&command_buffer, &output_frame);
+                command_buffer.end();
 
-        self.recorded_commands.push_back(command_buffer);
+                self.recorded_commands.push_back(command_buffer);
 
-        /*let commands = self
-            .recorded_commands
-            .pop_front()
-            .expect("No recorded command buffers to present");
+                /*let commands = self
+                    .recorded_commands
+                    .pop_front()
+                    .expect("No recorded command buffers to present");
 
-        let submit_status = self
-            .queue
-            .submit_present(&commands, _, _);
-        match submit_status {
-            SubmitStatus::Success => {
-                self.queued_commands.push_back(commands);
+                let submit_status = self
+                    .queue
+                    .submit_present(&commands, _, _);
+                match submit_status {
+                    SubmitStatus::Success => {
+                        self.queued_commands.push_back(commands);
+                    }
+                    SubmitStatus::Timeout => {
+                        //warning!("Queue::present_frame: Submit timed out");
+                        commands.reset();
+                        self.available_commands.push_back(commands);
+                    }
+                    SubmitStatus::Error(err) => {
+                        error!("Queue::present_frame: Submit error: {:?}", err);
+                        commands.reset();
+                        self.available_commands.push_back(commands);
+                    }
+                }*/
             }
-            SubmitStatus::Timeout => {
-                //warning!("Queue::present_frame: Submit timed out");
-                commands.reset();
-                self.available_commands.push_back(commands);
-            }
-            SubmitStatus::Error(err) => {
-                error!("Queue::present_frame: Submit error: {:?}", err);
-                commands.reset();
-                self.available_commands.push_back(commands);
-            }
-        }*/
+        }
     }
 
-    pub fn enqueue_present_keyed_mutex(
+    fn enqueue_present_keyed_mutex(
         &mut self,
         command_recorder: impl FnOnce(&CommandBuffer, &PixelBuffer),
     ) {
-        self.collect_completed_commands();
-        self.ensure_available_command();
-
         let command_buffer = self
             .available_commands
             .pop_front()
