@@ -211,14 +211,14 @@ unsafe extern "C" {
 
     // ========= Queue ==========
 
-    pub fn vkQueueWaitIdle(queue: VkQueue) -> i32;
+    pub fn vkQueueWaitIdle(queue: VkQueue) -> VkResult;
     pub fn vkQueueSubmit(
         queue: VkQueue,
         submitCount: u32,
         pSubmits: *const VkSubmitInfo,
         fence: VkFence,
-    ) -> i32;
-    pub fn vkQueuePresentKHR(queue: VkQueue, pPresentInfo: *const VkPresentInfoKHR) -> i32;
+    ) -> VkResult;
+    pub fn vkQueuePresentKHR(queue: VkQueue, pPresentInfo: *const VkPresentInfoKHR) -> VkResult;
 
     // ========= Command Buffer ==========
 
@@ -2047,7 +2047,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_SUBRESOURCE_HOST_MEMCPY_SIZE = 1000270008,
     VK_STRUCTURE_TYPE_HOST_IMAGE_COPY_DEVICE_PERFORMANCE_QUERY = 1000270009,
     SWAPCHAIN_CREATE_INFO_KHR = 1000001000,
-    VK_STRUCTURE_TYPE_PRESENT_INFO_KHR = 1000001001,
+    PRESENT_INFO_KHR = 1000001001,
     VK_STRUCTURE_TYPE_DEVICE_GROUP_PRESENT_CAPABILITIES_KHR = 1000060007,
     VK_STRUCTURE_TYPE_IMAGE_SWAPCHAIN_CREATE_INFO_KHR = 1000060008,
     VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR = 1000060009,

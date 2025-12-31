@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use crate::{error, vk_call, warning};
+use crate::{error, gfx, gfx::vulkan_ffi as vk, warning};
 use crate::{
     gfx::CommandBuffer, gfx::CommandPool, gfx::presentation::AcquireStatus,
-    gfx::presentation::PresentationImage, gfx::presentation::Method,
-    gfx::presentation::PresentationProvider, gfx::vulkan, gfx::vulkan_ffi,
+    gfx::presentation::Method, gfx::presentation::PresentationImage,
+    gfx::presentation::PresentationProvider, gfx::vulkan,
 };
 
 use std::{collections::VecDeque, sync::Arc};
@@ -13,11 +13,11 @@ pub enum SubmitStatus {
     Success,
     Timeout,
     OutOfDate,
-    Error(crate::gfx::Status),
+    Error(gfx::Status),
 }
 
 pub struct Queue {
-    queue_handle: vulkan_ffi::VkQueue,
+    queue_handle: vk::VkQueue,
     command_pool: Arc<CommandPool>,
     available_commands: VecDeque<CommandBuffer>,
     recorded_commands: VecDeque<CommandBuffer>,
@@ -64,7 +64,14 @@ impl Queue {
     }
 
     pub fn wait_for_idle(&self) {
-        vk_call!(vulkan_ffi::vkQueueWaitIdle(self.queue_handle)).expect("vkQueueWaitIdle");
+        let result = unsafe { vk::vkQueueWaitIdle(self.queue_handle) };
+        match result {
+            vk::VkResult::SUCCESS => {}
+            _ => error!(
+                "Queue::wait_for_idle: {:?}",
+                gfx::Status::from_code(result.0)
+            ),
+        }
     }
 
     pub fn drain(&mut self) {
@@ -119,186 +126,119 @@ impl Queue {
         self.collect_completed_commands();
         self.ensure_available_command();
 
-        match self.presentation_method {
+        let output_frame = match self.presentation_provider.acquire() {
+            AcquireStatus::Success(frame) => frame,
+            AcquireStatus::Timeout => {
+                warning!("Queue::enqueue_present: Acquire Timeout");
+                return;
+            }
+            AcquireStatus::OutOfDate => {
+                warning!("Queue::enqueue_present: Acquire OutOfDate");
+                return;
+            }
+            AcquireStatus::Error(err) => {
+                error!("Queue::enqueue_present: Acquire {:?}", err);
+                return;
+            }
+        };
+
+        let command_buffer = self.available_commands.pop_front();
+        if command_buffer.is_none() {
+            error!("Queue::enqueue_present: No available command buffer!");
+            return;
+        }
+        let command_buffer = command_buffer.unwrap();
+        command_buffer.begin();
+        command_recorder(&command_buffer, &output_frame);
+        command_buffer.end();
+
+        let submit_status = match self.presentation_method {
             Method::Headless => {
                 warning!(
                     "Queue::enqueue_present: Headless presentation method does not support presenting"
                 );
-            }
-            Method::SharedImage => self.enqueue_present_keyed_mutex(command_recorder),
-            Method::Swapchain => self.enqueue_present_swapchain(command_recorder),
-        }
-    }
-
-    fn enqueue_present_swapchain(
-        &mut self,
-        command_recorder: impl FnOnce(&CommandBuffer, &PresentationImage),
-    ) {
-        let command_buffer = self
-            .available_commands
-            .pop_front()
-            .expect("No available command buffers");
-
-        let output_frame = match self.presentation_provider.acquire() {
-            AcquireStatus::Success(frame) => frame,
-            AcquireStatus::Timeout => {
-                warning!("Queue::enqueue_present_swapchain: Acquire timed out");
-                self.available_commands.push_back(command_buffer);
                 return;
             }
-            AcquireStatus::OutOfDate => {
-                warning!("Queue::enqueue_present_swapchain: Acquire out of date");
-                self.available_commands.push_back(command_buffer);
-                return;
+            Method::SharedImage => {
+                self.submit_with_keyed_mutex(&command_buffer, &output_frame, 1, 0)
             }
-            AcquireStatus::Error(err) => {
-                error!("Queue::enqueue_present_swapchain: Acquire error: {:?}", err);
-                self.available_commands.push_back(command_buffer);
-                return;
-            }
+            Method::Swapchain => self.submit_present(&command_buffer, None, &output_frame),
         };
-
-        command_buffer.begin();
-        command_recorder(&command_buffer, &output_frame);
-        command_buffer.end();
-
-        let submit_status = self.submit_present(&command_buffer, &output_frame);
         match submit_status {
             SubmitStatus::Success => {
                 self.queued_commands.push_back(command_buffer);
             }
             SubmitStatus::Timeout => {
-                //warning!("Queue::enqueue_present_swapchain: Submit timed out");
                 self.drain();
                 command_buffer.reset();
                 self.available_commands.push_back(command_buffer);
             }
             SubmitStatus::OutOfDate => {
-                warning!("Queue::enqueue_present_swapchain: Submit out of date");
+                warning!("Queue::enqueue_present: Submit OutOfDate");
                 self.drain();
                 command_buffer.reset();
                 self.available_commands.push_back(command_buffer);
             }
             SubmitStatus::Error(err) => {
-                error!("Queue::enqueue_present_swapchain: Submit error: {:?}", err);
+                error!("Queue::enqueue_present: Submit {:?}", err);
+                self.drain();
                 command_buffer.reset();
                 self.available_commands.push_back(command_buffer);
             }
         }
     }
 
-    fn enqueue_present_keyed_mutex(
-        &mut self,
-        command_recorder: impl FnOnce(&CommandBuffer, &PresentationImage),
-    ) {
-        let command_buffer = self
-            .available_commands
-            .pop_front()
-            .expect("No available command buffers");
-
-        let output_frame = match self.presentation_provider.acquire() {
-            AcquireStatus::Success(frame) => frame,
-            AcquireStatus::Timeout => {
-                warning!("Queue::present: Acquire timed out");
-                self.available_commands.push_back(command_buffer);
-                return;
-            }
-            AcquireStatus::OutOfDate => {
-                warning!("Queue::present: Acquire out of date");
-                self.available_commands.push_back(command_buffer);
-                return;
-            }
-            AcquireStatus::Error(err) => {
-                error!("Queue::present: Acquire error: {:?}", err);
-                self.available_commands.push_back(command_buffer);
-                return;
-            }
-        };
-
-        command_buffer.begin();
-        command_recorder(&command_buffer, &output_frame);
-        command_buffer.end();
-
-        let submit_status = self.submit_with_keyed_mutex(&command_buffer, &output_frame, 1, 0);
-        match submit_status {
-            SubmitStatus::Success => {
-                self.queued_commands.push_back(command_buffer);
-            }
-            SubmitStatus::Timeout => {
-                //warning!("Queue::present_frame: Submit timed out");
-                command_buffer.reset();
-                self.available_commands.push_back(command_buffer);
-            }
-            SubmitStatus::OutOfDate => {
-                warning!("Queue::present_frame: Submit out of date");
-                command_buffer.reset();
-                self.available_commands.push_back(command_buffer);
-            }
-            SubmitStatus::Error(err) => {
-                error!("Queue::present_frame: Submit error: {:?}", err);
-                command_buffer.reset();
-                self.available_commands.push_back(command_buffer);
-            }
-        }
-    }
-
-    pub fn submit(&self, commands: &CommandBuffer) {
-        let submit_info = vulkan_ffi::VkSubmitInfo {
-            sType: vulkan_ffi::VkStructureType::SUBMIT_INFO as u32,
-            pNext: std::ptr::null(),
-            waitSemaphoreCount: 0,
-            pWaitSemaphores: std::ptr::null(),
-            pWaitDstStageMask: std::ptr::null(),
-            commandBufferCount: 1,
-            pCommandBuffers: &commands.handle(),
-            signalSemaphoreCount: 0,
-            pSignalSemaphores: std::ptr::null(),
-        };
-
-        vk_call!(vulkan_ffi::vkQueueSubmit(
-            self.queue_handle,
-            1,
-            &submit_info,
-            commands.fence(),
-        ))
-        .expect("vkQueueSubmit failures should be handled");
-    }
-
-    pub fn submit_present(
+    fn submit(
         &self,
         command_buffer: &CommandBuffer,
-        image: &PresentationImage,
+        previous_command_buffer: Option<&CommandBuffer>,
     ) -> SubmitStatus {
-        let submit_info = vulkan_ffi::VkSubmitInfo {
-            sType: vulkan_ffi::VkStructureType::SUBMIT_INFO as u32,
+        let wait_dst_stage = vk::VkPipelineStageFlags::TOP_OF_PIPE_BIT;
+        let (wait_semaphore_count, wait_semaphores, wait_dst_stage_mask) =
+            if let Some(prev) = previous_command_buffer {
+                (
+                    1,
+                    &prev.semaphore() as *const vk::VkSemaphore,
+                    &wait_dst_stage as *const vk::VkPipelineStageFlags,
+                )
+            } else {
+                (0, std::ptr::null(), std::ptr::null())
+            };
+
+        let submit_info = vk::VkSubmitInfo {
+            sType: vk::VkStructureType::SUBMIT_INFO as u32,
             pNext: std::ptr::null(),
-            waitSemaphoreCount: 0,
-            pWaitSemaphores: std::ptr::null(),
-            pWaitDstStageMask: std::ptr::null(),
+            waitSemaphoreCount: wait_semaphore_count,
+            pWaitSemaphores: wait_semaphores,
+            pWaitDstStageMask: wait_dst_stage_mask,
             commandBufferCount: 1,
             pCommandBuffers: &command_buffer.handle(),
             signalSemaphoreCount: 1,
             pSignalSemaphores: &command_buffer.semaphore(),
         };
-        let result = vk_call!(vulkan_ffi::vkQueueSubmit(
-            self.queue_handle,
-            1,
-            &submit_info,
-            command_buffer.fence(),
-        ));
+
+        let result = unsafe {
+            vk::vkQueueSubmit(self.queue_handle, 1, &submit_info, command_buffer.fence())
+        };
         match result {
-            Ok(()) => SubmitStatus::Success,
-            Err(err) => {
-                return match err {
-                    crate::gfx::Status::Timeout(_) => SubmitStatus::Timeout,
-                    crate::gfx::Status::OutOfDate(_) => SubmitStatus::OutOfDate,
-                    _ => SubmitStatus::Error(err),
-                };
-            }
+            vk::VkResult::SUCCESS => SubmitStatus::Success,
+            _ => SubmitStatus::Error(crate::gfx::Status::from_code(result.0)),
+        }
+    }
+
+    fn submit_present(
+        &self,
+        command_buffer: &CommandBuffer,
+        previous_command_buffer: Option<&CommandBuffer>,
+        image: &PresentationImage,
+    ) -> SubmitStatus {
+        match self.submit(command_buffer, previous_command_buffer) {
+            SubmitStatus::Success => {}
+            other => return other,
         };
 
-        let present_info = vulkan_ffi::VkPresentInfoKHR {
-            sType: vulkan_ffi::VkStructureType::VK_STRUCTURE_TYPE_PRESENT_INFO_KHR as u32,
+        let present_info = vk::VkPresentInfoKHR {
+            sType: vk::VkStructureType::PRESENT_INFO_KHR as u32,
             pNext: std::ptr::null(),
             waitSemaphoreCount: 1,
             pWaitSemaphores: &command_buffer.semaphore(),
@@ -308,23 +248,20 @@ impl Queue {
             pResults: std::ptr::null_mut(),
         };
 
-        let result = vk_call!(vulkan_ffi::vkQueuePresentKHR(
-            self.queue_handle,
-            &present_info
-        ));
+        let result = unsafe { vk::vkQueuePresentKHR(self.queue_handle, &present_info) };
         match result {
-            Ok(()) => SubmitStatus::Success,
-            Err(err) => {
-                return match err {
-                    crate::gfx::Status::Timeout(_) => SubmitStatus::Timeout,
-                    crate::gfx::Status::OutOfDate(_) => SubmitStatus::OutOfDate,
-                    _ => SubmitStatus::Error(err),
-                };
+            vk::VkResult::SUCCESS => SubmitStatus::Success,
+            vk::VkResult::SUBOPTIMAL_KHR => {
+                warning!("Queue::submit_present: Present suboptimal");
+                SubmitStatus::Success
             }
+            vk::VkResult::OUT_OF_DATE_KHR => SubmitStatus::OutOfDate,
+            vk::VkResult::TIMEOUT => SubmitStatus::Timeout,
+            _ => SubmitStatus::Error(crate::gfx::Status::from_code(result.0)),
         }
     }
 
-    pub fn submit_with_keyed_mutex(
+    fn submit_with_keyed_mutex(
         &self,
         command_buffer: &CommandBuffer,
         shared_pixel_buffer: &PresentationImage,
@@ -333,8 +270,8 @@ impl Queue {
     ) -> SubmitStatus {
         let timeout = 10u32;
 
-        let keyed_mutex_acquire_release_info = vulkan_ffi::VkWin32KeyedMutexAcquireReleaseInfoKHR {
-            sType: vulkan_ffi::VkStructureType::WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR as u32,
+        let keyed_mutex_acquire_release_info = vk::VkWin32KeyedMutexAcquireReleaseInfoKHR {
+            sType: vk::VkStructureType::WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR as u32,
             pNext: std::ptr::null(),
             acquireCount: 1,
             pAcquireSyncs: &shared_pixel_buffer.memory,
@@ -344,8 +281,8 @@ impl Queue {
             pReleaseSyncs: &shared_pixel_buffer.memory,
             pReleaseKeys: &release_key,
         };
-        let submit_info = vulkan_ffi::VkSubmitInfo {
-            sType: vulkan_ffi::VkStructureType::SUBMIT_INFO as u32,
+        let submit_info = vk::VkSubmitInfo {
+            sType: vk::VkStructureType::SUBMIT_INFO as u32,
             pNext: &keyed_mutex_acquire_release_info as *const _ as *const _,
             waitSemaphoreCount: 0,
             pWaitSemaphores: std::ptr::null(),
@@ -355,23 +292,13 @@ impl Queue {
             signalSemaphoreCount: 0,
             pSignalSemaphores: std::ptr::null(),
         };
-        let result = vk_call!(vulkan_ffi::vkQueueSubmit(
-            self.queue_handle,
-            1,
-            &submit_info,
-            command_buffer.fence(),
-        ));
-        self.wait_for_idle();
-
+        let result = unsafe {
+            vk::vkQueueSubmit(self.queue_handle, 1, &submit_info, command_buffer.fence())
+        };
         match result {
-            Ok(()) => SubmitStatus::Success,
-            Err(err) => {
-                if let crate::gfx::Status::Timeout(_) = err {
-                    SubmitStatus::Timeout
-                } else {
-                    SubmitStatus::Error(err)
-                }
-            }
+            vk::VkResult::SUCCESS => SubmitStatus::Success,
+            vk::VkResult::TIMEOUT => SubmitStatus::Timeout,
+            _ => SubmitStatus::Error(gfx::Status::from_code(result.0)),
         }
     }
 }
