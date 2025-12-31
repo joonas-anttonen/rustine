@@ -7,7 +7,10 @@ use crate::{
     gfx::presentation::PresentationProvider, gfx::vulkan,
 };
 
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 
 pub enum SubmitStatus {
     Success,
@@ -16,8 +19,69 @@ pub enum SubmitStatus {
     Error(gfx::Status),
 }
 
+/*/// Represents a transfer operation type.
+/// General form is some input data or resources, some output data or resources,
+/// and an optional completion callback.
+pub enum TransferOp {
+    CreateBufferFromData {
+        data: Vec<u8>,
+        usage: vk::VkBufferUsageFlags,
+        output_buffer: Arc<Mutex<MemoryBuffer>>,
+        completion_callback: Option<Box<dyn FnOnce() + Send>>,
+    },
+}
+
+pub struct TransferQueue {
+    queue_handle: Arc<Mutex<vk::VkQueue>>,
+    command_pool: Arc<CommandPool>,
+    available_commands: VecDeque<CommandBuffer>,
+    recorded_commands: VecDeque<CommandBuffer>,
+    queued_commands: VecDeque<CommandBuffer>,
+}
+
+impl Drop for TransferQueue {
+    fn drop(&mut self) {
+        warning!("TransferQueue::drop");
+
+        //self.wait_for_idle();
+
+        while let Some(cmd) = self.recorded_commands.pop_front() {
+            cmd.reset();
+            self.available_commands.push_back(cmd);
+        }
+
+        while let Some(cmd) = self.queued_commands.pop_front() {
+            cmd.reset();
+            self.available_commands.push_back(cmd);
+        }
+    }
+}
+
+impl TransferQueue {
+    pub fn new(device: &Arc<vulkan::Device>) -> Self {
+        let family_index = device.transfer_queue_family_index();
+        let queue_handle = device.transfer_queue();
+
+        let command_pool = CommandPool::new(family_index, &device);
+
+        let mut available_commands = VecDeque::new();
+
+        for _ in 0..3 {
+            available_commands.push_back(command_pool.allocate_command_buffer().unwrap());
+        }
+
+        TransferQueue {
+            queue_handle,
+            command_pool,
+            available_commands,
+            recorded_commands: VecDeque::new(),
+            queued_commands: VecDeque::new(),
+        }
+    }
+}*/
+
 pub struct Queue {
-    queue_handle: vk::VkQueue,
+    queue_handle: Arc<Mutex<vk::VkQueue>>,
     command_pool: Arc<CommandPool>,
     available_commands: VecDeque<CommandBuffer>,
     recorded_commands: VecDeque<CommandBuffer>,
@@ -42,7 +106,7 @@ impl Queue {
         presentation_provider: impl PresentationProvider + 'static,
     ) -> Self {
         let family_index = device.general_queue_family_index();
-        let queue_handle = device.create_general_queue();
+        let queue_handle = device.general_queue();
 
         let command_pool = CommandPool::new(family_index, &device);
 
@@ -64,7 +128,8 @@ impl Queue {
     }
 
     pub fn wait_for_idle(&self) {
-        let result = unsafe { vk::vkQueueWaitIdle(self.queue_handle) };
+        let locked_queue = self.queue_handle.lock().unwrap();
+        let result = unsafe { vk::vkQueueWaitIdle(*locked_queue) };
         match result {
             vk::VkResult::SUCCESS => {}
             _ => error!(
@@ -218,7 +283,8 @@ impl Queue {
         };
 
         let result = unsafe {
-            vk::vkQueueSubmit(self.queue_handle, 1, &submit_info, command_buffer.fence())
+            let locked_queue = self.queue_handle.lock().unwrap();
+            vk::vkQueueSubmit(*locked_queue, 1, &submit_info, command_buffer.fence())
         };
         match result {
             vk::VkResult::SUCCESS => SubmitStatus::Success,
@@ -248,7 +314,10 @@ impl Queue {
             pResults: std::ptr::null_mut(),
         };
 
-        let result = unsafe { vk::vkQueuePresentKHR(self.queue_handle, &present_info) };
+        let result = unsafe {
+            let locked_queue = self.queue_handle.lock().unwrap();
+            vk::vkQueuePresentKHR(*locked_queue, &present_info)
+        };
         match result {
             vk::VkResult::SUCCESS => SubmitStatus::Success,
             vk::VkResult::SUBOPTIMAL_KHR => {
@@ -293,7 +362,8 @@ impl Queue {
             pSignalSemaphores: std::ptr::null(),
         };
         let result = unsafe {
-            vk::vkQueueSubmit(self.queue_handle, 1, &submit_info, command_buffer.fence())
+            let locked_queue = self.queue_handle.lock().unwrap();
+            vk::vkQueueSubmit(*locked_queue, 1, &submit_info, command_buffer.fence())
         };
         match result {
             vk::VkResult::SUCCESS => SubmitStatus::Success,

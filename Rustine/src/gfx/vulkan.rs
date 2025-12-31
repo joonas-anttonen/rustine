@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use std::{collections, ptr};
+use std::{
+    collections, ptr,
+    sync::{Arc, Mutex},
+};
 
 use crate::{error, warning};
 use crate::{gfx::vulkan_ffi as vk, gfx::*, version::Version};
@@ -43,6 +46,9 @@ impl Instance {
 /// Represents a Vulkan logical device.
 pub struct Device {
     general_queue_family_index: u32,
+    transfer_queue_family_index: u32,
+    general_queue_handle: Arc<Mutex<vk::VkQueue>>,
+    transfer_queue_handle: Arc<Mutex<vk::VkQueue>>,
     handle: vk::VkDevice,
     physical_device: vk::VkPhysicalDevice,
 }
@@ -59,19 +65,15 @@ impl Device {
     pub fn general_queue_family_index(&self) -> u32 {
         self.general_queue_family_index
     }
+    pub fn transfer_queue_family_index(&self) -> u32 {
+        self.transfer_queue_family_index
+    }
 
-    pub fn create_general_queue(self: &std::sync::Arc<Self>) -> vk::VkQueue {
-        let mut queue_handle: vk::VkQueue = ptr::null_mut();
-        unsafe {
-            vk::vkGetDeviceQueue(
-                self.handle,
-                self.general_queue_family_index,
-                0,
-                &mut queue_handle,
-            );
-        }
-
-        queue_handle
+    pub fn general_queue(&self) -> Arc<Mutex<vk::VkQueue>> {
+        Arc::clone(&self.general_queue_handle)
+    }
+    pub fn transfer_queue(&self) -> Arc<Mutex<vk::VkQueue>> {
+        Arc::clone(&self.transfer_queue_handle)
     }
 }
 
@@ -111,9 +113,7 @@ impl Drop for Device {
 /// Queries the highest Vulkan API version supported.
 pub fn enumerate_instance_version() -> Result<Version> {
     let mut api_version: u32 = 0;
-    vk_call!(vk::vkEnumerateInstanceVersion(
-        &mut api_version as *mut u32
-    ))?;
+    vk_call!(vk::vkEnumerateInstanceVersion(&mut api_version as *mut u32))?;
     Ok(Version::from_vk_version(api_version))
 }
 
@@ -487,21 +487,50 @@ pub fn create_device(
         .position(|qf| (qf.queueFlags & vk::VkQueueFlags::GRAPHICS_BIT as u32) != 0)
         .map(|idx| idx as u32)
         .ok_or(Status::NotSupported(-1))?;
-    let queue_priority: f32 = 1.0;
-    let queue_create_info = vk::VkDeviceQueueCreateInfo {
-        sType: vk::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
-        pNext: ptr::null(),
-        flags: 0,
-        queueFamilyIndex: general_queue_family_index,
-        queueCount: 1,
-        pQueuePriorities: &queue_priority as *const f32,
+    let transfer_queue_family_index = queue_family_properties
+        .iter()
+        .position(|qf| {
+            (qf.queueFlags & vk::VkQueueFlags::TRANSFER_BIT as u32) != 0
+                && (qf.queueFlags & vk::VkQueueFlags::GRAPHICS_BIT as u32) == 0
+        })
+        .map(|idx| idx as u32)
+        .unwrap_or(general_queue_family_index);
+
+    let queue_priority: f32 = 0.5;
+    let queue_create_infos: Vec<vk::VkDeviceQueueCreateInfo> = {
+        let mut infos: Vec<vk::VkDeviceQueueCreateInfo> = Vec::new();
+
+        let general_queue_info = vk::VkDeviceQueueCreateInfo {
+            sType: vk::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
+            pNext: ptr::null(),
+            flags: 0,
+            queueFamilyIndex: general_queue_family_index,
+            queueCount: 1,
+            pQueuePriorities: &queue_priority as *const f32,
+        };
+        infos.push(general_queue_info);
+
+        if transfer_queue_family_index != general_queue_family_index {
+            let transfer_queue_info = vk::VkDeviceQueueCreateInfo {
+                sType: vk::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
+                pNext: ptr::null(),
+                flags: 0,
+                queueFamilyIndex: transfer_queue_family_index,
+                queueCount: 1,
+                pQueuePriorities: &queue_priority as *const f32,
+            };
+            infos.push(transfer_queue_info);
+        }
+
+        infos
     };
+
     let device_create_info = vk::VkDeviceCreateInfo {
         sType: vk::VkStructureType::DEVICE_CREATE_INFO as u32,
         pNext: vk_next!(physical_device_features),
         flags: 0,
-        queueCreateInfoCount: 1,
-        pQueueCreateInfos: &queue_create_info as *const vk::VkDeviceQueueCreateInfo,
+        queueCreateInfoCount: queue_create_infos.len() as u32,
+        pQueueCreateInfos: queue_create_infos.as_ptr(),
         enabledLayerCount: 0,
         ppEnabledLayerNames: ptr::null(),
         enabledExtensionCount: _enabled_extensions_ptrs.len() as u32,
@@ -517,10 +546,38 @@ pub fn create_device(
         &mut device_handle,
     ))?;
 
+    let general_queue_handle = unsafe {
+        let mut queue_handle: vk::VkQueue = ptr::null_mut();
+        vk::vkGetDeviceQueue(
+            device_handle,
+            general_queue_family_index,
+            0,
+            &mut queue_handle,
+        );
+        Arc::new(Mutex::new(queue_handle))
+    };
+    let transfer_queue_handle = if transfer_queue_family_index != general_queue_family_index {
+        unsafe {
+            let mut queue_handle: vk::VkQueue = ptr::null_mut();
+            vk::vkGetDeviceQueue(
+                device_handle,
+                transfer_queue_family_index,
+                0,
+                &mut queue_handle,
+            );
+            Arc::new(Mutex::new(queue_handle))
+        }
+    } else {
+        Arc::clone(&general_queue_handle)
+    };
+
     Ok(Device {
         handle: device_handle,
         physical_device,
         general_queue_family_index,
+        transfer_queue_family_index,
+        general_queue_handle,
+        transfer_queue_handle,
     })
 }
 
