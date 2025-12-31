@@ -11,15 +11,6 @@ pub struct StartupParameters {
     pub host_name: *const u8,
 }
 
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct PresentationParameters {
-    pub width: u32,
-    pub height: u32,
-    pub surface_handle: *const std::ffi::c_void,
-    pub vertical_sync: u32,
-}
-
 // FFI version of `Event`.
 #[repr(C)]
 pub struct Event {

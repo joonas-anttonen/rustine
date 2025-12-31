@@ -1,5 +1,5 @@
-use crate::{error, vk_call, warning};
-use crate::{gfx::PixelBuffer, gfx::vulkan, gfx::vulkan_ffi, lib_ffi::PresentationParameters};
+use crate::{error, gfx, vk_call, warning};
+use crate::{gfx::PixelBuffer, gfx::vulkan, gfx::vulkan_ffi as vk};
 
 use std::sync::Arc;
 
@@ -10,20 +10,31 @@ pub enum AcquireStatus {
     Error(crate::gfx::Status),
 }
 
-pub enum PresentationMethod {
+pub enum Method {
     Headless,
     SharedImage,
     Swapchain,
 }
 
+/// Parameters for initializing a presentation provider for FFI and internal use.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct Parameters {
+    pub width: u32,
+    pub height: u32,
+    /// Opaque handle to the presentation surface. `VkSurfaceKHR`, `HANDLE` or similar depending on platform and usage.
+    pub surface_handle: *const std::ffi::c_void,
+    pub vertical_sync: u32,
+}
+
 #[derive(Copy, Clone)]
 pub struct PresentationImage {
-    pub memory: vulkan_ffi::VkDeviceMemory,
-    pub image: vulkan_ffi::VkImage,
-    pub image_view: vulkan_ffi::VkImageView,
-    pub format: vulkan_ffi::VkFormat,
+    pub memory: vk::VkDeviceMemory,
+    pub image: vk::VkImage,
+    pub image_view: vk::VkImageView,
+    pub format: vk::VkFormat,
     pub index: u32,
-    pub swapchain_handle: vulkan_ffi::VkSwapchainKHR,
+    pub swapchain_handle: vk::VkSwapchainKHR,
 }
 
 pub trait PresentationProvider {
@@ -34,7 +45,17 @@ pub struct SharedImageProvider {
     output_frame: PixelBuffer,
 }
 impl SharedImageProvider {
-    pub fn new(output_frame: PixelBuffer) -> Self {
+    pub fn new(allocator: &Arc<gfx::vma::Allocator>, parameters: Parameters) -> Self {
+        let output_frame = allocator
+            .create_external_pixel_buffer(
+                gfx::Format::B8G8R8A8_UNORM,
+                parameters.width,
+                parameters.height,
+                gfx::ImageUsage::COLOR_ATTACHMENT | gfx::ImageUsage::TRANSFER_DST,
+                gfx::ImageAspect::COLOR,
+                parameters.surface_handle,
+            )
+            .unwrap();
         SharedImageProvider { output_frame }
     }
 }
@@ -45,7 +66,7 @@ impl PresentationProvider for SharedImageProvider {
             memory: self.output_frame.device_memory(),
             image: self.output_frame.image(),
             image_view: self.output_frame.image_view(),
-            format: vulkan_ffi::VkFormat::B8G8R8A8_UNORM,
+            format: vk::VkFormat::B8G8R8A8_UNORM,
             index: 0,
             swapchain_handle: std::ptr::null_mut(),
         };
@@ -54,20 +75,20 @@ impl PresentationProvider for SharedImageProvider {
 }
 
 pub struct SwapchainProvider {
-    swapchain_handle: vulkan_ffi::VkSwapchainKHR,
+    swapchain_handle: vk::VkSwapchainKHR,
     swapchain_images: Vec<PresentationImage>,
-    acquire_fence: vulkan_ffi::VkFence,
+    acquire_fence: vk::VkFence,
     device: Arc<vulkan::Device>,
 }
 
 impl Drop for SwapchainProvider {
     fn drop(&mut self) {
         unsafe {
-            vulkan_ffi::vkDestroyFence(self.device.handle(), self.acquire_fence, std::ptr::null());
+            vk::vkDestroyFence(self.device.handle(), self.acquire_fence, std::ptr::null());
 
             for presentation_image in &self.swapchain_images {
                 if !presentation_image.image_view.is_null() {
-                    vulkan_ffi::vkDestroyImageView(
+                    vk::vkDestroyImageView(
                         self.device.handle(),
                         presentation_image.image_view,
                         std::ptr::null(),
@@ -75,7 +96,7 @@ impl Drop for SwapchainProvider {
                 }
             }
             if !self.swapchain_handle.is_null() {
-                vulkan_ffi::vkDestroySwapchainKHR(
+                vk::vkDestroySwapchainKHR(
                     self.device.handle(),
                     self.swapchain_handle,
                     std::ptr::null(),
@@ -89,7 +110,7 @@ impl PresentationProvider for SwapchainProvider {
     fn acquire(&self) -> AcquireStatus {
         let mut image_index: u32 = 0;
         let result = unsafe {
-            vulkan_ffi::vkAcquireNextImageKHR(
+            vk::vkAcquireNextImageKHR(
                 self.device.handle(),
                 self.swapchain_handle,
                 std::u64::MAX,
@@ -101,36 +122,35 @@ impl PresentationProvider for SwapchainProvider {
 
         // Reset the acquire fence
         unsafe {
-            vulkan_ffi::vkWaitForFences(
+            vk::vkWaitForFences(
                 self.device.handle(),
                 1,
                 &self.acquire_fence,
-                vulkan_ffi::VK_TRUE,
+                vk::VK_TRUE,
                 std::u64::MAX,
             );
-            vulkan_ffi::vkResetFences(self.device.handle(), 1, &self.acquire_fence);
+            vk::vkResetFences(self.device.handle(), 1, &self.acquire_fence);
         }
 
         match result {
-            vulkan_ffi::VkResult::SUCCESS | vulkan_ffi::VkResult::SUBOPTIMAL_KHR => {
+            vk::VkResult::SUCCESS | vk::VkResult::SUBOPTIMAL_KHR => {
                 let presentation_image = self.swapchain_images[image_index as usize];
                 AcquireStatus::Success(presentation_image)
             }
-            vulkan_ffi::VkResult::TIMEOUT => AcquireStatus::Timeout,
-            vulkan_ffi::VkResult::OUT_OF_DATE_KHR => AcquireStatus::OutOfDate,
+            vk::VkResult::TIMEOUT => AcquireStatus::Timeout,
+            vk::VkResult::OUT_OF_DATE_KHR => AcquireStatus::OutOfDate,
             _ => AcquireStatus::Error(crate::gfx::Status::from_code(result.0)),
         }
     }
 }
 
 impl SwapchainProvider {
-    pub fn new(device: &Arc<vulkan::Device>, params: PresentationParameters) -> Self {
+    pub fn new(device: &Arc<vulkan::Device>, params: Parameters) -> Self {
         let physical_device_handle = device.physical_device_handle();
-        let surface_handle = params.surface_handle as vulkan_ffi::VkSurfaceKHR;
+        let surface_handle = params.surface_handle as vk::VkSurfaceKHR;
 
-        let mut surface_capabilities: vulkan_ffi::VkSurfaceCapabilitiesKHR =
-            unsafe { std::mem::zeroed() };
-        vk_call!(vulkan_ffi::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+        let mut surface_capabilities: vk::VkSurfaceCapabilitiesKHR = unsafe { std::mem::zeroed() };
+        vk_call!(vk::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
             physical_device_handle,
             surface_handle,
             &mut surface_capabilities
@@ -149,7 +169,7 @@ impl SwapchainProvider {
         .unwrap();
 
         let chosen_extent = match surface_capabilities.currentExtent.width {
-            std::u32::MAX => vulkan_ffi::VkExtent2D {
+            std::u32::MAX => vk::VkExtent2D {
                 width: params.width,
                 height: params.height,
             },
@@ -159,8 +179,8 @@ impl SwapchainProvider {
         // Find B8G8R8A8_UNORM format
         let mut chosen_format = None;
         for format in &surface_formats {
-            if format.format == vulkan_ffi::VkFormat::B8G8R8A8_UNORM
-                && format.colorSpace == vulkan_ffi::VkColorSpaceKHR::SRGB_NONLINEAR_KHR
+            if format.format == vk::VkFormat::B8G8R8A8_UNORM
+                && format.colorSpace == vk::VkColorSpaceKHR::SRGB_NONLINEAR_KHR
             {
                 chosen_format = Some(*format);
                 break;
@@ -171,13 +191,13 @@ impl SwapchainProvider {
             None => surface_formats[0],
         };
 
-        let mut chosen_present_mode = vulkan_ffi::VkPresentModeKHR::FIFO_KHR;
+        let mut chosen_present_mode = vk::VkPresentModeKHR::FIFO_KHR;
         if params.vertical_sync == 0 {
             for &present_mode in &surface_present_modes {
-                if present_mode == vulkan_ffi::VkPresentModeKHR::MAILBOX_KHR {
+                if present_mode == vk::VkPresentModeKHR::MAILBOX_KHR {
                     chosen_present_mode = present_mode;
                     break;
-                } else if present_mode == vulkan_ffi::VkPresentModeKHR::IMMEDIATE_KHR {
+                } else if present_mode == vk::VkPresentModeKHR::IMMEDIATE_KHR {
                     chosen_present_mode = present_mode;
                 }
             }
@@ -193,14 +213,14 @@ impl SwapchainProvider {
         };
 
         // At least COLOR_ATTACHMENT and TRANSFER_DST usage must be supported
-        let chosen_image_usage = vulkan_ffi::VkImageUsageFlags::COLOR_ATTACHMENT_BIT
-            | vulkan_ffi::VkImageUsageFlags::TRANSFER_DST_BIT;
+        let chosen_image_usage =
+            vk::VkImageUsageFlags::COLOR_ATTACHMENT_BIT | vk::VkImageUsageFlags::TRANSFER_DST_BIT;
         if (surface_capabilities.supportedUsageFlags & chosen_image_usage) != chosen_image_usage {
             error!("Required image usage flags not supported by surface");
         }
 
-        let swapchain_create_info = vulkan_ffi::VkSwapchainCreateInfoKHR {
-            sType: vulkan_ffi::VkStructureType::SWAPCHAIN_CREATE_INFO_KHR as u32,
+        let swapchain_create_info = vk::VkSwapchainCreateInfoKHR {
+            sType: vk::VkStructureType::SWAPCHAIN_CREATE_INFO_KHR as u32,
             pNext: std::ptr::null(),
             flags: 0,
             surface: surface_handle,
@@ -210,18 +230,18 @@ impl SwapchainProvider {
             imageExtent: chosen_extent,
             imageArrayLayers: 1,
             imageUsage: chosen_image_usage,
-            imageSharingMode: vulkan_ffi::VkSharingMode::EXCLUSIVE,
+            imageSharingMode: vk::VkSharingMode::EXCLUSIVE,
             queueFamilyIndexCount: 0,
             pQueueFamilyIndices: std::ptr::null(),
-            preTransform: vulkan_ffi::VkSurfaceTransformFlagsKHR::IDENTITY_BIT_KHR,
-            compositeAlpha: vulkan_ffi::VkCompositeAlphaFlagsKHR::OPAQUE_BIT_KHR,
+            preTransform: vk::VkSurfaceTransformFlagsKHR::IDENTITY_BIT_KHR,
+            compositeAlpha: vk::VkCompositeAlphaFlagsKHR::OPAQUE_BIT_KHR,
             presentMode: chosen_present_mode,
             clipped: 1,
             oldSwapchain: std::ptr::null_mut(),
         };
 
-        let mut swapchain_handle: vulkan_ffi::VkSwapchainKHR = std::ptr::null_mut();
-        vk_call!(vulkan_ffi::vkCreateSwapchainKHR(
+        let mut swapchain_handle: vk::VkSwapchainKHR = std::ptr::null_mut();
+        vk_call!(vk::vkCreateSwapchainKHR(
             device.handle(),
             &swapchain_create_info,
             std::ptr::null(),
@@ -240,21 +260,21 @@ impl SwapchainProvider {
                 .enumerate()
                 .map(|(index, img_handle)| {
                     // Create image view for each swapchain image
-                    let image_view_create_info = vulkan_ffi::VkImageViewCreateInfo {
-                        sType: vulkan_ffi::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
+                    let image_view_create_info = vk::VkImageViewCreateInfo {
+                        sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
                         pNext: std::ptr::null(),
                         flags: 0,
                         image: img_handle,
-                        viewType: vulkan_ffi::VkImageViewType::X2D,
+                        viewType: vk::VkImageViewType::X2D,
                         format: chosen_format.format,
-                        components: vulkan_ffi::VkComponentMapping {
-                            r: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                            g: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                            b: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                            a: vulkan_ffi::VkComponentSwizzle::IDENTITY,
+                        components: vk::VkComponentMapping {
+                            r: vk::VkComponentSwizzle::IDENTITY,
+                            g: vk::VkComponentSwizzle::IDENTITY,
+                            b: vk::VkComponentSwizzle::IDENTITY,
+                            a: vk::VkComponentSwizzle::IDENTITY,
                         },
-                        subresourceRange: vulkan_ffi::VkImageSubresourceRange {
-                            aspectMask: vulkan_ffi::VkImageAspectFlags::COLOR_BIT as u32,
+                        subresourceRange: vk::VkImageSubresourceRange {
+                            aspectMask: vk::VkImageAspectFlags::COLOR_BIT as u32,
                             baseMipLevel: 0,
                             levelCount: 1,
                             baseArrayLayer: 0,
@@ -262,8 +282,8 @@ impl SwapchainProvider {
                         },
                     };
 
-                    let mut image_view_handle: vulkan_ffi::VkImageView = std::ptr::null_mut();
-                    vk_call!(vulkan_ffi::vkCreateImageView(
+                    let mut image_view_handle: vk::VkImageView = std::ptr::null_mut();
+                    vk_call!(vk::vkCreateImageView(
                         device.handle(),
                         &image_view_create_info,
                         std::ptr::null(),
@@ -282,13 +302,13 @@ impl SwapchainProvider {
                 })
                 .collect();
 
-        let fence_create_info = vulkan_ffi::VkFenceCreateInfo {
-            sType: vulkan_ffi::VkStructureType::FENCE_CREATE_INFO as u32,
+        let fence_create_info = vk::VkFenceCreateInfo {
+            sType: vk::VkStructureType::FENCE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
         };
-        let mut acquire_fence: vulkan_ffi::VkFence = std::ptr::null_mut();
-        vk_call!(vulkan_ffi::vkCreateFence(
+        let mut acquire_fence: vk::VkFence = std::ptr::null_mut();
+        vk_call!(vk::vkCreateFence(
             device.handle(),
             &fence_create_info,
             std::ptr::null(),

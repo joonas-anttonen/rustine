@@ -1,6 +1,6 @@
 use crate::{
-    gfx::presentation::PresentationMethod, gfx::presentation::PresentationProvider,
-    gfx::queue::Queue, gfx::*, warning,
+    gfx::presentation::Method, gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*,
+    warning,
 };
 
 use std::sync::Arc;
@@ -87,9 +87,31 @@ impl Core {
         self.queue = None;
     }
 
+    pub fn initialize_swapchain_queue(
+        &mut self,
+        presentation_provider: impl PresentationProvider + 'static,
+    ) {
+        self.queue = Some(Queue::new(
+            &self.device,
+            Method::Swapchain,
+            presentation_provider,
+        ));
+    }
+
+    pub fn initialize_shared_image_queue(
+        &mut self,
+        presentation_provider: impl PresentationProvider + 'static,
+    ) {
+        self.queue = Some(Queue::new(
+            &self.device,
+            Method::SharedImage,
+            presentation_provider,
+        ));
+    }
+
     pub fn initialize_queue(
         &mut self,
-        presentation_method: PresentationMethod,
+        presentation_method: Method,
         presentation_provider: impl PresentationProvider + 'static,
     ) {
         self.queue = Some(Queue::new(

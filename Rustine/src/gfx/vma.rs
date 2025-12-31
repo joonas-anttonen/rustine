@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::{gfx, gfx::vma_ffi, gfx::vulkan, gfx::vulkan_ffi};
+use crate::{gfx::vma_ffi, gfx::vulkan, gfx::vulkan_ffi, gfx::*};
 use crate::{vk_call, warning};
 
 pub struct Allocator {
@@ -20,7 +20,7 @@ impl Drop for Allocator {
 }
 
 impl Allocator {
-    pub fn new(instance: &vulkan::Instance, device: Arc<vulkan::Device>) -> gfx::Result<Arc<Self>> {
+    pub fn new(instance: &vulkan::Instance, device: Arc<vulkan::Device>) -> Result<Arc<Self>> {
         let mut flags = vma_ffi::VmaAllocatorCreateFlags::NONE as u32;
         // If Windows platform, enable external memory handle types
         if cfg!(target_os = "windows") {
@@ -37,7 +37,7 @@ impl Allocator {
             pHeapSizeLimit: std::ptr::null(),
             pVulkanFunctions: std::ptr::null(),
             instance: instance.handle(),
-            vulkanApiVersion: gfx::MINIMUM_VULKAN_API_VERSION.to_vk_version(),
+            vulkanApiVersion: MINIMUM_VULKAN_API_VERSION.to_vk_version(),
             pTypeExternalMemoryHandleTypes: std::ptr::null(),
         };
 
@@ -56,13 +56,13 @@ impl Allocator {
 
     pub fn create_pixel_buffer(
         self: &Arc<Self>,
-        format: gfx::Format,
+        format: Format,
         width: u32,
         height: u32,
-        usage: gfx::ImageUsage,
-        aspect: gfx::ImageAspect,
-        samples: gfx::ImageSamples,
-    ) -> gfx::Result<gfx::PixelBuffer> {
+        usage: ImageUsage,
+        aspect: ImageAspect,
+        samples: ImageSamples,
+    ) -> Result<PixelBuffer> {
         let image_create_info = vulkan_ffi::VkImageCreateInfo {
             sType: vulkan_ffi::VkStructureType::IMAGE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
@@ -113,7 +113,7 @@ impl Allocator {
         self: &Arc<Self>,
         image_create_info: &vulkan_ffi::VkImageCreateInfo,
         image_view_create_info: &mut vulkan_ffi::VkImageViewCreateInfo,
-    ) -> gfx::Result<gfx::PixelBuffer> {
+    ) -> Result<PixelBuffer> {
         let mut image: vulkan_ffi::VkImage = std::ptr::null_mut();
         let mut image_view: vulkan_ffi::VkImageView = std::ptr::null_mut();
         let mut allocation: vma_ffi::VmaAllocation = std::ptr::null_mut();
@@ -156,13 +156,13 @@ impl Allocator {
             Err(err)
         })?;
 
-        Ok(gfx::PixelBuffer {
+        Ok(PixelBuffer::new(
             image,
             image_view,
             allocation,
             allocation_info,
-            allocator: Arc::clone(&self),
-        })
+            Arc::clone(&self),
+        ))
     }
 
     fn allocate_external_image(
@@ -170,7 +170,7 @@ impl Allocator {
         handle: *const std::ffi::c_void,
         image_create_info: &mut vulkan_ffi::VkImageCreateInfo,
         image_view_create_info: &mut vulkan_ffi::VkImageViewCreateInfo,
-    ) -> gfx::Result<gfx::PixelBuffer> {
+    ) -> Result<PixelBuffer> {
         let external_image_create_info = vulkan_ffi::VkExternalMemoryImageCreateInfo {
             sType: vulkan_ffi::VkStructureType::EXTERNAL_MEMORY_IMAGE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
@@ -232,24 +232,24 @@ impl Allocator {
             Err(err)
         })?;
 
-        Ok(gfx::PixelBuffer {
+        Ok(PixelBuffer::new(
             image,
             image_view,
             allocation,
             allocation_info,
-            allocator: Arc::clone(&self),
-        })
+            Arc::clone(&self),
+        ))
     }
 
     pub fn create_external_pixel_buffer(
         self: &Arc<Self>,
-        format: gfx::Format,
+        format: Format,
         width: u32,
         height: u32,
-        usage: gfx::ImageUsage,
-        aspect: gfx::ImageAspect,
+        usage: ImageUsage,
+        aspect: ImageAspect,
         handle: *const std::ffi::c_void,
-    ) -> gfx::Result<gfx::PixelBuffer> {
+    ) -> Result<PixelBuffer> {
         let mut image_create_info = vulkan_ffi::VkImageCreateInfo {
             sType: vulkan_ffi::VkStructureType::IMAGE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
@@ -263,7 +263,7 @@ impl Allocator {
             },
             mipLevels: 1,
             arrayLayers: 1,
-            samples: gfx::ImageSamples::X1.0,
+            samples: ImageSamples::X1.0,
             tiling: vulkan_ffi::VkImageTiling::OPTIMAL,
             usage: usage.0,
             sharingMode: vulkan_ffi::VkSharingMode::EXCLUSIVE,

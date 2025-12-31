@@ -7,10 +7,6 @@ pub use version::Version;
 use crate::gfx::Status;
 use std::{sync::Arc, sync::Mutex, sync::atomic};
 
-use crate::{
-    gfx::presentation::PresentationMethod, gfx::presentation::SharedImageProvider, gfx::*,
-};
-
 mod lib_ffi;
 
 /// Internal library state
@@ -157,7 +153,7 @@ pub extern "C" fn rustine_shutdown() -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rustine_gfx_initialize_presentation(
-    params: *const lib_ffi::PresentationParameters,
+    params: *const gfx::presentation::Parameters,
 ) -> i32 {
     let state = STATE.lock().unwrap();
     if state.is_none() {
@@ -169,21 +165,9 @@ pub extern "C" fn rustine_gfx_initialize_presentation(
     let gfx_in_state = &state.as_ref().unwrap().gfx;
     let mut gfx = gfx_in_state.lock().unwrap();
 
-    let presentation_pixel_buffer = gfx
-        .allocator()
-        .create_external_pixel_buffer(
-            Format::B8G8R8A8_UNORM,
-            in_params.width,
-            in_params.height,
-            ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
-            ImageAspect::COLOR,
-            in_params.surface_handle,
-        )
-        .unwrap();
-
-    let shared_image_provider = SharedImageProvider::new(presentation_pixel_buffer);
-
-    gfx.initialize_queue(PresentationMethod::SharedImage, shared_image_provider);
+    let shared_image_provider =
+        gfx::presentation::SharedImageProvider::new(gfx.allocator(), in_params);
+    gfx.initialize_shared_image_queue(shared_image_provider);
 
     Status::Success.to_code()
 }

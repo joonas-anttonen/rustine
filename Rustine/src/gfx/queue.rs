@@ -3,7 +3,7 @@
 use crate::{error, vk_call, warning};
 use crate::{
     gfx::CommandBuffer, gfx::CommandPool, gfx::presentation::AcquireStatus,
-    gfx::presentation::PresentationImage, gfx::presentation::PresentationMethod,
+    gfx::presentation::PresentationImage, gfx::presentation::Method,
     gfx::presentation::PresentationProvider, gfx::vulkan, gfx::vulkan_ffi,
 };
 
@@ -23,7 +23,7 @@ pub struct Queue {
     recorded_commands: VecDeque<CommandBuffer>,
     queued_commands: VecDeque<CommandBuffer>,
 
-    presentation_method: PresentationMethod,
+    presentation_method: Method,
     presentation_provider: Box<dyn PresentationProvider>,
 }
 
@@ -38,7 +38,7 @@ impl Drop for Queue {
 impl Queue {
     pub fn new(
         device: &Arc<vulkan::Device>,
-        presentation_method: PresentationMethod,
+        presentation_method: Method,
         presentation_provider: impl PresentationProvider + 'static,
     ) -> Self {
         let family_index = device.general_queue_family_index();
@@ -120,13 +120,13 @@ impl Queue {
         self.ensure_available_command();
 
         match self.presentation_method {
-            PresentationMethod::Headless => {
+            Method::Headless => {
                 warning!(
                     "Queue::enqueue_present: Headless presentation method does not support presenting"
                 );
             }
-            PresentationMethod::SharedImage => self.enqueue_present_keyed_mutex(command_recorder),
-            PresentationMethod::Swapchain => self.enqueue_present_swapchain(command_recorder),
+            Method::SharedImage => self.enqueue_present_keyed_mutex(command_recorder),
+            Method::Swapchain => self.enqueue_present_swapchain(command_recorder),
         }
     }
 
@@ -250,7 +250,7 @@ impl Queue {
             pWaitSemaphores: std::ptr::null(),
             pWaitDstStageMask: std::ptr::null(),
             commandBufferCount: 1,
-            pCommandBuffers: &commands.handle,
+            pCommandBuffers: &commands.handle(),
             signalSemaphoreCount: 0,
             pSignalSemaphores: std::ptr::null(),
         };
@@ -259,7 +259,7 @@ impl Queue {
             self.queue_handle,
             1,
             &submit_info,
-            commands.fence,
+            commands.fence(),
         ))
         .expect("vkQueueSubmit failures should be handled");
     }
@@ -276,15 +276,15 @@ impl Queue {
             pWaitSemaphores: std::ptr::null(),
             pWaitDstStageMask: std::ptr::null(),
             commandBufferCount: 1,
-            pCommandBuffers: &command_buffer.handle,
+            pCommandBuffers: &command_buffer.handle(),
             signalSemaphoreCount: 1,
-            pSignalSemaphores: &command_buffer.semaphore,
+            pSignalSemaphores: &command_buffer.semaphore(),
         };
         let result = vk_call!(vulkan_ffi::vkQueueSubmit(
             self.queue_handle,
             1,
             &submit_info,
-            command_buffer.fence,
+            command_buffer.fence(),
         ));
         match result {
             Ok(()) => SubmitStatus::Success,
@@ -301,7 +301,7 @@ impl Queue {
             sType: vulkan_ffi::VkStructureType::VK_STRUCTURE_TYPE_PRESENT_INFO_KHR as u32,
             pNext: std::ptr::null(),
             waitSemaphoreCount: 1,
-            pWaitSemaphores: &command_buffer.semaphore,
+            pWaitSemaphores: &command_buffer.semaphore(),
             swapchainCount: 1,
             pSwapchains: &image.swapchain_handle,
             pImageIndices: &image.index,
@@ -351,7 +351,7 @@ impl Queue {
             pWaitSemaphores: std::ptr::null(),
             pWaitDstStageMask: std::ptr::null(),
             commandBufferCount: 1,
-            pCommandBuffers: &command_buffer.handle,
+            pCommandBuffers: &command_buffer.handle(),
             signalSemaphoreCount: 0,
             pSignalSemaphores: std::ptr::null(),
         };
@@ -359,7 +359,7 @@ impl Queue {
             self.queue_handle,
             1,
             &submit_info,
-            command_buffer.fence,
+            command_buffer.fence(),
         ));
         self.wait_for_idle();
 

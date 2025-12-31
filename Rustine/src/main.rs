@@ -33,7 +33,13 @@ fn main() {
         let gfx = Arc::new(Mutex::new(gfx_core));
         let gfx_cancel_signal = atomic::AtomicBool::new(false);
 
-        let gui = gui::Core::new(Arc::clone(&gfx));
+        let gui_params = gui::StartupParameters {
+            platform: gfx::Platform::Windows,
+            window_title: "Rustine".to_string(),
+            window_width: Some(1920),
+            window_height: Some(1080),
+        };
+        let gui = gui::Core::new(Arc::clone(&gfx), gui_params);
 
         thread::scope(|s| {
             s.spawn(|| {
