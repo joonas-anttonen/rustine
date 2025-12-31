@@ -3,6 +3,9 @@
 mod glfw_ffi;
 use glfw_ffi as glfw;
 
+mod input;
+use input::{Action, Key, KeyEvent, Mods};
+
 use crate::gfx::{self, presentation, vulkan_ffi as vk};
 use crate::{debug, warning};
 
@@ -102,6 +105,7 @@ impl Core {
             }
 
             glfw::glfwSetFramebufferSizeCallback(glfw_window, Core::glfw_framebuffer_size_callback);
+            glfw::glfwSetKeyCallback(glfw_window, Core::glfw_key_callback);
             glfw_window
         };
 
@@ -115,8 +119,12 @@ impl Core {
                     &mut surface_handle,
                 )
             };
-            if result != 0 {
-                panic!("glfwCreateWindowSurface");
+            glfw::panic_if_error();
+            if result != vk::VkResult::SUCCESS {
+                panic!(
+                    "Failed to create Vulkan surface: {:?}",
+                    gfx::Status::from_code(result.0)
+                );
             }
 
             surface_handle
@@ -175,6 +183,30 @@ impl Core {
                 let presentation_provider =
                     presentation::SwapchainProvider::new(gfx.device(), presentation_parameters);
                 gfx.initialize_swapchain_queue(presentation_provider);
+            }
+        }
+    }
+
+    unsafe extern "C" fn glfw_key_callback(
+        window: glfw::GLFWwindow,
+        key: i32,
+        _scancode: i32,
+        action: i32,
+        mods: i32,
+    ) {
+        unsafe {
+            let gui_ptr = glfw::glfwGetWindowUserPointer(window) as *mut Core;
+            if !gui_ptr.is_null() {
+                //let gui = &mut *gui_ptr;
+                let key_event = KeyEvent {
+                    key: Key::from_code(key),
+                    action: Action::from_code(action),
+                    mods: Mods::from_code(mods),
+                };
+                debug!(
+                    "Key event: key={:?}, action={:?}, mods={:?}",
+                    key_event.key.0, key_event.action.0, key_event.mods.0
+                );
             }
         }
     }
