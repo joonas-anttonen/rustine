@@ -18,6 +18,7 @@
           git
           python3
           rustc
+          rustfmt
           cargo
           rust-analyzer
 
@@ -25,6 +26,7 @@
           glfw
           vulkan-headers
           vulkan-loader
+          vulkan-validation-layers
           mesa
           xorg.libX11
           xorg.libXrandr
@@ -35,6 +37,7 @@
           systemd
           wayland
           wayland-protocols
+          wayland-scanner
         ];
 
         shellHook = ''
