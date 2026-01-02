@@ -86,7 +86,7 @@ impl Core {
 
             // Center the window on the primary monitor
             // This won't work on Wayland
-            {
+            if parameters.platform != gfx::Platform::Wayland {
                 let primary_monitor = glfw::glfwGetPrimaryMonitor();
                 let mut monitor_x: i32 = 0;
                 let mut monitor_y: i32 = 0;

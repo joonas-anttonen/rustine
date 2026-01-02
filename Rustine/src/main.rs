@@ -12,9 +12,18 @@ fn main() {
     info!("STARTUP");
 
     {
+        let host_platform = if cfg!(target_os = "windows") {
+            gfx::Platform::Windows
+        } else if cfg!(target_os = "linux") {
+            // For Linux, we default to Wayland; adjust as necessary.
+            gfx::Platform::Wayland
+        } else {
+            panic!("Unsupported platform");
+        };
+
         let params = gfx::StartupParameters {
             enable_debugging: true,
-            host_platform: gfx::Platform::Windows,
+            host_platform: host_platform,
             host_version: Version::new(0, 1, 0),
             host_name: "rustine-app".to_string(),
         };
@@ -34,7 +43,7 @@ fn main() {
         let gfx_cancel_signal = atomic::AtomicBool::new(false);
 
         let gui_params = gui::StartupParameters {
-            platform: gfx::Platform::Windows,
+            platform: host_platform,
             window_title: "Rustine".to_string(),
             window_width: Some(1920),
             window_height: Some(1080),
