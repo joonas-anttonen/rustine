@@ -1,3 +1,13 @@
 {
-    "cmake.ignoreCMakeListsMissing": true
+    "cmake.ignoreCMakeListsMissing": true,
+    "terminal.integrated.defaultProfile.linux": "nix-develop",
+    "terminal.integrated.profiles.linux": {
+        "nix-develop": {
+            "path": "bash",
+            "args": [
+                "-c",
+                "nix develop"
+            ]
+        }
+    }
 }

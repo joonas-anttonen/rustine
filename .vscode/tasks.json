@@ -3,76 +3,63 @@
 	"tasks": [
 		{
 			"label": "Clean",
-			"detail": "Clean the project",
-			"type": "process",
-			"command": "cargo",
+			"detail": "Clean the project (via nix develop)",
+			"type": "shell",
+			"command": "nix develop -c cargo clean",
 			"options": {
-				"cwd": "Rustine"
+				"cwd": "${workspaceFolder}/Rustine"
 			},
-			"args": [
-				"clean"
-			],
 			"problemMatcher": [
 				"$rustc"
-			],
+			]
 		},
 		{
 			"label": "Build",
-			"detail": "Build the project",
-			"type": "process",
-			"command": "cargo",
+			"detail": "Build the project (via nix develop)",
+			"type": "shell",
+			"command": "nix develop -c cargo build",
 			"options": {
-				"cwd": "Rustine"
+				"cwd": "${workspaceFolder}/Rustine"
 			},
-			"args": [
-				"build"
-			],
 			"problemMatcher": [
 				"$rustc"
-			],
+			]
 		},
 		{
 			"label": "Rebuild",
-			"detail": "Clean and build the project",
+			"detail": "Clean and build the project (via nix develop)",
 			"type": "shell",
-			"command": "cargo clean; cargo build",
+			"command": "nix develop -c bash -c \"cargo clean && cargo build\"",
 			"options": {
-				"cwd": "Rustine"
+				"cwd": "${workspaceFolder}/Rustine"
 			},
 			"problemMatcher": [
 				"$rustc"
-			],
+			]
 		},
 		{
 			"label": "Run",
-			"detail": "Run the application in debug mode",
-			"type": "process",
-			"command": "cargo",
+			"detail": "Run the application in debug mode (via nix develop)",
+			"type": "shell",
+			"command": "nix develop -c cargo run",
 			"options": {
-				"cwd": "Rustine"
+				"cwd": "${workspaceFolder}/Rustine"
 			},
-			"args": [
-				"run"
-			],
 			"problemMatcher": [
 				"$rustc"
-			],
+			]
 		},
 		{
 			"label": "Run (Release)",
-			"detail": "Run the application in release mode",
-			"type": "process",
-			"command": "cargo",
+			"detail": "Run the application in release mode (via nix develop)",
+			"type": "shell",
+			"command": "nix develop -c cargo run --release",
 			"options": {
-				"cwd": "Rustine"
+				"cwd": "${workspaceFolder}/Rustine"
 			},
-			"args": [
-				"run",
-				"--release"
-			],
 			"problemMatcher": [
 				"$rustc"
-			],
+			]
 		},
 		{
 			"label": "Run Wpf",

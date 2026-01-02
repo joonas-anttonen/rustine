@@ -7,7 +7,8 @@
 
 use core::ffi;
 
-#[link(name = "vulkan-1", kind = "dylib")]
+#[cfg_attr(target_os = "windows", link(name = "vulkan-1", kind = "dylib"))]
+#[cfg_attr(not(target_os = "windows"), link(name = "vulkan", kind = "dylib"))]
 unsafe extern "C" {
 
     // ========== Instance ==========
