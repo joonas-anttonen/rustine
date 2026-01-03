@@ -8,7 +8,22 @@ static wl_display* g_display = nullptr;
 static wl_registry* g_registry = nullptr;
 static wl_compositor* g_compositor = nullptr;
 static zwlr_layer_shell_v1* g_layer_shell = nullptr;
-static bool g_should_close = false;
+static rwl_log_callback g_log_callback = nullptr;
+
+// Log severity levels matching the Rust log module
+enum rwl_log_severity {
+    RWL_LOG_DEBUG = 0,
+    RWL_LOG_INFO = 1,
+    RWL_LOG_WARNING = 2,
+    RWL_LOG_ERROR = 3,
+};
+
+// Internal logging helper
+static void rwl_log(rwl_log_severity severity, const char* message) {
+    if (g_log_callback) {
+        g_log_callback(static_cast<uint32_t>(severity), message);
+    }
+}
 
 // Internal window structure
 struct rwl_window_internal {
@@ -20,6 +35,8 @@ struct rwl_window_internal {
     rwl_framebuffer_size_callback size_callback;
     rwl_frame_callback frame_callback;
     wl_callback* frame_cb;
+    void* user_pointer;
+    bool should_close;
 };
 
 #ifdef __cplusplus
@@ -36,18 +53,19 @@ static const struct wl_callback_listener frame_listener = {
 // Frame callback listener
 static void frame_done(void* data, struct wl_callback* callback, uint32_t time) {
     rwl_window_internal* window = static_cast<rwl_window_internal*>(data);
-    
+    rwl_log(RWL_LOG_DEBUG, "frame_done callback");
+
     // Destroy old callback
     if (callback) {
         wl_callback_destroy(callback);
     }
     window->frame_cb = nullptr;
-    
+
     // Fire user callback
     if (window->frame_callback) {
         window->frame_callback(reinterpret_cast<rwl_window*>(window));
     }
-    
+
     // Auto-renew frame callback if user callback is still set
     if (window->frame_callback && window->surface) {
         window->frame_cb = wl_surface_frame(window->surface);
@@ -59,18 +77,28 @@ static void frame_done(void* data, struct wl_callback* callback, uint32_t time) 
 static void layer_surface_handle_configure(void* data, struct zwlr_layer_surface_v1* surface,
                                            uint32_t serial, uint32_t width, uint32_t height) {
     rwl_window_internal* window = static_cast<rwl_window_internal*>(data);
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer),
+             "layer_surface_handle_configure: width=%u height=%u serial=%u", width, height, serial);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
     window->width = width;
     window->height = height;
     zwlr_layer_surface_v1_ack_configure(surface, serial);
-    
+
     if (window->size_callback) {
+        rwl_log(RWL_LOG_DEBUG, "layer_surface_handle_configure: Invoking user callback");
         window->size_callback(reinterpret_cast<rwl_window*>(window), width, height);
+    } else {
+        rwl_log(RWL_LOG_DEBUG, "layer_surface_handle_configure: No callback set");
     }
 }
 
 static void layer_surface_handle_closed(void* data, struct zwlr_layer_surface_v1* surface) {
-    // Compositor closed the layer surface; set global close flag
-    g_should_close = true;
+    // Compositor closed the layer surface; set window-specific close flag
+    rwl_window_internal* window = static_cast<rwl_window_internal*>(data);
+    rwl_log(RWL_LOG_INFO, "layer_surface_handle_closed: window closed by compositor");
+    window->should_close = true;
 }
 
 static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
@@ -79,20 +107,28 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
 };
 
 // Registry listener callback
-static void registry_handle_global(void* data, struct wl_registry* registry,
-                                  uint32_t name, const char* interface, uint32_t version) {
+static void registry_handle_global(void* data, struct wl_registry* registry, uint32_t name,
+                                   const char* interface, uint32_t version) {
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "registry_handle_global: %s (name=%u version=%u)", interface,
+             name, version);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
     if (strcmp(interface, wl_compositor_interface.name) == 0) {
         g_compositor = static_cast<wl_compositor*>(
             wl_registry_bind(registry, name, &wl_compositor_interface, std::min(version, 4u)));
+        rwl_log(RWL_LOG_DEBUG, "Bound wl_compositor");
     } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
-        g_layer_shell = static_cast<zwlr_layer_shell_v1*>(
-            wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, std::min(version, 4u)));
+        g_layer_shell = static_cast<zwlr_layer_shell_v1*>(wl_registry_bind(
+            registry, name, &zwlr_layer_shell_v1_interface, std::min(version, 4u)));
+        rwl_log(RWL_LOG_DEBUG, "Bound zwlr_layer_shell_v1");
     }
 }
 
 static void registry_handle_global_remove(void* data, struct wl_registry* registry, uint32_t name) {
-    // Global removed; if it's our compositor or layer shell, we'd need to handle it.
-    // For now, just log or ignore.
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "registry_handle_global_remove: name=%u", name);
+    rwl_log(RWL_LOG_WARNING, buffer);
 }
 
 static const struct wl_registry_listener registry_listener = {
@@ -100,42 +136,62 @@ static const struct wl_registry_listener registry_listener = {
     registry_handle_global_remove,
 };
 
-rwl_status rwlInit() {
+void rwlSetLogCallback(rwl_log_callback callback) {
+    g_log_callback = callback;
+}
+
+rwl_status rwlStartup() {
+    rwl_log(RWL_LOG_INFO, "rwlStartup");
+
     if (g_display) {
+        rwl_log(RWL_LOG_WARNING, "Already initialized");
         return RWL_STATUS_ALREADY_INITIALIZED;
     }
 
+    rwl_log(RWL_LOG_DEBUG, "Connecting to Wayland display");
     g_display = wl_display_connect(nullptr);
     if (!g_display) {
+        rwl_log(RWL_LOG_ERROR, "Failed to connect to Wayland display");
         return RWL_STATUS_NO_DISPLAY;
     }
+    rwl_log(RWL_LOG_DEBUG, "Connected to Wayland display");
 
+    rwl_log(RWL_LOG_DEBUG, "Getting registry");
     g_registry = wl_display_get_registry(g_display);
     if (!g_registry) {
+        rwl_log(RWL_LOG_ERROR, "Failed to get registry");
         wl_display_disconnect(g_display);
         g_display = nullptr;
         return RWL_STATUS_NO_REGISTRY;
     }
 
     // Attach listener and sync to receive all globals
+    rwl_log(RWL_LOG_DEBUG, "Registering globals");
     wl_registry_add_listener(g_registry, &registry_listener, nullptr);
     wl_display_roundtrip(g_display);
-    
+
     // Check if we got the required globals
     if (!g_compositor) {
+        rwl_log(RWL_LOG_ERROR, "Compositor not available");
         wl_registry_destroy(g_registry);
         wl_display_disconnect(g_display);
         g_display = nullptr;
         g_registry = nullptr;
         return RWL_STATUS_NO_COMPOSITOR;
     }
+    rwl_log(RWL_LOG_DEBUG, "Found compositor");
 
     if (!g_layer_shell) {
-        // Layer shell is optional for now; we can continue without it for basic surfaces
-        // but the user will be limited
+        rwl_log(RWL_LOG_ERROR, "Layer shell not available");
+        wl_registry_destroy(g_registry);
+        wl_display_disconnect(g_display);
+        g_display = nullptr;
+        g_registry = nullptr;
+        return RWL_STATUS_NO_LAYER_SHELL;
     }
-    
-    g_should_close = false;
+    rwl_log(RWL_LOG_DEBUG, "Found layer shell");
+
+    rwl_log(RWL_LOG_INFO, "rwlStartup completed successfully");
     return RWL_STATUS_OK;
 }
 
@@ -166,7 +222,8 @@ rwl_status rwlShutdown() {
     return RWL_STATUS_OK;
 }
 
-rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t width, uint32_t height, rwl_window** window_out) {
+rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t width, uint32_t height,
+                           rwl_window** window_out) {
     if (!window_out) {
         return RWL_STATUS_INVALID_ARGUMENT;
     }
@@ -264,13 +321,34 @@ rwl_status rwlDestroyWindow(rwl_window* window) {
     return RWL_STATUS_OK;
 }
 
-rwl_status rwlSetFramebufferSizeCallback(rwl_window* window, rwl_framebuffer_size_callback callback) {
+rwl_status rwlSetWindowUserPointer(rwl_window* window, void* pointer) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->user_pointer = pointer;
+    return RWL_STATUS_OK;
+}
+
+void* rwlGetWindowUserPointer(rwl_window* window) {
+    if (!window) {
+        return nullptr;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    return win->user_pointer;
+}
+
+rwl_status rwlSetFramebufferSizeCallback(rwl_window* window,
+                                         rwl_framebuffer_size_callback callback) {
     if (!window) {
         return RWL_STATUS_INVALID_ARGUMENT;
     }
 
     rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
     win->size_callback = callback;
+
     return RWL_STATUS_OK;
 }
 
@@ -280,21 +358,21 @@ rwl_status rwlSetFrameCallback(rwl_window* window, rwl_frame_callback callback) 
     }
 
     rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
-    
+
     // If clearing callback, destroy pending frame callback
     if (!callback && win->frame_cb) {
         wl_callback_destroy(win->frame_cb);
         win->frame_cb = nullptr;
     }
-    
+
     win->frame_callback = callback;
-    
+
     // If setting for the first time, request initial frame
     if (callback && !win->frame_cb && win->surface) {
         win->frame_cb = wl_surface_frame(win->surface);
         wl_callback_add_listener(win->frame_cb, &frame_listener, win);
     }
-    
+
     return RWL_STATUS_OK;
 }
 
@@ -334,6 +412,18 @@ rwl_status rwlCreateSurface(VkInstance instance, rwl_window* window, VkSurfaceKH
     return RWL_STATUS_OK;
 }
 
+rwl_status rwlGetFramebufferSize(rwl_window* window, uint32_t* width, uint32_t* height) {
+    if (!window || !width || !height) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    *width = win->width;
+    *height = win->height;
+
+    return RWL_STATUS_OK;
+}
+
 rwl_status rwlProcessEvents() {
     if (!g_display) {
         return RWL_STATUS_NOT_INITIALIZED;
@@ -352,12 +442,21 @@ rwl_status rwlProcessEvents() {
     return RWL_STATUS_OK;
 }
 
-bool rwlShouldClose() {
-    return g_should_close;
+bool rwlWindowShouldClose(rwl_window* window) {
+    if (!window) {
+        return false;
+    }
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    return win->should_close;
 }
 
-void rwlRequestClose() {
-    g_should_close = true;
+rwl_status rwlWindowRequestClose(rwl_window* window) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->should_close = true;
+    return RWL_STATUS_OK;
 }
 
 #ifdef __cplusplus

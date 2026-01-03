@@ -3,9 +3,9 @@
 	"tasks": [
 		{
 			"label": "Clean",
-			"detail": "Clean the project (via nix develop)",
+			"detail": "Clean the project",
 			"type": "shell",
-			"command": "nix develop -c cargo clean",
+			"command": "cargo clean",
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},
@@ -15,9 +15,9 @@
 		},
 		{
 			"label": "Build",
-			"detail": "Build the project (via nix develop)",
-			"type": "shell",
-			"command": "nix develop -c cargo build",
+			"detail": "Build the project",
+			"type": "cargo",
+			"command": "build",
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},
@@ -27,9 +27,9 @@
 		},
 		{
 			"label": "Rebuild",
-			"detail": "Clean and build the project (via nix develop)",
+			"detail": "Clean and build the project",
 			"type": "shell",
-			"command": "nix develop -c bash -c \"cargo clean && cargo build\"",
+			"command": "bash -c \"cargo clean && cargo build\"",
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},
@@ -39,9 +39,9 @@
 		},
 		{
 			"label": "Run",
-			"detail": "Run the application in debug mode (via nix develop)",
+			"detail": "Run the application in debug mode",
 			"type": "shell",
-			"command": "nix develop -c cargo run",
+			"command": "cargo run",
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},
@@ -51,9 +51,9 @@
 		},
 		{
 			"label": "Run (Release)",
-			"detail": "Run the application in release mode (via nix develop)",
+			"detail": "Run the application in release mode",
 			"type": "shell",
-			"command": "nix develop -c cargo run --release",
+			"command": "cargo run --release",
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},

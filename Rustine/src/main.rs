@@ -48,7 +48,7 @@ fn main() {
             window_width: Some(1920),
             window_height: Some(1080),
         };
-        let gui = gui::Core::new(Arc::clone(&gfx), gui_params);
+        let gui = gui::Gui::new(Arc::clone(&gfx), gui_params);
 
         thread::scope(|s| {
             s.spawn(|| {
@@ -64,7 +64,7 @@ fn main() {
     info!("SHUTDOWN");
 }
 
-fn gui_thread_function(gui: &gui::Core) {
+fn gui_thread_function(gui: &gui::Gui) {
     while !gui.should_close() {
         gui.process_events();
     }

@@ -3,6 +3,9 @@
 mod glfw_ffi;
 use glfw_ffi as glfw;
 
+mod rwl_ffi;
+use rwl_ffi as rwl;
+
 mod input;
 use input::{Action, Key, KeyEvent, Mods};
 
@@ -141,7 +144,7 @@ impl Core {
             let core_arc_cloned = Arc::clone(&core);
             let core_raw_ptr = Arc::into_raw(core_arc_cloned);
 
-            glfw::glfwSetWindowUserPointer(core.glfw_window, core_raw_ptr as *mut std::ffi::c_void);
+            glfw::glfwSetWindowUserPointer(core.glfw_window, core_raw_ptr as *mut _);
         }
 
         unsafe {
@@ -219,5 +222,166 @@ impl Core {
         unsafe {
             glfw::glfwWaitEventsTimeout(0.01);
         }
+    }
+}
+
+pub struct Gui {
+    gfx: Arc<Mutex<gfx::Core>>,
+    gfx_surface: vk::VkSurfaceKHR,
+    rwl_window: rwl::RwlWindow,
+}
+
+impl Drop for Gui {
+    fn drop(&mut self) {
+        warning!("Gui::drop");
+
+        let mut gfx = self.gfx.lock().unwrap();
+        gfx.drop_queue();
+
+        unsafe {
+            if !self.gfx_surface.is_null() {
+                vk::vkDestroySurfaceKHR(
+                    gfx.vulkan_instance_handle(),
+                    self.gfx_surface,
+                    std::ptr::null(),
+                );
+            }
+ 
+            rwl::panic_if_error(rwl::rwlDestroyWindow(self.rwl_window));
+            rwl::panic_if_error(rwl::rwlShutdown());
+        }
+    }
+}
+
+impl Gui {
+    pub fn new(gfx: Arc<Mutex<gfx::Core>>, parameters: StartupParameters) -> Arc<Self> {
+        let rwl_window = unsafe {
+            match parameters.platform {
+                gfx::Platform::Wayland => {
+                    glfw::glfwInitHint(glfw::PLATFORM, glfw::PLATFORM_WAYLAND);
+                }
+                _ => {
+                    panic!("Unsupported platform");
+                }
+            }
+
+            rwl::rwlSetLogCallback(Self::rwl_log_callback);
+            rwl::panic_if_error(rwl::rwlStartup());
+
+            let mut rwl_window = std::ptr::null_mut();
+            rwl::panic_if_error(rwl::rwlCreateWindow(
+                rwl::RwlWindowType::Taskbar,
+                std::ptr::null(),
+                100,
+                32,
+                &mut rwl_window,
+            ));
+
+            rwl::panic_if_error(rwl::rwlSetFramebufferSizeCallback(
+                rwl_window,
+                Self::rwl_framebuffer_size_callback,
+            ));
+
+            rwl_window
+        };
+
+        let gfx_surface = unsafe {
+            let mut surface_handle: vk::VkSurfaceKHR = std::ptr::null_mut();
+            rwl::panic_if_error(rwl::rwlCreateSurface(
+                gfx.lock().unwrap().vulkan_instance_handle(),
+                rwl_window,
+                &mut surface_handle,
+            ));
+
+            surface_handle
+        };
+
+        let gui = Arc::new(Self {
+            gfx,
+            gfx_surface: gfx_surface,
+            rwl_window,
+        });
+
+        unsafe {
+            let gui_arc_cloned = Arc::clone(&gui);
+            let gui_raw_ptr = Arc::into_raw(gui_arc_cloned);
+
+            rwl::rwlSetWindowUserPointer(gui.rwl_window, gui_raw_ptr as *mut _);
+        }
+
+        // Manually invoke the framebuffer size callback to initialize the swapchain
+        unsafe {
+            let mut width: u32 = 0;
+            let mut height: u32 = 0;
+            rwl::panic_if_error(rwl::rwlGetFramebufferSize(gui.rwl_window, &mut width, &mut height));
+            Self::rwl_framebuffer_size_callback(gui.rwl_window, width, height);
+        }
+
+        gui
+    }
+
+    pub fn should_close(&self) -> bool {
+        unsafe { rwl::rwlWindowShouldClose(self.rwl_window) }
+    }
+
+    pub fn process_events(&self) {
+        unsafe {
+            rwl::panic_if_error(rwl::rwlProcessEvents());
+        }
+    }
+
+    unsafe extern "C" fn rwl_framebuffer_size_callback(
+        window: rwl::RwlWindow,
+        width: u32,
+        height: u32,
+    ) {
+        unsafe {
+            let gui_ptr = rwl::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                debug!("Framebuffer size changed: {}x{}", width, height);
+
+                let gui = &mut *gui_ptr;
+                let mut gfx = gui.gfx.lock().unwrap();
+
+                gfx.drop_queue();
+
+                // When minimized, width and height can be zero
+                // but we can't create a swapchain with zero dimensions
+                if width == 0 || height == 0 {
+                    return;
+                }
+
+                let presentation_parameters = presentation::Parameters {
+                    width: width as u32,
+                    height: height as u32,
+                    surface_handle: gui.gfx_surface as *const _,
+                    vertical_sync: 0,
+                };
+                let presentation_provider =
+                    presentation::SwapchainProvider::new(gfx.device(), presentation_parameters);
+                gfx.initialize_swapchain_queue(presentation_provider);
+            }
+        }
+    }
+
+    unsafe extern "C" fn rwl_log_callback(severity: u32, message: *const std::ffi::c_char) {
+        use crate::log::Severity;
+        
+        let message_str = unsafe {
+            if message.is_null() {
+                return;
+            }
+            std::ffi::CStr::from_ptr(message).to_string_lossy()
+        };
+
+        let sev = match severity {
+            0 => Severity::Debug,
+            1 => Severity::Info,
+            2 => Severity::Warning,
+            3 => Severity::Error,
+            _ => Severity::Info,
+        };
+
+        crate::log::Log::global().append(sev, &message_str, "rustine_wl");
     }
 }

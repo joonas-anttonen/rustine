@@ -3,6 +3,7 @@
 #include <cstdint>
 #define VK_USE_PLATFORM_WAYLAND_KHR
 #include <vulkan/vulkan.h>
+
 #include <wayland-client.h>
 
 // wayland-scanner may emit a parameter named `namespace`, which is a C++ keyword.
@@ -28,6 +29,10 @@ typedef void (*rwl_framebuffer_size_callback)(rwl_window* window, uint32_t width
 // Callback for frame timing (compositor is ready for next frame)
 typedef void (*rwl_frame_callback)(rwl_window* window);
 
+// Callback for logging messages from the library
+// severity: 0=Debug, 1=Info, 2=Warning, 3=Error
+typedef void (*rwl_log_callback)(uint32_t severity, const char* message);
+
 typedef enum rwl_status {
     RWL_STATUS_OK = 0,
     RWL_STATUS_ALREADY_INITIALIZED = 1,
@@ -40,24 +45,30 @@ typedef enum rwl_status {
     RWL_STATUS_INTERNAL_ERROR = 8,
 } rwl_status;
 
-rwl_status rwlInit();
+rwl_status rwlStartup();
+void rwlSetLogCallback(rwl_log_callback callback);
 rwl_status rwlShutdown();
 
 // Window management
-rwl_status rwlCreateWindow(rwl_window_type type, wl_output *output, uint32_t width, uint32_t height, rwl_window **window_out);
-rwl_status rwlDestroyWindow(rwl_window *window);
-rwl_status rwlSetFramebufferSizeCallback(rwl_window *window, rwl_framebuffer_size_callback callback);
-rwl_status rwlSetFrameCallback(rwl_window *window, rwl_frame_callback callback);
+rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t width, uint32_t height,
+                           rwl_window** window_out);
+rwl_status rwlDestroyWindow(rwl_window* window);
+rwl_status rwlSetWindowUserPointer(rwl_window* window, void* pointer);
+void* rwlGetWindowUserPointer(rwl_window* window);
+rwl_status rwlSetFramebufferSizeCallback(rwl_window* window,
+                                         rwl_framebuffer_size_callback callback);
+rwl_status rwlSetFrameCallback(rwl_window* window, rwl_frame_callback callback);
+rwl_status rwlGetFramebufferSize(rwl_window* window, uint32_t* width, uint32_t* height);
 
 // Create a Vulkan surface for the given window.
 // VkInstance must be valid with VK_KHR_wayland_surface extension.
 // The created VkSurfaceKHR is returned via surface_out.
-rwl_status rwlCreateSurface(VkInstance instance, rwl_window *window, VkSurfaceKHR *surface_out);
+rwl_status rwlCreateSurface(VkInstance instance, rwl_window* window, VkSurfaceKHR* surface_out);
 
 // Event loop control
 rwl_status rwlProcessEvents();
-bool rwlShouldClose();
-void rwlRequestClose();
+bool rwlWindowShouldClose(rwl_window* window);
+rwl_status rwlWindowRequestClose(rwl_window* window);
 
 #ifdef __cplusplus
 }
