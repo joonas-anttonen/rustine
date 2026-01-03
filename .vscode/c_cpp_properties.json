@@ -11,7 +11,7 @@
                 "_DEBUG",
                 "UNICODE",
                 "_UNICODE",
-                "JANGINE_BUILD",
+                "_GLFW_WAYLAND",
                 "JANGINE_INTELLISENSE_IGNORE_GENERATED_FILES"
             ],
             "windowsSdkVersion": "10.0.26100.0",
@@ -19,6 +19,24 @@
             "cStandard": "c17",
             "cppStandard": "c++20",
             "intelliSenseMode": "windows-msvc-x64",
+            "configurationProvider": "mesonbuild.mesonbuild"
+        },
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/Rustine/ext/vma/include",
+                "${env:VULKAN_SDK}/include"
+            ],
+            "defines": [
+                "_DEBUG",
+                "_GLFW_WAYLAND",
+                "JANGINE_INTELLISENSE_IGNORE_GENERATED_FILES"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "c++20",
+            "intelliSenseMode": "linux-gcc-x64",
             "configurationProvider": "mesonbuild.mesonbuild"
         }
     ],

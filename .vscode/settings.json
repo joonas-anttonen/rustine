@@ -9,5 +9,8 @@
                 "nix develop"
             ]
         }
+    },
+    "files.associations": {
+        "wayland-client-protocol.h": "c"
     }
 }

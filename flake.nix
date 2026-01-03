@@ -1,5 +1,5 @@
 {
-  description = "Rustine dev shell";
+  description = "dev-shell: Rustine";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -10,34 +10,27 @@
     devShells = forAllSystems (pkgs: {
       default = pkgs.mkShell {
         packages = with pkgs; [
+
           pkg-config
           cmake
+          meson
           ninja
-          clang
-          lld
-          git
-          python3
           rustc
           rustfmt
           cargo
           rust-analyzer
 
-          # Graphics / windowing
-          glfw
           vulkan-headers
           vulkan-loader
           vulkan-validation-layers
-          mesa
-          xorg.libX11
-          xorg.libXrandr
-          xorg.libXcursor
-          xorg.libXi
-          xorg.libXinerama
-          libxkbcommon
+
           systemd
+          libffi
           wayland
           wayland-protocols
           wayland-scanner
+          libxkbcommon
+      
         ];
 
         shellHook = ''
