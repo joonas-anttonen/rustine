@@ -35,10 +35,11 @@ pub struct PresentationImage {
     pub format: vk::VkFormat,
     pub index: u32,
     pub swapchain_handle: vk::VkSwapchainKHR,
+    pub acquire_semaphore: vk::VkSemaphore,
 }
 
 pub trait PresentationProvider {
-    fn acquire(&self) -> AcquireStatus;
+    fn acquire(&mut self) -> AcquireStatus;
 }
 
 pub struct SharedImageProvider {
@@ -61,7 +62,7 @@ impl SharedImageProvider {
 }
 
 impl PresentationProvider for SharedImageProvider {
-    fn acquire(&self) -> AcquireStatus {
+    fn acquire(&mut self) -> AcquireStatus {
         let presentation_image = PresentationImage {
             memory: self.output_frame.device_memory(),
             image: self.output_frame.image(),
@@ -69,6 +70,7 @@ impl PresentationProvider for SharedImageProvider {
             format: vk::VkFormat::B8G8R8A8_UNORM,
             index: 0,
             swapchain_handle: std::ptr::null_mut(),
+            acquire_semaphore: std::ptr::null_mut(),
         };
         AcquireStatus::Success(presentation_image)
     }
@@ -77,7 +79,9 @@ impl PresentationProvider for SharedImageProvider {
 pub struct SwapchainProvider {
     swapchain_handle: vk::VkSwapchainKHR,
     swapchain_images: Vec<PresentationImage>,
+    current_acquire_index: u32,
     acquire_fence: vk::VkFence,
+    acquire_semaphores: Vec<vk::VkSemaphore>,
     device: Arc<vulkan::Device>,
 }
 
@@ -85,6 +89,9 @@ impl Drop for SwapchainProvider {
     fn drop(&mut self) {
         unsafe {
             vk::vkDestroyFence(self.device.handle(), self.acquire_fence, std::ptr::null());
+            for semaphore in &self.acquire_semaphores {
+                vk::vkDestroySemaphore(self.device.handle(), *semaphore, std::ptr::null());
+            }
 
             for presentation_image in &self.swapchain_images {
                 if !presentation_image.image_view.is_null() {
@@ -107,21 +114,28 @@ impl Drop for SwapchainProvider {
 }
 
 impl PresentationProvider for SwapchainProvider {
-    fn acquire(&self) -> AcquireStatus {
+    fn acquire(&mut self) -> AcquireStatus {
+        let previous_acquire_index = if self.current_acquire_index == 0 {
+            (self.acquire_semaphores.len() - 1) as u32
+        } else {
+            self.current_acquire_index - 1
+        };
+        let acquire_semaphore = self.acquire_semaphores[previous_acquire_index as usize];
+
         let mut image_index: u32 = 0;
         let result = unsafe {
             vk::vkAcquireNextImageKHR(
                 self.device.handle(),
                 self.swapchain_handle,
                 std::u64::MAX,
+                acquire_semaphore,
                 std::ptr::null_mut(),
-                self.acquire_fence,
                 &mut image_index,
             )
         };
 
         // Reset the acquire fence
-        unsafe {
+        /*unsafe {
             vk::vkWaitForFences(
                 self.device.handle(),
                 1,
@@ -130,11 +144,17 @@ impl PresentationProvider for SwapchainProvider {
                 std::u64::MAX,
             );
             vk::vkResetFences(self.device.handle(), 1, &self.acquire_fence);
-        }
+        }*/
 
         match result {
             vk::VkResult::SUCCESS | vk::VkResult::SUBOPTIMAL_KHR => {
-                let presentation_image = self.swapchain_images[image_index as usize];
+                let mut presentation_image = self.swapchain_images[image_index as usize];
+                self.current_acquire_index += 1;
+                if self.current_acquire_index >= self.acquire_semaphores.len() as u32 {
+                    self.current_acquire_index = 0;
+                }
+                presentation_image.acquire_semaphore = acquire_semaphore;
+
                 AcquireStatus::Success(presentation_image)
             }
             vk::VkResult::TIMEOUT => AcquireStatus::Timeout,
@@ -253,6 +273,7 @@ impl SwapchainProvider {
         })
         .unwrap();
 
+        let mut acquire_semaphores = Vec::new();
         let swapchain_images: Vec<PresentationImage> =
             vulkan::enumerate_swapchain_images(device.handle(), swapchain_handle)
                 .unwrap()
@@ -291,6 +312,22 @@ impl SwapchainProvider {
                     ))
                     .unwrap();
 
+                    let mut acquire_semaphore: vk::VkSemaphore = std::ptr::null_mut();
+                    let semaphore_create_info = vk::VkSemaphoreCreateInfo {
+                        sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO as u32,
+                        pNext: std::ptr::null(),
+                        flags: 0,
+                    };
+                    vk_call!(vk::vkCreateSemaphore(
+                        device.handle(),
+                        &semaphore_create_info,
+                        std::ptr::null(),
+                        &mut acquire_semaphore
+                    ))
+                    .unwrap();
+
+                    acquire_semaphores.push(acquire_semaphore);
+
                     PresentationImage {
                         memory: std::ptr::null_mut(),
                         image: img_handle,
@@ -298,6 +335,7 @@ impl SwapchainProvider {
                         format: chosen_format.format,
                         index: index as u32,
                         swapchain_handle,
+                        acquire_semaphore: std::ptr::null_mut(),
                     }
                 })
                 .collect();
@@ -327,7 +365,9 @@ impl SwapchainProvider {
         SwapchainProvider {
             swapchain_handle,
             swapchain_images,
+            current_acquire_index: 0,
             acquire_fence,
+            acquire_semaphores,
             device: Arc::clone(&device),
         }
     }

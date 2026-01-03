@@ -278,8 +278,8 @@ impl Queue {
             pWaitDstStageMask: wait_dst_stage_mask,
             commandBufferCount: 1,
             pCommandBuffers: &command_buffer.handle(),
-            signalSemaphoreCount: 1,
-            pSignalSemaphores: &command_buffer.semaphore(),
+            signalSemaphoreCount: 0,
+            pSignalSemaphores: std::ptr::null(),
         };
 
         let result = unsafe {
@@ -307,7 +307,7 @@ impl Queue {
             sType: vk::VkStructureType::PRESENT_INFO_KHR as u32,
             pNext: std::ptr::null(),
             waitSemaphoreCount: 1,
-            pWaitSemaphores: &command_buffer.semaphore(),
+            pWaitSemaphores: &image.acquire_semaphore,
             swapchainCount: 1,
             pSwapchains: &image.swapchain_handle,
             pImageIndices: &image.index,
