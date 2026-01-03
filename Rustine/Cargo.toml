@@ -18,3 +18,4 @@ nalgebra = "0.34"
 
 [build-dependencies]
 cmake = "0.1.54"
+meson = "1.0.0"

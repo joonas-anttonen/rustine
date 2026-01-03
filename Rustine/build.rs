@@ -28,6 +28,10 @@ fn main() {
 
     build_glfw(&project_dir, &out_dir, &target_os);
     build_vma_interop(&project_dir, &out_dir, &target_os);
+    
+    if target_os == "linux" {
+        build_rustine_wl(&project_dir, &out_dir);
+    }
 
     // If on Windows, link the appropriate CRT libraries
     if target_os == "windows" {
@@ -131,4 +135,49 @@ fn prefer_lib64(destination_dir: &Path) -> PathBuf {
     } else {
         destination_dir.join("lib")
     }
+}
+
+fn build_rustine_wl(project_dir: &Path, out_dir: &Path) {
+    let source_dir = project_dir.join("ext").join("rustine-wl");
+    let build_dir = out_dir.join("rustine-wl");
+
+    // Setup meson build
+    let setup_status = Command::new("meson")
+        .arg("setup")
+        .arg(&build_dir)
+        .arg("--wipe")
+        .current_dir(&source_dir)
+        .status()
+        .expect("Failed to run meson setup for rustine-wl");
+
+    if !setup_status.success() {
+        panic!("meson setup failed for rustine-wl");
+    }
+
+    // Compile with meson
+    let compile_status = Command::new("meson")
+        .arg("compile")
+        .arg("-C")
+        .arg(&build_dir)
+        .status()
+        .expect("Failed to run meson compile for rustine-wl");
+
+    if !compile_status.success() {
+        panic!("meson compile failed for rustine-wl");
+    }
+
+    // Link the static library
+    println!(
+        "cargo:rustc-link-search=native={}",
+        build_dir.display()
+    );
+    println!("cargo:rustc-link-lib=static=rustine-wl");
+
+    // Add wayland-client dependency (required by rustine-wl)
+    println!("cargo:rustc-link-lib=dylib=wayland-client");
+
+    // Tell cargo to rerun if the source changes
+    println!("cargo:rerun-if-changed={}", source_dir.join("rustine-wl.cpp").display());
+    println!("cargo:rerun-if-changed={}", source_dir.join("rustine-wl.hpp").display());
+    println!("cargo:rerun-if-changed={}", source_dir.join("meson.build").display());
 }
