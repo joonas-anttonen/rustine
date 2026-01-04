@@ -393,6 +393,11 @@ rwl_status rwlStartup() {
         g_registry = nullptr;
         return RWL_STATUS_NO_LAYER_SHELL;
     }
+
+    // Another roundtrip to missing information from
+    // globals that were bound during the first roundtrip
+    wl_display_roundtrip(g_display);
+
     return RWL_STATUS_OK;
 }
 
@@ -820,6 +825,43 @@ rwl_status rwlWindowRequestClose(rwl_window* window) {
     }
     rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
     win->should_close = true;
+    return RWL_STATUS_OK;
+}
+
+// Output management functions
+rwl_status rwlEnumerateOutputs(uint32_t* count, rwl_output_info_public* outputs_out) {
+    if (!count) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+    if (!g_display) {
+        return RWL_STATUS_NOT_INITIALIZED;
+    }
+
+    uint32_t output_count = static_cast<uint32_t>(g_outputs.size());
+
+    if (outputs_out == nullptr) {
+        // First call: just return the count
+        *count = output_count;
+        return RWL_STATUS_OK;
+    }
+
+    // Second call: fill in the output information
+    if (*count < output_count) {
+        *count = output_count;
+        return RWL_STATUS_INVALID_ARGUMENT;  // Buffer too small
+    }
+
+    for (uint32_t i = 0; i < output_count; ++i) {
+        const auto& output = g_outputs[i];
+        outputs_out[i].wl_output = output->output;
+        outputs_out[i].name = output->name.c_str();
+        outputs_out[i].description = output->description.c_str();
+        outputs_out[i].scale = output->scale;
+        outputs_out[i].width = output->width;
+        outputs_out[i].height = output->height;
+    }
+
+    *count = output_count;
     return RWL_STATUS_OK;
 }
 

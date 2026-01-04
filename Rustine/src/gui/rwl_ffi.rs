@@ -10,6 +10,9 @@ use std::ffi;
 /// Opaque Wayland window handle
 pub type RwlWindow = *mut ffi::c_void;
 
+/// Opaque output handle
+pub type RwlOutput = *mut ffi::c_void;
+
 /// Window type for different Wayland layer shell surfaces
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -18,6 +21,24 @@ pub enum RwlWindowType {
     Background = 0,
     /// Taskbar/panel (top layer, typically anchored to top)
     Taskbar = 1,
+}
+
+/// Output information structure
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct RwlOutputInfo {
+    /// Opaque pointer to the wl_output
+    pub wl_output: *mut ffi::c_void,
+    /// Output name (e.g., "HDMI-1", "DP-2")
+    pub name: *const ffi::c_char,
+    /// Output description
+    pub description: *const ffi::c_char,
+    /// Scale factor
+    pub scale: i32,
+    /// Physical width in pixels
+    pub width: i32,
+    /// Physical height in pixels
+    pub height: i32,
 }
 
 /// Callback for pixel size changes (e.g., when compositor configures the surface)
@@ -101,6 +122,13 @@ unsafe extern "C" {
         instance: crate::gfx::vulkan_ffi::VkInstance,
         window: RwlWindow,
         surface_out: *mut crate::gfx::vulkan_ffi::VkSurfaceKHR,
+    ) -> RwlStatus;
+
+    // Output management - Vulkan style enumeration
+    // Call with outputs_out=NULL to get count, then call again with allocated buffer
+    pub fn rwlEnumerateOutputs(
+        count: *mut u32,
+        outputs_out: *mut RwlOutputInfo,
     ) -> RwlStatus;
 
     // Event loop control

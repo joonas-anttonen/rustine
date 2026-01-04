@@ -262,12 +262,56 @@ impl Gui {
             rwl::rwlSetLogCallback(Self::rwl_log_callback);
             rwl::panic_if_error(rwl::rwlStartup());
 
+            // Outputs
+            let mut output_count: u32 = 0;
+            rwl::panic_if_error(rwl::rwlEnumerateOutputs(
+                &mut output_count,
+                std::ptr::null_mut(),
+            ));
+            let mut outputs: Vec<rwl::RwlOutputInfo> = Vec::with_capacity(output_count as usize);
+            rwl::panic_if_error(rwl::rwlEnumerateOutputs(
+                &mut output_count,
+                outputs.as_mut_ptr(),
+            ));
+            outputs.set_len(output_count as usize);
+
+            // DEBUG: Print output information
+            for output in &outputs {
+                let name = if output.name.is_null() {
+                    "<null>"
+                } else {
+                    std::ffi::CStr::from_ptr(output.name)
+                        .to_str()
+                        .unwrap_or("<invalid utf8>")
+                };
+                let description = if output.description.is_null() {
+                    "<null>"
+                } else {
+                    std::ffi::CStr::from_ptr(output.description)
+                        .to_str()
+                        .unwrap_or("<invalid utf8>")
+                };
+                debug!(
+                    "Output: name={}, description={}, scale={}, width={}, height={}",
+                    name, description, output.scale, output.width, output.height
+                );
+            }
+
+            // DEBUG: Select eDP-1 or nothing
+            let output = {
+                outputs
+                    .iter()
+                    .find(|o| std::ffi::CStr::from_ptr(o.name).to_string_lossy() == "eDP-1")
+                    .map(|o| o.wl_output)
+                    .unwrap_or(std::ptr::null_mut())
+            };
+
             let mut rwl_window = std::ptr::null_mut();
             rwl::panic_if_error(rwl::rwlCreateWindow(
-                rwl::RwlWindowType::Taskbar,
-                std::ptr::null(),
+                rwl::RwlWindowType::Background,
+                output,
                 0,
-                32,
+                0,
                 &mut rwl_window,
             ));
 

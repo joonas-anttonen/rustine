@@ -74,6 +74,33 @@ rwl_status rwlGetLogicalSize(rwl_window* window, uint32_t* width, uint32_t* heig
 // The created VkSurfaceKHR is returned via surface_out.
 rwl_status rwlCreateSurface(VkInstance instance, rwl_window* window, VkSurfaceKHR* surface_out);
 
+// Output management - retrieve available outputs using Vulkan-style enumeration
+// Output information structure
+typedef struct rwl_output_info_public {
+    // Opaque pointer to the wl_output
+    void* wl_output;
+    // Output name (e.g., "HDMI-1", "DP-2")
+    const char* name;
+    // Output description
+    const char* description;
+    // Scale factor
+    int32_t scale;
+    // Physical width in pixels
+    int32_t width;
+    // Physical height in pixels
+    int32_t height;
+} rwl_output_info_public;
+
+// Enumerate outputs using two calls:
+// First call: pass outputs_out=NULL to get count
+// Second call: pass pre-allocated array to get output info
+// Example:
+//   uint32_t count = 0;
+//   rwlEnumerateOutputs(&count, NULL);
+//   rwl_output_info_public* outputs = malloc(count * sizeof(...));
+//   rwlEnumerateOutputs(&count, outputs);
+rwl_status rwlEnumerateOutputs(uint32_t* count, rwl_output_info_public* outputs_out);
+
 // Event loop control
 rwl_status rwlPollEvents();
 rwl_status rwlWaitEvents();
