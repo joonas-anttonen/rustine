@@ -4,8 +4,11 @@
 		{
 			"label": "Clean",
 			"detail": "Clean the project",
-			"type": "shell",
-			"command": "cargo clean",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"clean"
+			],
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},
@@ -16,8 +19,11 @@
 		{
 			"label": "Build",
 			"detail": "Build the project",
-			"type": "cargo",
-			"command": "build",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"build"
+			],
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},
@@ -27,12 +33,11 @@
 		},
 		{
 			"label": "Rebuild",
-			"detail": "Clean and build the project",
-			"type": "shell",
-			"command": "bash -c \"cargo clean && cargo build\"",
-			"options": {
-				"cwd": "${workspaceFolder}/Rustine"
-			},
+			"detail": "Rebuild the project",
+			"dependsOn": [
+				"Clean",
+				"Build"
+			],
 			"problemMatcher": [
 				"$rustc"
 			]
@@ -40,8 +45,11 @@
 		{
 			"label": "Run",
 			"detail": "Run the application in debug mode",
-			"type": "shell",
-			"command": "cargo run",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run"
+			],
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},
@@ -52,8 +60,12 @@
 		{
 			"label": "Run (Release)",
 			"detail": "Run the application in release mode",
-			"type": "shell",
-			"command": "cargo run --release",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run",
+				"--release"
+			],
 			"options": {
 				"cwd": "${workspaceFolder}/Rustine"
 			},
