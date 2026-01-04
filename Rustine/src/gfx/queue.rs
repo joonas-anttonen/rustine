@@ -112,7 +112,8 @@ impl Queue {
 
         let mut available_commands = VecDeque::new();
 
-        for _ in 0..3 {
+        let command_buffer_count = presentation_provider.image_count();
+        for _ in 0..command_buffer_count {
             available_commands.push_back(command_pool.allocate_command_buffer().unwrap());
         }
 
@@ -168,11 +169,11 @@ impl Queue {
     fn ensure_available_command(&mut self) {
         if self.available_commands.is_empty() {
             if self.queued_commands.is_empty() {
-                panic!("Queue::ensure_available_command: No available command buffers and no queued commands");
-            } else {
-                warning!(
-                    "Queue::ensure_available_command: Waiting"
+                panic!(
+                    "Queue::ensure_available_command: No available command buffers and no queued commands"
                 );
+            } else {
+                warning!("Queue::ensure_available_command: Waiting");
                 let first_queued = self.queued_commands.front().unwrap();
                 first_queued.wait_for_completion(10_000_000).unwrap();
                 let completed = self.queued_commands.pop_front().unwrap();

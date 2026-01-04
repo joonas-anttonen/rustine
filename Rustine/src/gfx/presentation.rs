@@ -39,6 +39,7 @@ pub struct PresentationImage {
 }
 
 pub trait PresentationProvider {
+    fn image_count(&self) -> u32;
     fn acquire(&mut self) -> AcquireStatus;
 }
 
@@ -62,6 +63,10 @@ impl SharedImageProvider {
 }
 
 impl PresentationProvider for SharedImageProvider {
+    fn image_count(&self) -> u32 {
+        1
+    }
+
     fn acquire(&mut self) -> AcquireStatus {
         let presentation_image = PresentationImage {
             memory: self.output_frame.device_memory(),
@@ -114,6 +119,9 @@ impl Drop for SwapchainProvider {
 }
 
 impl PresentationProvider for SwapchainProvider {
+    fn image_count(&self) -> u32 {
+        self.swapchain_images.len() as u32
+    }
     fn acquire(&mut self) -> AcquireStatus {
         let previous_acquire_index = if self.current_acquire_index == 0 {
             (self.acquire_semaphores.len() - 1) as u32
