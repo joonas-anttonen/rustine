@@ -1,9 +1,14 @@
 #include "rustine-wl.hpp"
 
+#include <cerrno>
 #include <cstring>
+#include <limits>
 #include <memory>
+#include <poll.h>
 #include <stdexcept>
 #include <string>
+#include <sys/eventfd.h>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -13,6 +18,7 @@ static wl_compositor* g_compositor = nullptr;
 static zwlr_layer_shell_v1* g_layer_shell = nullptr;
 static wp_fractional_scale_manager_v1* g_fractional_scale_manager = nullptr;
 static rwl_log_callback g_log_callback = nullptr;
+static int g_wake_fd = -1;
 
 // Output information structure
 struct rwl_output_info {
@@ -308,8 +314,15 @@ rwl_status rwlStartup() {
         return RWL_STATUS_ALREADY_INITIALIZED;
     }
 
+    g_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (g_wake_fd == -1) {
+        return RWL_STATUS_INTERNAL_ERROR;
+    }
+
     g_display = wl_display_connect(nullptr);
     if (!g_display) {
+        close(g_wake_fd);
+        g_wake_fd = -1;
         rwl_log(RWL_LOG_ERROR, "Failed to connect to Wayland display");
         return RWL_STATUS_NO_DISPLAY;
     }
@@ -383,6 +396,11 @@ rwl_status rwlShutdown() {
     if (g_display) {
         wl_display_disconnect(g_display);
         g_display = nullptr;
+    }
+
+    if (g_wake_fd != -1) {
+        close(g_wake_fd);
+        g_wake_fd = -1;
     }
 
     return RWL_STATUS_OK;
@@ -639,18 +657,114 @@ rwl_status rwlGetLogicalSize(rwl_window* window, uint32_t* width, uint32_t* heig
     return RWL_STATUS_OK;
 }
 
-rwl_status rwlProcessEvents() {
+// Internal helper to dispatch events with optional timeout (in milliseconds).
+// timeout_ms < 0 blocks indefinitely.
+static rwl_status rwl_wait_events_internal(int timeout_ms) {
     if (!g_display) {
         return RWL_STATUS_NOT_INITIALIZED;
     }
 
-    // Dispatch pending events without blocking
-    if (wl_display_dispatch_pending(g_display) == -1) {
+    struct pollfd pfds[2];
+    nfds_t nfds = 1;
+    pfds[0].fd = wl_display_get_fd(g_display);
+    pfds[0].events = POLLIN;
+    pfds[0].revents = 0;
+
+    if (g_wake_fd != -1) {
+        pfds[1].fd = g_wake_fd;
+        pfds[1].events = POLLIN;
+        pfds[1].revents = 0;
+        nfds = 2;
+    }
+
+    // Prepare for reading; if there's pending work, dispatch it first.
+    while (wl_display_prepare_read(g_display) != 0) {
+        if (wl_display_dispatch_pending(g_display) == -1) {
+            return RWL_STATUS_INTERNAL_ERROR;
+        }
+    }
+
+    if (wl_display_flush(g_display) == -1) {
+        wl_display_cancel_read(g_display);
         return RWL_STATUS_INTERNAL_ERROR;
     }
 
-    // Flush outgoing requests
-    if (wl_display_flush(g_display) == -1) {
+    int poll_result;
+    do {
+        poll_result = poll(pfds, nfds, timeout_ms);
+    } while (poll_result == -1 && errno == EINTR);
+
+    bool display_ready = false;
+    bool wake_ready = false;
+    if (poll_result > 0) {
+        display_ready = (pfds[0].revents & POLLIN) != 0;
+        wake_ready = (nfds > 1) && (pfds[1].revents & POLLIN);
+    }
+
+    if (display_ready) {
+        if (wl_display_read_events(g_display) == -1) {
+            return RWL_STATUS_INTERNAL_ERROR;
+        }
+        if (wl_display_dispatch_pending(g_display) == -1) {
+            return RWL_STATUS_INTERNAL_ERROR;
+        }
+    } else {
+        wl_display_cancel_read(g_display);
+    }
+
+    if (wake_ready) {
+        uint64_t value;
+        while (read(g_wake_fd, &value, sizeof(value)) == sizeof(value)) {
+        }
+    }
+
+    if (poll_result == -1) {
+        return RWL_STATUS_INTERNAL_ERROR;
+    }
+
+    return RWL_STATUS_OK;
+}
+
+rwl_status rwlPollEvents() {
+    // Non-blocking: dispatch what is ready and return.
+    return rwl_wait_events_internal(0);
+}
+
+rwl_status rwlWaitEvents() {
+    // Block until an event is available.
+    return rwl_wait_events_internal(-1);
+}
+
+rwl_status rwlWaitEventsTimeout(uint64_t timeout_ns) {
+    if (!g_display) {
+        return RWL_STATUS_NOT_INITIALIZED;
+    }
+
+    // Vulkan uses UINT64_MAX for infinite
+    if (timeout_ns == std::numeric_limits<uint64_t>::max()) {
+        return rwlWaitEvents();
+    }
+
+    // Convert nanoseconds to milliseconds, rounding up to avoid premature timeouts.
+    uint64_t ms_u64 = (timeout_ns + 999999ull) / 1000000ull;
+    int timeout_ms;
+    if (ms_u64 > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
+        timeout_ms = std::numeric_limits<int>::max();
+    } else {
+        timeout_ms = static_cast<int>(ms_u64);
+    }
+
+    return rwl_wait_events_internal(timeout_ms);
+}
+
+rwl_status rwlPostEmptyEvent() {
+    if (g_wake_fd == -1) {
+        return RWL_STATUS_NOT_INITIALIZED;
+    }
+
+    uint64_t value = 1;
+    ssize_t written = write(g_wake_fd, &value, sizeof(value));
+    if (written == -1 && errno != EAGAIN) {
         return RWL_STATUS_INTERNAL_ERROR;
     }
 

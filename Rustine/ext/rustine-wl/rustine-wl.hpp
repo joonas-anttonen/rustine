@@ -75,7 +75,10 @@ rwl_status rwlGetLogicalSize(rwl_window* window, uint32_t* width, uint32_t* heig
 rwl_status rwlCreateSurface(VkInstance instance, rwl_window* window, VkSurfaceKHR* surface_out);
 
 // Event loop control
-rwl_status rwlProcessEvents();
+rwl_status rwlPollEvents();
+rwl_status rwlWaitEvents();
+rwl_status rwlWaitEventsTimeout(uint64_t timeout_ns);
+rwl_status rwlPostEmptyEvent();
 bool rwlWindowShouldClose(rwl_window* window);
 rwl_status rwlWindowRequestClose(rwl_window* window);
 

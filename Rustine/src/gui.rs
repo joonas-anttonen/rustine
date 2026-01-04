@@ -329,7 +329,7 @@ impl Gui {
 
     pub fn process_events(&self) {
         unsafe {
-            rwl::panic_if_error(rwl::rwlProcessEvents());
+            rwl::panic_if_error(rwl::rwlPollEvents());
         }
     }
 

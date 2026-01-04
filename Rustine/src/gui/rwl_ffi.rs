@@ -104,7 +104,10 @@ unsafe extern "C" {
     ) -> RwlStatus;
 
     // Event loop control
-    pub fn rwlProcessEvents() -> RwlStatus;
+    pub fn rwlPollEvents() -> RwlStatus;
+    pub fn rwlWaitEvents() -> RwlStatus;
+    pub fn rwlWaitEventsTimeout(timeout_ns: u64) -> RwlStatus;
+    pub fn rwlPostEmptyEvent() -> RwlStatus;
     pub fn rwlWindowShouldClose(window: RwlWindow) -> bool;
     pub fn rwlWindowRequestClose(window: RwlWindow) -> RwlStatus;
 }
