@@ -168,38 +168,19 @@ fn prefer_lib64(destination_dir: &Path) -> PathBuf {
 }
 
 fn build_rustine_wl(project_dir: &Path, out_dir: &Path) {
-    let source_dir = project_dir.join("ext").join("rustine-wl");
-    let build_dir = out_dir.join("rustine-wl");
+    let generator = choose_generator("linux");
 
-    // Setup meson build
-    let setup_status = Command::new("meson")
-        .arg("setup")
-        .arg(&build_dir)
-        .arg("--wipe")
-        .current_dir(&source_dir)
-        .status()
-        .expect("Failed to run meson setup for rustine-wl");
+    let destination_dir = cmake::Config::new(project_dir.join("ext").join("rustine-wl"))
+        .generator(generator)
+        .out_dir(out_dir.join("rustine-wl"))
+        .always_configure(true)
+        .build();
 
-    if !setup_status.success() {
-        panic!("meson setup failed for rustine-wl");
-    }
+    let lib_dir = prefer_lib64(&destination_dir);
 
-    // Compile with meson
-    let compile_status = Command::new("meson")
-        .arg("compile")
-        .arg("-C")
-        .arg(&build_dir)
-        .status()
-        .expect("Failed to run meson compile for rustine-wl");
-
-    if !compile_status.success() {
-        panic!("meson compile failed for rustine-wl");
-    }
-
-    // Link the static library
     println!(
         "cargo:rustc-link-search=native={}",
-        build_dir.display()
+        lib_dir.display()
     );
     println!("cargo:rustc-link-lib=static=rustine-wl");
 
@@ -209,8 +190,8 @@ fn build_rustine_wl(project_dir: &Path, out_dir: &Path) {
     // Allow multiple definitions to resolve fractional-scale symbol conflict with GLFW
     println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
 
-    // Tell cargo to rerun if the source changes
-    println!("cargo:rerun-if-changed={}", source_dir.join("rustine-wl.cpp").display());
-    println!("cargo:rerun-if-changed={}", source_dir.join("rustine-wl.hpp").display());
-    println!("cargo:rerun-if-changed={}", source_dir.join("meson.build").display());
+    let rustine_wl_dir = project_dir.join("ext").join("rustine-wl");
+    println!("cargo:rerun-if-changed={}", rustine_wl_dir.join("CMakeLists.txt").display());
+    println!("cargo:rerun-if-changed={}", rustine_wl_dir.join("rustine-wl.cpp").display());
+    println!("cargo:rerun-if-changed={}", rustine_wl_dir.join("rustine-wl.hpp").display());
 }

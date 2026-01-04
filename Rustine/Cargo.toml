@@ -19,4 +19,3 @@ libc = "0.2"
 
 [build-dependencies]
 cmake = "0.1.54"
-meson = "1.0.0"

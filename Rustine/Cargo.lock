@@ -241,12 +241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "meson"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de6e688268407ad0a7c589bf2d7313db6c2079dae5c96df0f2d5903bc6343a91"
-
-[[package]]
 name = "nalgebra"
 version = "0.34.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -380,7 +374,6 @@ dependencies = [
  "chrono",
  "cmake",
  "libc",
- "meson",
  "nalgebra",
 ]
 
