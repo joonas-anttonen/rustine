@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 project(rustine_vma_interop)
 
-# Allow overriding the library name (default: rustine_vma)
-set(RUSTINE_VMA_TARGET "rustine_vma" CACHE STRING "Library target name")
+# Allow overriding the library name (default: rustine-vma)
+set(RUSTINE_VMA_TARGET "rustine-vma" CACHE STRING "Library target name")
 
 # Create the interop library
 add_library(${RUSTINE_VMA_TARGET} STATIC
-    rustine_vma.cpp
+    rustine-vma.cpp
 )
 
 # Include directories for the interop library

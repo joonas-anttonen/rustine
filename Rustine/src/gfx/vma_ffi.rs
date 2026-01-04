@@ -14,7 +14,7 @@ pub type VmaAllocator = *mut std::ffi::c_void;
 pub type VmaAllocation = *mut std::ffi::c_void;
 pub type VmaPool = *mut std::ffi::c_void;
 
-#[link(name = "rustine_vma", kind = "static")]
+#[link(name = "rustine-vma", kind = "static")]
 unsafe extern "C" {
 
     // ========= Allocator ==========

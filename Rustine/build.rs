@@ -27,7 +27,7 @@ fn main() {
     };
 
     build_glfw(&project_dir, &out_dir, &target_os);
-    build_vma_interop(&project_dir, &out_dir, &target_os);
+    build_rustine_vma(&project_dir, &out_dir, &target_os);
     build_rustine_webp(&project_dir, &out_dir, &target_os);
     
     if target_os == "linux" {
@@ -78,13 +78,13 @@ fn build_rustine_webp(project_dir: &Path, out_dir: &Path, target_os: &str) {
     println!("cargo:rerun-if-changed={}", project_dir.join("ext").join("libwebp").display());
 }
 
-fn build_vma_interop(project_dir: &Path, out_dir: &Path, target_os: &str) {
+fn build_rustine_vma(project_dir: &Path, out_dir: &Path, target_os: &str) {
     let generator = choose_generator(target_os);
 
     // Build
-    let destination_dir = cmake::Config::new(project_dir.join("ext").join("vma_interop"))
+    let destination_dir = cmake::Config::new(project_dir.join("ext").join("rustine-vma"))
         .generator(generator)
-        .out_dir(out_dir.join("vma_interop"))
+        .out_dir(out_dir.join("rustine-vma"))
         .always_configure(true)
         .build();
 
@@ -95,7 +95,7 @@ fn build_vma_interop(project_dir: &Path, out_dir: &Path, target_os: &str) {
         "cargo:rustc-link-search=native={}",
         lib_dir.display()
     );
-    println!("cargo:rustc-link-lib=static={}", "rustine_vma");
+    println!("cargo:rustc-link-lib=static={}", "rustine-vma");
 }
 
 fn build_glfw(project_dir: &Path, out_dir: &Path, target_os: &str) {
