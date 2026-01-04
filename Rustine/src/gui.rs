@@ -256,13 +256,8 @@ impl Drop for Gui {
 impl Gui {
     pub fn new(gfx: Arc<Mutex<gfx::Core>>, parameters: StartupParameters) -> Arc<Self> {
         let rwl_window = unsafe {
-            match parameters.platform {
-                gfx::Platform::Wayland => {
-                    glfw::glfwInitHint(glfw::PLATFORM, glfw::PLATFORM_WAYLAND);
-                }
-                _ => {
-                    panic!("Unsupported platform");
-                }
+            if parameters.platform != gfx::Platform::Wayland {
+                panic!("Unsupported platform");
             }
 
             rwl::rwlSetLogCallback(Self::rwl_log_callback);
@@ -272,7 +267,7 @@ impl Gui {
             rwl::panic_if_error(rwl::rwlCreateWindow(
                 rwl::RwlWindowType::Taskbar,
                 std::ptr::null(),
-                100,
+                0,
                 32,
                 &mut rwl_window,
             ));

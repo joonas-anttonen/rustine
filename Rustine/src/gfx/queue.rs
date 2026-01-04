@@ -168,15 +168,13 @@ impl Queue {
     fn ensure_available_command(&mut self) {
         if self.available_commands.is_empty() {
             if self.queued_commands.is_empty() {
-                error!(
-                    "Queue::ensure_available_command: No available command buffers and no queued commands"
-                );
+                panic!("Queue::ensure_available_command: No available command buffers and no queued commands");
             } else {
                 warning!(
-                    "Queue::ensure_available_command: No available command buffers, waiting for the first queued command to complete"
+                    "Queue::ensure_available_command: Waiting"
                 );
                 let first_queued = self.queued_commands.front().unwrap();
-                first_queued.wait_for_completion(10_000_000).unwrap();
+                first_queued.wait_for_completion(100_000_000).unwrap();
                 let completed = self.queued_commands.pop_front().unwrap();
                 completed.reset();
                 self.available_commands.push_back(completed);

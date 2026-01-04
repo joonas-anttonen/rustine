@@ -74,12 +74,12 @@ static void frame_done(void* data, struct wl_callback* callback, uint32_t time) 
 }
 
 // Layer surface listener callback
-static void layer_surface_handle_configure(void* data, struct zwlr_layer_surface_v1* surface,
-                                           uint32_t serial, uint32_t width, uint32_t height) {
+static void layer_surface_configure(void* data, struct zwlr_layer_surface_v1* surface,
+                                    uint32_t serial, uint32_t width, uint32_t height) {
     rwl_window_internal* window = static_cast<rwl_window_internal*>(data);
     char buffer[256];
-    snprintf(buffer, sizeof(buffer),
-             "layer_surface_handle_configure: width=%u height=%u serial=%u", width, height, serial);
+    snprintf(buffer, sizeof(buffer), "layer_surface_configure: width=%u height=%u serial=%u", width,
+             height, serial);
     rwl_log(RWL_LOG_DEBUG, buffer);
 
     window->width = width;
@@ -87,53 +87,50 @@ static void layer_surface_handle_configure(void* data, struct zwlr_layer_surface
     zwlr_layer_surface_v1_ack_configure(surface, serial);
 
     if (window->size_callback) {
-        rwl_log(RWL_LOG_DEBUG, "layer_surface_handle_configure: Invoking user callback");
         window->size_callback(reinterpret_cast<rwl_window*>(window), width, height);
-    } else {
-        rwl_log(RWL_LOG_DEBUG, "layer_surface_handle_configure: No callback set");
     }
 }
 
-static void layer_surface_handle_closed(void* data, struct zwlr_layer_surface_v1* surface) {
+static void layer_surface_closed(void* data, struct zwlr_layer_surface_v1* surface) {
     // Compositor closed the layer surface; set window-specific close flag
     rwl_window_internal* window = static_cast<rwl_window_internal*>(data);
-    rwl_log(RWL_LOG_INFO, "layer_surface_handle_closed: window closed by compositor");
+    rwl_log(RWL_LOG_INFO, "layer_surface_closed: window closed by compositor");
     window->should_close = true;
 }
 
 static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
-    layer_surface_handle_configure,
-    layer_surface_handle_closed,
+    layer_surface_configure,
+    layer_surface_closed,
 };
 
 // Registry listener callback
-static void registry_handle_global(void* data, struct wl_registry* registry, uint32_t name,
+static void registry_global(void* data, struct wl_registry* registry, uint32_t name,
                                    const char* interface, uint32_t version) {
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "registry_handle_global: %s (name=%u version=%u)", interface,
+    snprintf(buffer, sizeof(buffer), "registry_global: %s (name=%u version=%u)", interface,
              name, version);
     rwl_log(RWL_LOG_DEBUG, buffer);
 
     if (strcmp(interface, wl_compositor_interface.name) == 0) {
         g_compositor = static_cast<wl_compositor*>(
             wl_registry_bind(registry, name, &wl_compositor_interface, std::min(version, 4u)));
-        rwl_log(RWL_LOG_DEBUG, "Bound wl_compositor");
+        rwl_log(RWL_LOG_WARNING, "Binding wl_compositor");
     } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
         g_layer_shell = static_cast<zwlr_layer_shell_v1*>(wl_registry_bind(
             registry, name, &zwlr_layer_shell_v1_interface, std::min(version, 4u)));
-        rwl_log(RWL_LOG_DEBUG, "Bound zwlr_layer_shell_v1");
+        rwl_log(RWL_LOG_WARNING, "Binding zwlr_layer_shell_v1");
     }
 }
 
-static void registry_handle_global_remove(void* data, struct wl_registry* registry, uint32_t name) {
+static void registry_remove(void* data, struct wl_registry* registry, uint32_t name) {
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "registry_handle_global_remove: name=%u", name);
+    snprintf(buffer, sizeof(buffer), "registry_remove: name=%u", name);
     rwl_log(RWL_LOG_WARNING, buffer);
 }
 
 static const struct wl_registry_listener registry_listener = {
-    registry_handle_global,
-    registry_handle_global_remove,
+    registry_global,
+    registry_remove,
 };
 
 void rwlSetLogCallback(rwl_log_callback callback) {
@@ -141,14 +138,10 @@ void rwlSetLogCallback(rwl_log_callback callback) {
 }
 
 rwl_status rwlStartup() {
-    rwl_log(RWL_LOG_INFO, "rwlStartup");
-
     if (g_display) {
-        rwl_log(RWL_LOG_WARNING, "Already initialized");
         return RWL_STATUS_ALREADY_INITIALIZED;
     }
 
-    rwl_log(RWL_LOG_DEBUG, "Connecting to Wayland display");
     g_display = wl_display_connect(nullptr);
     if (!g_display) {
         rwl_log(RWL_LOG_ERROR, "Failed to connect to Wayland display");
@@ -156,7 +149,6 @@ rwl_status rwlStartup() {
     }
     rwl_log(RWL_LOG_DEBUG, "Connected to Wayland display");
 
-    rwl_log(RWL_LOG_DEBUG, "Getting registry");
     g_registry = wl_display_get_registry(g_display);
     if (!g_registry) {
         rwl_log(RWL_LOG_ERROR, "Failed to get registry");
@@ -166,7 +158,6 @@ rwl_status rwlStartup() {
     }
 
     // Attach listener and sync to receive all globals
-    rwl_log(RWL_LOG_DEBUG, "Registering globals");
     wl_registry_add_listener(g_registry, &registry_listener, nullptr);
     wl_display_roundtrip(g_display);
 
@@ -179,7 +170,6 @@ rwl_status rwlStartup() {
         g_registry = nullptr;
         return RWL_STATUS_NO_COMPOSITOR;
     }
-    rwl_log(RWL_LOG_DEBUG, "Found compositor");
 
     if (!g_layer_shell) {
         rwl_log(RWL_LOG_ERROR, "Layer shell not available");
@@ -189,9 +179,6 @@ rwl_status rwlStartup() {
         g_registry = nullptr;
         return RWL_STATUS_NO_LAYER_SHELL;
     }
-    rwl_log(RWL_LOG_DEBUG, "Found layer shell");
-
-    rwl_log(RWL_LOG_INFO, "rwlStartup completed successfully");
     return RWL_STATUS_OK;
 }
 
