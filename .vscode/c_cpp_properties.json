@@ -25,15 +25,14 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/Rustine/ext/vma/include",
-                "${env:VULKAN_SDK}/include"
+                "${workspaceFolder}/Rustine/ext/vma/include"
             ],
             "defines": [
                 "_DEBUG",
                 "_GLFW_WAYLAND",
                 "JANGINE_INTELLISENSE_IGNORE_GENERATED_FILES"
             ],
-            "compilerPath": "/usr/bin/gcc",
+            "compilerPath": "gcc",
             "cStandard": "c17",
             "cppStandard": "c++20",
             "intelliSenseMode": "linux-gcc-x64",
