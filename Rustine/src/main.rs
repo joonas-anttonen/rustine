@@ -1,13 +1,51 @@
 use rustine::{error, info};
 use rustine::{gfx, gui, log::ConsoleLogListener, log::Log, version::Version};
 
+#[cfg(unix)]
+use libc;
+use std::io;
 use std::sync::{Arc, Mutex, atomic};
 use std::thread;
+
+static EXIT_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn handle_termination_signal(_signal: i32) {
+    EXIT_FLAG.store(true, atomic::Ordering::Relaxed);
+}
+
+#[cfg(unix)]
+fn install_signal_handlers() -> io::Result<()> {
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = handle_termination_signal as usize;
+        sa.sa_flags = libc::SA_RESTART;
+        libc::sigemptyset(&mut sa.sa_mask);
+
+        if libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut()) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut()) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn install_signal_handlers() -> io::Result<()> {
+    Ok(())
+}
 
 fn main() {
     let log = Log::global();
     log.set_current_thread_name("main");
     log.add_listener(ConsoleLogListener::new(true));
+
+    if let Err(e) = install_signal_handlers() {
+        error!("Failed to install signal handlers: {}", e);
+    }
 
     info!("STARTUP");
 
@@ -40,7 +78,6 @@ fn main() {
         info!("Selected device: {}", dev);
 
         let gfx = Arc::new(Mutex::new(gfx_core));
-        let gfx_cancel_signal = atomic::AtomicBool::new(false);
 
         let gui_params = gui::StartupParameters {
             platform: host_platform,
@@ -52,34 +89,37 @@ fn main() {
 
         thread::scope(|s| {
             s.spawn(|| {
-                gfx_thread_function(Arc::clone(&gfx), &gfx_cancel_signal);
+                gfx_thread_function(Arc::clone(&gfx), &EXIT_FLAG);
             });
 
-            gui_thread_function(&gui);
+            gui_thread_function(&gui, &EXIT_FLAG);
 
-            gfx_cancel_signal.store(true, atomic::Ordering::Relaxed);
+            EXIT_FLAG.store(true, atomic::Ordering::Relaxed);
         });
     }
 
     info!("SHUTDOWN");
 }
 
-fn gui_thread_function(gui: &gui::Gui) {
-    while !gui.should_close() {
+fn gui_thread_function(gui: &gui::Gui, exit_flag: &atomic::AtomicBool) {
+    info!("GUI START");
+
+    while !exit_flag.load(atomic::Ordering::Relaxed) && !gui.should_close() {
         gui.process_events();
     }
+    info!("GUI STOP");
 }
 
-fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, cancel_signal: &atomic::AtomicBool) {
+fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, exit_flag: &atomic::AtomicBool) {
     Log::global().set_current_thread_name("gfx");
 
-    info!("gfx thread started");
+    info!("GFX START");
 
     let mut skip_frame = false;
     let start_instant = std::time::Instant::now();
     let mut last_instant = std::time::Instant::now();
 
-    while !cancel_signal.load(atomic::Ordering::Relaxed) {
+    while !exit_flag.load(atomic::Ordering::Relaxed) {
         {
             let attempted_lock = gfx.try_lock();
             if attempted_lock.is_err() {
@@ -106,5 +146,5 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, cancel_signal: &atomic::Atomi
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
-    info!("gfx thread stopped");
+    info!("GFX STOP");
 }

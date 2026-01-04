@@ -141,8 +141,7 @@ impl Core {
 
         // ASSUMPTION: Arc will place Core on the heap and it won't move.
         unsafe {
-            let core_arc_cloned = Arc::clone(&core);
-            let core_raw_ptr = Arc::into_raw(core_arc_cloned);
+            let core_raw_ptr = Arc::as_ptr(&core);
 
             glfw::glfwSetWindowUserPointer(core.glfw_window, core_raw_ptr as *mut _);
         }
@@ -302,9 +301,7 @@ impl Gui {
         });
 
         unsafe {
-            let gui_arc_cloned = Arc::clone(&gui);
-            let gui_raw_ptr = Arc::into_raw(gui_arc_cloned);
-
+            let gui_raw_ptr = Arc::as_ptr(&gui);
             rwl::rwlSetWindowUserPointer(gui.rwl_window, gui_raw_ptr as *mut _);
         }
 

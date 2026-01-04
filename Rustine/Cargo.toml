@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 chrono = "0.4"
 nalgebra = "0.34"
+libc = "0.2"
 
 [build-dependencies]
 cmake = "0.1.54"
