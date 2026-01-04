@@ -19,6 +19,7 @@ static zwlr_layer_shell_v1* g_layer_shell = nullptr;
 static wp_fractional_scale_manager_v1* g_fractional_scale_manager = nullptr;
 static rwl_log_callback g_log_callback = nullptr;
 static int g_wake_fd = -1;
+static std::vector<std::unique_ptr<struct rwl_window_internal>> g_windows;
 
 // Output information structure
 struct rwl_output_info {
@@ -64,6 +65,40 @@ struct rwl_window_internal {
     void* user_pointer;
     bool should_close;
 };
+
+static void rwl_cleanup_window(rwl_window_internal* win) {
+    if (!win) {
+        return;
+    }
+
+    if (win->frame_cb) {
+        wl_callback_destroy(win->frame_cb);
+        win->frame_cb = nullptr;
+    }
+
+    if (win->fractional_scale) {
+        wp_fractional_scale_v1_destroy(win->fractional_scale);
+        win->fractional_scale = nullptr;
+    }
+
+    if (win->layer_surface) {
+        zwlr_layer_surface_v1_destroy(win->layer_surface);
+        win->layer_surface = nullptr;
+    }
+
+    if (win->surface) {
+        wl_surface_destroy(win->surface);
+        win->surface = nullptr;
+    }
+}
+
+static void rwl_request_close_all_windows() {
+    for (auto& window : g_windows) {
+        if (window) {
+            window->should_close = true;
+        }
+    }
+}
 
 #ifdef __cplusplus
 extern "C" {
@@ -422,31 +457,28 @@ rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t wid
     }
 
     // Allocate window structure
-    rwl_window_internal* window = new rwl_window_internal{};
-    if (!window) {
-        return RWL_STATUS_INTERNAL_ERROR;
-    }
+    auto window = std::make_unique<rwl_window_internal>();
+    rwl_window_internal* window_raw = window.get();
 
-    window->output = output;
-    window->width = width;
-    window->height = height;
-    window->fractional_scale = nullptr;
-    window->preferred_fractional_scale = 120;  // Default 1.0x (120/120)
+    window_raw->output = output;
+    window_raw->width = width;
+    window_raw->height = height;
+    window_raw->fractional_scale = nullptr;
+    window_raw->preferred_fractional_scale = 120;  // Default 1.0x (120/120)
 
     // Create underlying wl_surface
-    window->surface = wl_compositor_create_surface(g_compositor);
-    if (!window->surface) {
-        delete window;
+    window_raw->surface = wl_compositor_create_surface(g_compositor);
+    if (!window_raw->surface) {
         return RWL_STATUS_INTERNAL_ERROR;
     }
 
     // Create fractional scale object if manager is available
     if (g_fractional_scale_manager) {
-        window->fractional_scale = wp_fractional_scale_manager_v1_get_fractional_scale(
-            g_fractional_scale_manager, window->surface);
-        if (window->fractional_scale) {
-            wp_fractional_scale_v1_add_listener(window->fractional_scale,
-                                                &window_fractional_scale_listener, window);
+        window_raw->fractional_scale = wp_fractional_scale_manager_v1_get_fractional_scale(
+            g_fractional_scale_manager, window_raw->surface);
+        if (window_raw->fractional_scale) {
+            wp_fractional_scale_v1_add_listener(window_raw->fractional_scale,
+                                                &window_fractional_scale_listener, window_raw);
             rwl_log(RWL_LOG_DEBUG, "Created fractional scale object for window");
         }
     }
@@ -471,27 +503,28 @@ rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t wid
                      ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
             exclusive_zone = height;  // Reserve space for taskbar
         } else {
-            wl_surface_destroy(window->surface);
-            delete window;
+            wl_surface_destroy(window_raw->surface);
             return RWL_STATUS_INVALID_ARGUMENT;
         }
 
-        window->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-            g_layer_shell, window->surface, output, layer, "rustine-wl");
-        if (!window->layer_surface) {
-            wl_surface_destroy(window->surface);
-            delete window;
+        window_raw->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
+            g_layer_shell, window_raw->surface, output, layer, "rustine-wl");
+        if (!window_raw->layer_surface) {
+            wl_surface_destroy(window_raw->surface);
             return RWL_STATUS_INTERNAL_ERROR;
         }
-        zwlr_layer_surface_v1_add_listener(window->layer_surface, &layer_surface_listener, window);
-        zwlr_layer_surface_v1_set_size(window->layer_surface, width, height);
-        zwlr_layer_surface_v1_set_anchor(window->layer_surface, anchor);
-        zwlr_layer_surface_v1_set_exclusive_zone(window->layer_surface, exclusive_zone);
-        wl_surface_commit(window->surface);
+        zwlr_layer_surface_v1_add_listener(window_raw->layer_surface, &layer_surface_listener,
+                                           window_raw);
+        zwlr_layer_surface_v1_set_size(window_raw->layer_surface, width, height);
+        zwlr_layer_surface_v1_set_anchor(window_raw->layer_surface, anchor);
+        zwlr_layer_surface_v1_set_exclusive_zone(window_raw->layer_surface, exclusive_zone);
+        wl_surface_commit(window_raw->surface);
         wl_display_roundtrip(g_display);  // Wait for configure
     }
 
-    *window_out = reinterpret_cast<rwl_window*>(window);
+    g_windows.push_back(std::move(window));
+
+    *window_out = reinterpret_cast<rwl_window*>(window_raw);
     return RWL_STATUS_OK;
 }
 
@@ -501,24 +534,14 @@ rwl_status rwlDestroyWindow(rwl_window* window) {
     }
 
     rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    rwl_cleanup_window(win);
 
-    if (win->frame_cb) {
-        wl_callback_destroy(win->frame_cb);
+    for (auto it = g_windows.begin(); it != g_windows.end(); ++it) {
+        if (it->get() == win) {
+            g_windows.erase(it);
+            break;
+        }
     }
-
-    if (win->fractional_scale) {
-        wp_fractional_scale_v1_destroy(win->fractional_scale);
-    }
-
-    if (win->layer_surface) {
-        zwlr_layer_surface_v1_destroy(win->layer_surface);
-    }
-
-    if (win->surface) {
-        wl_surface_destroy(win->surface);
-    }
-
-    delete win;
     return RWL_STATUS_OK;
 }
 
@@ -684,8 +707,20 @@ static rwl_status rwl_wait_events_internal(int timeout_ms) {
         }
     }
 
-    if (wl_display_flush(g_display) == -1) {
+    int flush_result;
+    while ((flush_result = wl_display_flush(g_display)) == -1 && errno == EAGAIN) {
+        struct pollfd fd = {wl_display_get_fd(g_display), POLLOUT, 0};
+        if (poll(&fd, 1, -1) == -1 && errno != EINTR) {
+            wl_display_cancel_read(g_display);
+            rwl_request_close_all_windows();
+            return RWL_STATUS_INTERNAL_ERROR;
+        }
+    }
+
+    if (flush_result == -1) {
         wl_display_cancel_read(g_display);
+        rwl_log(RWL_LOG_ERROR, "Wayland connection error during flush; requesting window close");
+        rwl_request_close_all_windows();
         return RWL_STATUS_INTERNAL_ERROR;
     }
 
