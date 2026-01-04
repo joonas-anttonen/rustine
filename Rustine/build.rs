@@ -175,6 +175,9 @@ fn build_rustine_wl(project_dir: &Path, out_dir: &Path) {
 
     // Add wayland-client dependency (required by rustine-wl)
     println!("cargo:rustc-link-lib=dylib=wayland-client");
+    
+    // Allow multiple definitions to resolve fractional-scale symbol conflict with GLFW
+    println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
 
     // Tell cargo to rerun if the source changes
     println!("cargo:rerun-if-changed={}", source_dir.join("rustine-wl.cpp").display());

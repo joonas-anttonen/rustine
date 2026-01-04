@@ -8,6 +8,7 @@
 
 // wayland-scanner may emit a parameter named `namespace`, which is a C++ keyword.
 #define namespace namespace_renamed
+#include "fractional-scale-v1-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #undef namespace
 
@@ -23,8 +24,9 @@ typedef enum rwl_window_type {
     RWL_WINDOW_TYPE_TASKBAR = 1,     // Taskbar/panel (top layer, typically anchored to top)
 } rwl_window_type;
 
-// Callback for framebuffer size changes (e.g., when compositor configures the surface)
-typedef void (*rwl_framebuffer_size_callback)(rwl_window* window, uint32_t width, uint32_t height);
+// Callback for pixel size changes (e.g., when compositor configures the surface)
+typedef void (*rwl_pixel_size_callback)(rwl_window* window, uint32_t width, uint32_t height);
+typedef void (*rwl_logical_size_callback)(rwl_window* window, uint32_t width, uint32_t height);
 
 // Callback for frame timing (compositor is ready for next frame)
 typedef void (*rwl_frame_callback)(rwl_window* window);
@@ -55,10 +57,17 @@ rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t wid
 rwl_status rwlDestroyWindow(rwl_window* window);
 rwl_status rwlSetWindowUserPointer(rwl_window* window, void* pointer);
 void* rwlGetWindowUserPointer(rwl_window* window);
-rwl_status rwlSetFramebufferSizeCallback(rwl_window* window,
-                                         rwl_framebuffer_size_callback callback);
+rwl_status rwlSetPixelSizeCallback(rwl_window* window,
+                                         rwl_pixel_size_callback callback);
+rwl_status rwlSetLogicalSizeCallback(rwl_window* window,
+                                            rwl_logical_size_callback callback);
 rwl_status rwlSetFrameCallback(rwl_window* window, rwl_frame_callback callback);
-rwl_status rwlGetFramebufferSize(rwl_window* window, uint32_t* width, uint32_t* height);
+
+// Get the buffer size to render at (accounts for fractional scaling).
+rwl_status rwlGetPixelSize(rwl_window* window, uint32_t* width, uint32_t* height);
+
+// Get the logical surface size (the size reported by the compositor).
+rwl_status rwlGetLogicalSize(rwl_window* window, uint32_t* width, uint32_t* height);
 
 // Create a Vulkan surface for the given window.
 // VkInstance must be valid with VK_KHR_wayland_surface extension.

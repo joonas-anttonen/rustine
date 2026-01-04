@@ -246,7 +246,7 @@ impl Drop for Gui {
                     std::ptr::null(),
                 );
             }
- 
+
             rwl::panic_if_error(rwl::rwlDestroyWindow(self.rwl_window));
             rwl::panic_if_error(rwl::rwlShutdown());
         }
@@ -272,9 +272,13 @@ impl Gui {
                 &mut rwl_window,
             ));
 
-            rwl::panic_if_error(rwl::rwlSetFramebufferSizeCallback(
+            rwl::panic_if_error(rwl::rwlSetPixelSizeCallback(
                 rwl_window,
-                Self::rwl_framebuffer_size_callback,
+                Self::rwl_pixel_size_callback,
+            ));
+            rwl::panic_if_error(rwl::rwlSetLogicalSizeCallback(
+                rwl_window,
+                Self::rwl_logical_size_callback,
             ));
 
             rwl_window
@@ -308,8 +312,12 @@ impl Gui {
         unsafe {
             let mut width: u32 = 0;
             let mut height: u32 = 0;
-            rwl::panic_if_error(rwl::rwlGetFramebufferSize(gui.rwl_window, &mut width, &mut height));
-            Self::rwl_framebuffer_size_callback(gui.rwl_window, width, height);
+            rwl::panic_if_error(rwl::rwlGetPixelSize(
+                gui.rwl_window,
+                &mut width,
+                &mut height,
+            ));
+            Self::rwl_pixel_size_callback(gui.rwl_window, width, height);
         }
 
         gui
@@ -325,15 +333,11 @@ impl Gui {
         }
     }
 
-    unsafe extern "C" fn rwl_framebuffer_size_callback(
-        window: rwl::RwlWindow,
-        width: u32,
-        height: u32,
-    ) {
+    unsafe extern "C" fn rwl_pixel_size_callback(window: rwl::RwlWindow, width: u32, height: u32) {
         unsafe {
             let gui_ptr = rwl::rwlGetWindowUserPointer(window) as *mut Gui;
             if !gui_ptr.is_null() {
-                debug!("Framebuffer size changed: {}x{}", width, height);
+                debug!("Pixel size changed: {}x{}", width, height);
 
                 let gui = &mut *gui_ptr;
                 let mut gfx = gui.gfx.lock().unwrap();
@@ -359,9 +363,18 @@ impl Gui {
         }
     }
 
+    unsafe extern "C" fn rwl_logical_size_callback(
+        _window: rwl::RwlWindow,
+        width: u32,
+        height: u32,
+    ) {
+        // Implement logical size callback handling here if needed, just log for now
+        debug!("Logical size changed: {}x{}", width, height);
+    }
+
     unsafe extern "C" fn rwl_log_callback(severity: u32, message: *const std::ffi::c_char) {
         use crate::log::Severity;
-        
+
         let message_str = unsafe {
             if message.is_null() {
                 return;
@@ -370,7 +383,7 @@ impl Gui {
         };
 
         let sev = match severity {
-            0 => Severity::Debug,
+            0 => return,
             1 => Severity::Info,
             2 => Severity::Warning,
             3 => Severity::Error,

@@ -20,8 +20,11 @@ pub enum RwlWindowType {
     Taskbar = 1,
 }
 
-/// Callback for framebuffer size changes (e.g., when compositor configures the surface)
-pub type RwlFramebufferSizeCallback = unsafe extern "C" fn(window: RwlWindow, width: u32, height: u32);
+/// Callback for pixel size changes (e.g., when compositor configures the surface)
+pub type RwlPixelSizeCallback = unsafe extern "C" fn(window: RwlWindow, width: u32, height: u32);
+
+/// Callback for logical size changes (e.g., when compositor configures the surface)
+pub type RwlLogicalSizeCallback = unsafe extern "C" fn(window: RwlWindow, width: u32, height: u32);
 
 /// Callback for frame timing (compositor is ready for next frame)
 pub type RwlFrameCallback = unsafe extern "C" fn(window: RwlWindow);
@@ -79,14 +82,19 @@ unsafe extern "C" {
     pub fn rwlSetWindowUserPointer(window: RwlWindow, pointer: *mut ffi::c_void) -> RwlStatus;
     pub fn rwlGetWindowUserPointer(window: RwlWindow) -> *mut ffi::c_void;
 
-    pub fn rwlSetFramebufferSizeCallback(
+    pub fn rwlSetPixelSizeCallback(
         window: RwlWindow,
-        callback: RwlFramebufferSizeCallback,
+        callback: RwlPixelSizeCallback,
+    ) -> RwlStatus;
+    pub fn rwlSetLogicalSizeCallback(
+        window: RwlWindow,
+        callback: RwlLogicalSizeCallback,
     ) -> RwlStatus;
 
     pub fn rwlSetFrameCallback(window: RwlWindow, callback: RwlFrameCallback) -> RwlStatus;
 
-    pub fn rwlGetFramebufferSize(window: RwlWindow, width: *mut u32, height: *mut u32) -> RwlStatus;
+    pub fn rwlGetPixelSize(window: RwlWindow, width: *mut u32, height: *mut u32) -> RwlStatus;
+    pub fn rwlGetLogicalSize(window: RwlWindow, width: *mut u32, height: *mut u32) -> RwlStatus;
 
     // Vulkan surface creation
     pub fn rwlCreateSurface(

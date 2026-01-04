@@ -174,7 +174,7 @@ impl Queue {
                     "Queue::ensure_available_command: Waiting"
                 );
                 let first_queued = self.queued_commands.front().unwrap();
-                first_queued.wait_for_completion(100_000_000).unwrap();
+                first_queued.wait_for_completion(10_000_000).unwrap();
                 let completed = self.queued_commands.pop_front().unwrap();
                 completed.reset();
                 self.available_commands.push_back(completed);
