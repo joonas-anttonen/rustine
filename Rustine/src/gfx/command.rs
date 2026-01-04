@@ -165,14 +165,24 @@ impl CommandBuffer {
         }
     }
 
-    pub fn wait_for_completion(&self, timeout_ns: u64) -> Result<()> {
-        vk_call!(vulkan_ffi::vkWaitForFences(
-            self.pool.device.handle(),
-            1,
-            &self.fence,
-            vulkan_ffi::VK_TRUE,
-            timeout_ns,
-        ))
+    pub fn wait_for_completion(&self, timeout_ns: u64) -> bool {
+        let result = unsafe {
+            vulkan_ffi::vkWaitForFences(
+                self.pool.device.handle(),
+                1,
+                &self.fence,
+                vulkan_ffi::VK_TRUE,
+                timeout_ns,
+            )
+        };
+        match result {
+            vulkan_ffi::VkResult::SUCCESS => true,
+            vulkan_ffi::VkResult::TIMEOUT => false,
+            _ => {
+                error!("Failed to wait for fence: {:?}", result);
+                false
+            }
+        }
     }
 
     pub fn reset(&self) {

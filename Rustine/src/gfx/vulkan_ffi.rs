@@ -161,7 +161,7 @@ unsafe extern "C" {
         pFences: *const VkFence,
         waitAll: u32,
         timeout: u64,
-    ) -> i32;
+    ) -> VkResult;
     pub fn vkCreateSemaphore(
         device: VkDevice,
         pCreateInfo: *const VkSemaphoreCreateInfo,

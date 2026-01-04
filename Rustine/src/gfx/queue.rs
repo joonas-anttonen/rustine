@@ -112,7 +112,7 @@ impl Queue {
 
         let mut available_commands = VecDeque::new();
 
-        let command_buffer_count = presentation_provider.image_count();
+        let command_buffer_count = u32::max(1, presentation_provider.image_count() - 1);
         for _ in 0..command_buffer_count {
             available_commands.push_back(command_pool.allocate_command_buffer().unwrap());
         }
@@ -166,21 +166,26 @@ impl Queue {
         }
     }
 
-    fn ensure_available_command(&mut self) {
+    fn ensure_available_command(&mut self) -> bool {
         if self.available_commands.is_empty() {
             if self.queued_commands.is_empty() {
                 panic!(
                     "Queue::ensure_available_command: No available command buffers and no queued commands"
                 );
             } else {
-                warning!("Queue::ensure_available_command: Waiting");
                 let first_queued = self.queued_commands.front().unwrap();
-                first_queued.wait_for_completion(10_000_000).unwrap();
-                let completed = self.queued_commands.pop_front().unwrap();
-                completed.reset();
-                self.available_commands.push_back(completed);
+                let completed = first_queued.wait_for_completion(1_000_000);
+                if completed {
+                    let completed = self.queued_commands.pop_front().unwrap();
+                    completed.reset();
+                    self.available_commands.push_back(completed);
+                } else {
+                    warning!("Queue::ensure_available_command: Timeout");
+                    return false;
+                }
             }
         }
+        true
     }
 
     pub fn enqueue_present(
@@ -188,7 +193,10 @@ impl Queue {
         command_recorder: impl FnOnce(&CommandBuffer, &PresentationImage),
     ) {
         self.collect_completed_commands();
-        self.ensure_available_command();
+        if !self.ensure_available_command() {
+            warning!("Queue::enqueue_present: No available command buffers");
+            return;
+        }
 
         let output_frame = match self.presentation_provider.acquire() {
             AcquireStatus::Success(frame) => frame,
