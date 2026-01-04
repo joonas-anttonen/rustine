@@ -1,6 +1,7 @@
 pub mod gfx;
 pub mod gui;
 pub mod log;
+pub mod io;
 pub mod version;
 pub use version::Version;
 

@@ -4,3 +4,6 @@
 [submodule "Rustine/ext/vma"]
 	path = Rustine/ext/vma
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "Rustine/ext/libwebp"]
+	path = Rustine/ext/libwebp
+	url = https://chromium.googlesource.com/webm/libwebp

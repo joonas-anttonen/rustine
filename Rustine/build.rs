@@ -28,6 +28,7 @@ fn main() {
 
     build_glfw(&project_dir, &out_dir, &target_os);
     build_vma_interop(&project_dir, &out_dir, &target_os);
+    build_rustine_webp(&project_dir, &out_dir, &target_os);
     
     if target_os == "linux" {
         build_rustine_wl(&project_dir, &out_dir);
@@ -46,6 +47,35 @@ fn main() {
             }
         };
     }
+}
+
+fn build_rustine_webp(project_dir: &Path, out_dir: &Path, target_os: &str) {
+    let generator = choose_generator(target_os);
+
+    let destination_dir = cmake::Config::new(project_dir.join("ext").join("rustine-webp"))
+        .generator(generator)
+        .define("BUILD_SHARED_LIBS", "OFF")
+        .define("WEBP_ENABLE_SIMD", "ON")
+        .define("WEBP_USE_THREAD", "ON")
+        .out_dir(out_dir.join("rustine-webp"))
+        .always_configure(true)
+        .build();
+
+    let lib_dir = prefer_lib64(&destination_dir);
+
+    println!(
+        "cargo:rustc-link-search=native={}",
+        lib_dir.display()
+    );
+    println!("cargo:rustc-link-lib=static={}", "rustine_webp");
+    println!("cargo:rustc-link-lib=static={}", "webp");
+    println!("cargo:rustc-link-lib=static={}", "webpdemux");
+
+    let rustine_webp_dir = project_dir.join("ext").join("rustine-webp");
+    println!("cargo:rerun-if-changed={}", rustine_webp_dir.join("CMakeLists.txt").display());
+    println!("cargo:rerun-if-changed={}", rustine_webp_dir.join("rustine-webp.cpp").display());
+    println!("cargo:rerun-if-changed={}", rustine_webp_dir.join("rustine-webp.hpp").display());
+    println!("cargo:rerun-if-changed={}", project_dir.join("ext").join("libwebp").display());
 }
 
 fn build_vma_interop(project_dir: &Path, out_dir: &Path, target_os: &str) {

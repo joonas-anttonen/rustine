@@ -11,6 +11,11 @@
         }
     },
     "files.associations": {
-        "wayland-client-protocol.h": "c"
+        "wayland-client-protocol.h": "c",
+        "time.h": "c",
+        "struct_itimerspec.h": "c",
+        "struct_timespec.h": "c",
+        "types.h": "c",
+        "timesize.h": "c"
     }
 }

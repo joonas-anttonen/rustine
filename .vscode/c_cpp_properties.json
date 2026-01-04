@@ -30,6 +30,7 @@
             "defines": [
                 "_DEBUG",
                 "_GLFW_WAYLAND",
+                "_POSIX_C_SOURCE=200809L",
                 "JANGINE_INTELLISENSE_IGNORE_GENERATED_FILES"
             ],
             "compilerPath": "gcc",
