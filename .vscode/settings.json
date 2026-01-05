@@ -16,6 +16,7 @@
         "struct_itimerspec.h": "c",
         "struct_timespec.h": "c",
         "types.h": "c",
-        "timesize.h": "c"
+        "timesize.h": "c",
+        "xdg-shell-client-protocol.h": "c"
     }
 }

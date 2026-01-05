@@ -301,17 +301,17 @@ impl Gui {
             let output = {
                 outputs
                     .iter()
-                    .find(|o| std::ffi::CStr::from_ptr(o.name).to_string_lossy() == "eDP-1")
+                    .find(|o| std::ffi::CStr::from_ptr(o.name).to_string_lossy() == "asdasd")
                     .map(|o| o.wl_output)
                     .unwrap_or(std::ptr::null_mut())
             };
 
             let mut rwl_window = std::ptr::null_mut();
             rwl::panic_if_error(rwl::rwlCreateWindow(
-                rwl::RwlWindowType::Background,
+                rwl::RwlWindowType::Normal,
                 output,
-                0,
-                0,
+                1280,
+                720,
                 &mut rwl_window,
             ));
 

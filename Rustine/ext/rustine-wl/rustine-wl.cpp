@@ -1,14 +1,15 @@
 #include "rustine-wl.hpp"
 
+#include <poll.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
+
 #include <cerrno>
 #include <cstring>
 #include <limits>
 #include <memory>
-#include <poll.h>
 #include <stdexcept>
 #include <string>
-#include <sys/eventfd.h>
-#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -17,6 +18,9 @@ static wl_registry* g_registry = nullptr;
 static wl_compositor* g_compositor = nullptr;
 static zwlr_layer_shell_v1* g_layer_shell = nullptr;
 static wp_fractional_scale_manager_v1* g_fractional_scale_manager = nullptr;
+// XDG
+static xdg_wm_base* g_xdg_wm_base = nullptr;
+
 static rwl_log_callback g_log_callback = nullptr;
 static int g_wake_fd = -1;
 static std::vector<std::unique_ptr<struct rwl_window_internal>> g_windows;
@@ -55,6 +59,11 @@ struct rwl_window_internal {
     wl_output* output;
     zwlr_layer_surface_v1* layer_surface;
     wp_fractional_scale_v1* fractional_scale;
+
+    // XDG
+    xdg_surface* xdg_surface;
+    xdg_toplevel* xdg_toplevel;
+
     uint32_t width;
     uint32_t height;
     uint32_t preferred_fractional_scale;
@@ -104,36 +113,6 @@ static void rwl_request_close_all_windows() {
 extern "C" {
 #endif
 
-// Forward declare frame_done for listener
-static void frame_done(void* data, struct wl_callback* callback, uint32_t time);
-
-static const struct wl_callback_listener frame_listener = {
-    frame_done,
-};
-
-// Frame callback listener
-static void frame_done(void* data, struct wl_callback* callback, uint32_t time) {
-    rwl_window_internal* window = static_cast<rwl_window_internal*>(data);
-    rwl_log(RWL_LOG_ERROR, "frame_done callback");
-
-    // Destroy old callback
-    if (callback) {
-        wl_callback_destroy(callback);
-    }
-    window->frame_cb = nullptr;
-
-    // Fire user callback
-    if (window->frame_callback) {
-        window->frame_callback(reinterpret_cast<rwl_window*>(window));
-    }
-
-    // Auto-renew frame callback if user callback is still set
-    if (window->frame_callback && window->surface) {
-        window->frame_cb = wl_surface_frame(window->surface);
-        wl_callback_add_listener(window->frame_cb, &frame_listener, window);
-    }
-}
-
 // Layer surface listener callback
 static void layer_surface_configure(void* data, struct zwlr_layer_surface_v1* surface,
                                     uint32_t serial, uint32_t width, uint32_t height) {
@@ -145,7 +124,8 @@ static void layer_surface_configure(void* data, struct zwlr_layer_surface_v1* su
 
     // Store logical size from compositor
     // This is the surface size in logical coordinates
-    // The actual buffer size will be calculated using fractional scale in rwlGetFramebufferSize()
+    // The actual buffer size will be calculated using fractional scale in
+    // rwlGetFramebufferSize()
     window->width = width;
     window->height = height;
     zwlr_layer_surface_v1_ack_configure(surface, serial);
@@ -165,7 +145,8 @@ static void layer_surface_configure(void* data, struct zwlr_layer_surface_v1* su
             pixel_width = width;
             pixel_height = height;
         }
-        window->pixel_size_callback(reinterpret_cast<rwl_window*>(window), pixel_width, pixel_height);
+        window->pixel_size_callback(reinterpret_cast<rwl_window*>(window), pixel_width,
+                                    pixel_height);
     }
 }
 
@@ -203,7 +184,8 @@ static void window_fractional_scale_preferred_scale(void* data,
             pixel_width = window->width;
             pixel_height = window->height;
         }
-        window->pixel_size_callback(reinterpret_cast<rwl_window*>(window), pixel_width, pixel_height);
+        window->pixel_size_callback(reinterpret_cast<rwl_window*>(window), pixel_width,
+                                    pixel_height);
     }
 }
 
@@ -217,7 +199,8 @@ static void output_geometry(void* data, struct wl_output* output, int32_t x, int
                             const char* model, int32_t transform) {
     char buffer[512];
     snprintf(buffer, sizeof(buffer),
-             "output_geometry: make=%s model=%s x=%d y=%d width_mm=%d height_mm=%d subpixel=%d "
+             "output_geometry: make=%s model=%s x=%d y=%d width_mm=%d "
+             "height_mm=%d subpixel=%d "
              "transform=%d",
              make, model, x, y, width_mm, height_mm, subpixel, transform);
     rwl_log(RWL_LOG_DEBUG, buffer);
@@ -277,6 +260,12 @@ static const struct wl_output_listener output_listener = {
     output_geometry, output_mode, output_done, output_scale, output_name, output_description,
 };
 
+static void wm_base_handle_ping(void* userData, struct xdg_wm_base* wmBase, uint32_t serial) {
+    xdg_wm_base_pong(wmBase, serial);
+}
+
+static const struct xdg_wm_base_listener wm_base_listener = {wm_base_handle_ping};
+
 // Registry listener callback
 static void registry_global(void* data, struct wl_registry* registry, uint32_t name,
                             const char* interface, uint32_t version) {
@@ -312,6 +301,13 @@ static void registry_global(void* data, struct wl_registry* registry, uint32_t n
         snprintf(buffer, sizeof(buffer), "Binding wl_output (name=%u)", name);
         rwl_log(RWL_LOG_WARNING, buffer);
     }
+    // XDG
+    else if ((strcmp(interface, xdg_wm_base_interface.name) == 0)) {
+        g_xdg_wm_base = static_cast<xdg_wm_base*>(
+            wl_registry_bind(registry, name, &xdg_wm_base_interface, std::min(version, 2u)));
+        xdg_wm_base_add_listener(g_xdg_wm_base, &wm_base_listener, nullptr);
+        rwl_log(RWL_LOG_WARNING, "Binding xdg_wm_base");
+    }
 }
 
 static void registry_remove(void* data, struct wl_registry* registry, uint32_t name) {
@@ -339,6 +335,58 @@ static const struct wl_registry_listener registry_listener = {
     registry_global,
     registry_remove,
 };
+
+static void xdg_surface_configure(void* userData, struct xdg_surface* surface, uint32_t serial) {
+    xdg_surface_ack_configure(surface, serial);
+}
+
+static const struct xdg_surface_listener xdg_surface_listener = {
+    xdg_surface_configure,
+};
+
+static void xdg_toplevel_handle_configure(void* userData, struct xdg_toplevel* toplevel,
+                                          int32_t width, int32_t height, struct wl_array* states) {
+    rwl_window_internal* window = reinterpret_cast<rwl_window_internal*>(userData);
+
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "xdg_toplevel_handle_configure: width=%u height=%u", width,
+             height);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
+    // Store logical size from compositor
+    // This is the surface size in logical coordinates
+    // The actual buffer size will be calculated using fractional scale in
+    // rwlGetFramebufferSize()
+    window->width = width;
+    window->height = height;
+
+    // Call logical size callback
+    if (window->logical_size_callback) {
+        window->logical_size_callback(reinterpret_cast<rwl_window*>(window), width, height);
+    }
+
+    // Calculate and call pixel size callback
+    if (window->pixel_size_callback) {
+        uint32_t pixel_width, pixel_height;
+        if (window->preferred_fractional_scale != 120) {
+            pixel_width = (width * window->preferred_fractional_scale + 60) / 120;
+            pixel_height = (height * window->preferred_fractional_scale + 60) / 120;
+        } else {
+            pixel_width = width;
+            pixel_height = height;
+        }
+        window->pixel_size_callback(reinterpret_cast<rwl_window*>(window), pixel_width,
+                                    pixel_height);
+    }
+}
+
+static void xdg_toplevel_handle_close(void* userData, struct xdg_toplevel* toplevel) {
+    rwl_window_internal* window = reinterpret_cast<rwl_window_internal*>(userData);
+    window->should_close = true;
+}
+
+static const struct xdg_toplevel_listener xdg_toplevel_listener = {xdg_toplevel_handle_configure,
+                                                                   xdg_toplevel_handle_close};
 
 void rwlSetLogCallback(rwl_log_callback callback) {
     g_log_callback = callback;
@@ -463,33 +511,35 @@ rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t wid
 
     // Allocate window structure
     auto window = std::make_unique<rwl_window_internal>();
-    rwl_window_internal* window_raw = window.get();
 
-    window_raw->output = output;
-    window_raw->width = width;
-    window_raw->height = height;
-    window_raw->fractional_scale = nullptr;
-    window_raw->preferred_fractional_scale = 120;  // Default 1.0x (120/120)
+    window->output = output;
+    window->width = width;
+    window->height = height;
+    window->fractional_scale = nullptr;
+    window->preferred_fractional_scale = 120;  // Default 1.0x (120/120)
 
     // Create underlying wl_surface
-    window_raw->surface = wl_compositor_create_surface(g_compositor);
-    if (!window_raw->surface) {
+    window->surface = wl_compositor_create_surface(g_compositor);
+    if (!window->surface) {
         return RWL_STATUS_INTERNAL_ERROR;
     }
 
     // Create fractional scale object if manager is available
     if (g_fractional_scale_manager) {
-        window_raw->fractional_scale = wp_fractional_scale_manager_v1_get_fractional_scale(
-            g_fractional_scale_manager, window_raw->surface);
-        if (window_raw->fractional_scale) {
-            wp_fractional_scale_v1_add_listener(window_raw->fractional_scale,
-                                                &window_fractional_scale_listener, window_raw);
+        window->fractional_scale = wp_fractional_scale_manager_v1_get_fractional_scale(
+            g_fractional_scale_manager, window->surface);
+        if (window->fractional_scale) {
+            wp_fractional_scale_v1_add_listener(window->fractional_scale,
+                                                &window_fractional_scale_listener, window.get());
             rwl_log(RWL_LOG_DEBUG, "Created fractional scale object for window");
         }
     }
 
+    bool is_layer_shell_window =
+        (type == RWL_WINDOW_TYPE_BACKGROUND || type == RWL_WINDOW_TYPE_TASKBAR);
+
     // Create layer surface if layer shell is available
-    if (g_layer_shell) {
+    if (is_layer_shell_window && g_layer_shell) {
         // Determine layer and anchor based on window type
         uint32_t layer;
         uint32_t anchor;
@@ -508,28 +558,47 @@ rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t wid
                      ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
             exclusive_zone = height;  // Reserve space for taskbar
         } else {
-            wl_surface_destroy(window_raw->surface);
+            wl_surface_destroy(window->surface);
             return RWL_STATUS_INVALID_ARGUMENT;
         }
 
-        window_raw->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-            g_layer_shell, window_raw->surface, output, layer, "rustine-wl");
-        if (!window_raw->layer_surface) {
-            wl_surface_destroy(window_raw->surface);
+        window->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
+            g_layer_shell, window->surface, output, layer, "rustine-wl");
+        if (!window->layer_surface) {
+            wl_surface_destroy(window->surface);
             return RWL_STATUS_INTERNAL_ERROR;
         }
-        zwlr_layer_surface_v1_add_listener(window_raw->layer_surface, &layer_surface_listener,
-                                           window_raw);
-        zwlr_layer_surface_v1_set_size(window_raw->layer_surface, width, height);
-        zwlr_layer_surface_v1_set_anchor(window_raw->layer_surface, anchor);
-        zwlr_layer_surface_v1_set_exclusive_zone(window_raw->layer_surface, exclusive_zone);
-        wl_surface_commit(window_raw->surface);
-        wl_display_roundtrip(g_display);  // Wait for configure
+        zwlr_layer_surface_v1_add_listener(window->layer_surface, &layer_surface_listener,
+                                           window.get());
+        zwlr_layer_surface_v1_set_size(window->layer_surface, width, height);
+        zwlr_layer_surface_v1_set_anchor(window->layer_surface, anchor);
+        zwlr_layer_surface_v1_set_exclusive_zone(window->layer_surface, exclusive_zone);
+    } else {
+        if (!g_xdg_wm_base) {
+            rwl_log(RWL_LOG_ERROR, "xdg_wm_base is not available");
+            return RWL_STATUS_INTERNAL_ERROR;
+        }
+        window->xdg_surface = xdg_wm_base_get_xdg_surface(g_xdg_wm_base, window->surface);
+        if (!window->xdg_surface) {
+            wl_surface_destroy(window->surface);
+            return RWL_STATUS_INTERNAL_ERROR;
+        }
+        xdg_surface_add_listener(window->xdg_surface, &xdg_surface_listener, window.get());
+        window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
+        if (!window->xdg_toplevel) {
+            xdg_surface_destroy(window->xdg_surface);
+            wl_surface_destroy(window->surface);
+            return RWL_STATUS_INTERNAL_ERROR;
+        }
+        xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener, window.get());
+        xdg_toplevel_set_title(window->xdg_toplevel, "rustine-wl");
     }
 
-    g_windows.push_back(std::move(window));
+    wl_surface_commit(window->surface);
+    wl_display_roundtrip(g_display);  // Wait for configure
 
-    *window_out = reinterpret_cast<rwl_window*>(window_raw);
+    *window_out = reinterpret_cast<rwl_window*>(window.get());
+    g_windows.push_back(std::move(window));
     return RWL_STATUS_OK;
 }
 
@@ -587,30 +656,6 @@ rwl_status rwlSetLogicalSizeCallback(rwl_window* window, rwl_logical_size_callba
 
     rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
     win->logical_size_callback = callback;
-
-    return RWL_STATUS_OK;
-}
-
-rwl_status rwlSetFrameCallback(rwl_window* window, rwl_frame_callback callback) {
-    if (!window) {
-        return RWL_STATUS_INVALID_ARGUMENT;
-    }
-
-    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
-
-    // If clearing callback, destroy pending frame callback
-    if (!callback && win->frame_cb) {
-        wl_callback_destroy(win->frame_cb);
-        win->frame_cb = nullptr;
-    }
-
-    win->frame_callback = callback;
-
-    // If setting for the first time, request initial frame
-    if (callback && !win->frame_cb && win->surface) {
-        win->frame_cb = wl_surface_frame(win->surface);
-        wl_callback_add_listener(win->frame_cb, &frame_listener, win);
-    }
 
     return RWL_STATUS_OK;
 }
@@ -754,8 +799,7 @@ static rwl_status rwl_wait_events_internal(int timeout_ms) {
 
     if (wake_ready) {
         uint64_t value;
-        while (read(g_wake_fd, &value, sizeof(value)) == sizeof(value)) {
-        }
+        while (read(g_wake_fd, &value, sizeof(value)) == sizeof(value)) {}
     }
 
     if (poll_result == -1) {
@@ -785,7 +829,8 @@ rwl_status rwlWaitEventsTimeout(uint64_t timeout_ns) {
         return rwlWaitEvents();
     }
 
-    // Convert nanoseconds to milliseconds, rounding up to avoid premature timeouts.
+    // Convert nanoseconds to milliseconds, rounding up to avoid premature
+    // timeouts.
     uint64_t ms_u64 = (timeout_ns + 999999ull) / 1000000ull;
     int timeout_ms;
     if (ms_u64 > static_cast<uint64_t>(std::numeric_limits<int>::max())) {

@@ -17,10 +17,11 @@ pub type RwlOutput = *mut ffi::c_void;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum RwlWindowType {
+    Normal = 0,
     /// Desktop background (bottom layer, covers full screen)
-    Background = 0,
+    Background = 1,
     /// Taskbar/panel (top layer, typically anchored to top)
-    Taskbar = 1,
+    Taskbar = 2,
 }
 
 /// Output information structure
