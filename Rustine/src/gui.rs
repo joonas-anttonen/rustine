@@ -259,7 +259,7 @@ impl Gui {
                 panic!("Unsupported platform");
             }
 
-            rwl::rwlSetLogCallback(Self::rwl_log_callback);
+            rwl::rwlSetLogCallback(rwl::RwlLogSeverity::Error, Self::rwl_log_callback);
             rwl::panic_if_error(rwl::rwlStartup());
 
             // Outputs
@@ -319,10 +319,13 @@ impl Gui {
                 rwl_window,
                 Self::rwl_pixel_size_callback,
             ));
+
             rwl::panic_if_error(rwl::rwlSetLogicalSizeCallback(
                 rwl_window,
                 Self::rwl_logical_size_callback,
             ));
+
+            rwl::panic_if_error(rwl::rwlSetKeyCallback(rwl_window, Self::rwl_key_callback));
 
             rwl_window
         };
@@ -411,6 +414,19 @@ impl Gui {
     ) {
         // Implement logical size callback handling here if needed, just log for now
         debug!("Logical size changed: {}x{}", width, height);
+    }
+
+    unsafe extern "C" fn rwl_key_callback(
+        _window: rwl::RwlWindow,
+        key: rwl::RwlKey,
+        scancode: i32,
+        action: rwl::RwlAction,
+        mods: rwl::RwlMod,
+    ) {
+        debug!(
+            "Key event: key={:?}, scancode={}, action={:?}, mods={:?}",
+            key, scancode, action, mods
+        );
     }
 
     unsafe extern "C" fn rwl_log_callback(severity: u32, message: *const std::ffi::c_char) {

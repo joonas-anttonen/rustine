@@ -13,6 +13,7 @@ include(GNUInstallDirs)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED IMPORTED_TARGET wayland-protocols)
+pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 pkg_get_variable(WAYLAND_SCANNER wayland-scanner wayland_scanner)
 
@@ -65,6 +66,7 @@ target_include_directories(rustine_wl
 )
 
 target_link_libraries(rustine_wl PUBLIC PkgConfig::WAYLAND_CLIENT)
+target_link_libraries(rustine_wl PUBLIC PkgConfig::XKBCOMMON)
 
 install(
     TARGETS rustine_wl

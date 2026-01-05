@@ -17,6 +17,7 @@
         "struct_timespec.h": "c",
         "types.h": "c",
         "timesize.h": "c",
-        "xdg-shell-client-protocol.h": "c"
+        "xdg-shell-client-protocol.h": "c",
+        "input.h": "c"
     }
 }

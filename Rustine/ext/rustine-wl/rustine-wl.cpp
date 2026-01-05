@@ -1,8 +1,12 @@
 #include "rustine-wl.hpp"
 
+#include <linux/input.h>
 #include <poll.h>
 #include <sys/eventfd.h>
+#include <sys/mman.h>
 #include <unistd.h>
+#include <xkbcommon/xkbcommon-compose.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include <cerrno>
 #include <cstring>
@@ -25,7 +29,166 @@ static wp_fractional_scale_manager_v1* g_fractional_scale_manager = nullptr;
 // XDG
 static xdg_wm_base* g_xdg_wm_base = nullptr;
 
+// XKB
+static xkb_context* g_xkb_context = nullptr;
+static xkb_keymap* g_xkb_keymap = nullptr;
+static xkb_state* g_xkb_state = nullptr;
+static xkb_compose_state* g_xkb_compose_state = nullptr;
+static xkb_mod_index_t g_xkb_mod_shift;
+static xkb_mod_index_t g_xkb_mod_ctrl;
+static xkb_mod_index_t g_xkb_mod_alt;
+static xkb_mod_index_t g_xkb_mod_super;
+
+static rwl_mod g_mods = RWL_MOD_NONE;
+static rwl_key g_keycodes[256];
+static rwl_key g_scancodes[RWL_KEY_COUNT + 1];
+static void create_key_tables() {
+    memset(g_keycodes, -1, sizeof(g_keycodes));
+    memset(g_scancodes, -1, sizeof(g_scancodes));
+
+    g_keycodes[KEY_GRAVE] = RWL_KEY_GRAVE_ACCENT;
+    g_keycodes[KEY_1] = RWL_KEY_1;
+    g_keycodes[KEY_2] = RWL_KEY_2;
+    g_keycodes[KEY_3] = RWL_KEY_3;
+    g_keycodes[KEY_4] = RWL_KEY_4;
+    g_keycodes[KEY_5] = RWL_KEY_5;
+    g_keycodes[KEY_6] = RWL_KEY_6;
+    g_keycodes[KEY_7] = RWL_KEY_7;
+    g_keycodes[KEY_8] = RWL_KEY_8;
+    g_keycodes[KEY_9] = RWL_KEY_9;
+    g_keycodes[KEY_0] = RWL_KEY_0;
+    g_keycodes[KEY_SPACE] = RWL_KEY_SPACE;
+    g_keycodes[KEY_MINUS] = RWL_KEY_MINUS;
+    g_keycodes[KEY_EQUAL] = RWL_KEY_EQUAL;
+    g_keycodes[KEY_Q] = RWL_KEY_Q;
+    g_keycodes[KEY_W] = RWL_KEY_W;
+    g_keycodes[KEY_E] = RWL_KEY_E;
+    g_keycodes[KEY_R] = RWL_KEY_R;
+    g_keycodes[KEY_T] = RWL_KEY_T;
+    g_keycodes[KEY_Y] = RWL_KEY_Y;
+    g_keycodes[KEY_U] = RWL_KEY_U;
+    g_keycodes[KEY_I] = RWL_KEY_I;
+    g_keycodes[KEY_O] = RWL_KEY_O;
+    g_keycodes[KEY_P] = RWL_KEY_P;
+    g_keycodes[KEY_LEFTBRACE] = RWL_KEY_LEFT_BRACKET;
+    g_keycodes[KEY_RIGHTBRACE] = RWL_KEY_RIGHT_BRACKET;
+    g_keycodes[KEY_A] = RWL_KEY_A;
+    g_keycodes[KEY_S] = RWL_KEY_S;
+    g_keycodes[KEY_D] = RWL_KEY_D;
+    g_keycodes[KEY_F] = RWL_KEY_F;
+    g_keycodes[KEY_G] = RWL_KEY_G;
+    g_keycodes[KEY_H] = RWL_KEY_H;
+    g_keycodes[KEY_J] = RWL_KEY_J;
+    g_keycodes[KEY_K] = RWL_KEY_K;
+    g_keycodes[KEY_L] = RWL_KEY_L;
+    g_keycodes[KEY_SEMICOLON] = RWL_KEY_SEMICOLON;
+    g_keycodes[KEY_APOSTROPHE] = RWL_KEY_APOSTROPHE;
+    g_keycodes[KEY_Z] = RWL_KEY_Z;
+    g_keycodes[KEY_X] = RWL_KEY_X;
+    g_keycodes[KEY_C] = RWL_KEY_C;
+    g_keycodes[KEY_V] = RWL_KEY_V;
+    g_keycodes[KEY_B] = RWL_KEY_B;
+    g_keycodes[KEY_N] = RWL_KEY_N;
+    g_keycodes[KEY_M] = RWL_KEY_M;
+    g_keycodes[KEY_COMMA] = RWL_KEY_COMMA;
+    g_keycodes[KEY_DOT] = RWL_KEY_PERIOD;
+    g_keycodes[KEY_SLASH] = RWL_KEY_SLASH;
+    g_keycodes[KEY_BACKSLASH] = RWL_KEY_BACKSLASH;
+    g_keycodes[KEY_ESC] = RWL_KEY_ESCAPE;
+    g_keycodes[KEY_TAB] = RWL_KEY_TAB;
+    g_keycodes[KEY_LEFTSHIFT] = RWL_KEY_LEFT_SHIFT;
+    g_keycodes[KEY_RIGHTSHIFT] = RWL_KEY_RIGHT_SHIFT;
+    g_keycodes[KEY_LEFTCTRL] = RWL_KEY_LEFT_CONTROL;
+    g_keycodes[KEY_RIGHTCTRL] = RWL_KEY_RIGHT_CONTROL;
+    g_keycodes[KEY_LEFTALT] = RWL_KEY_LEFT_ALT;
+    g_keycodes[KEY_RIGHTALT] = RWL_KEY_RIGHT_ALT;
+    g_keycodes[KEY_LEFTMETA] = RWL_KEY_LEFT_SUPER;
+    g_keycodes[KEY_RIGHTMETA] = RWL_KEY_RIGHT_SUPER;
+    g_keycodes[KEY_COMPOSE] = RWL_KEY_MENU;
+    g_keycodes[KEY_NUMLOCK] = RWL_KEY_NUM_LOCK;
+    g_keycodes[KEY_CAPSLOCK] = RWL_KEY_CAPS_LOCK;
+    g_keycodes[KEY_PRINT] = RWL_KEY_PRINT_SCREEN;
+    g_keycodes[KEY_SCROLLLOCK] = RWL_KEY_SCROLL_LOCK;
+    g_keycodes[KEY_PAUSE] = RWL_KEY_PAUSE;
+    g_keycodes[KEY_DELETE] = RWL_KEY_DELETE;
+    g_keycodes[KEY_BACKSPACE] = RWL_KEY_BACKSPACE;
+    g_keycodes[KEY_ENTER] = RWL_KEY_ENTER;
+    g_keycodes[KEY_HOME] = RWL_KEY_HOME;
+    g_keycodes[KEY_END] = RWL_KEY_END;
+    g_keycodes[KEY_PAGEUP] = RWL_KEY_PAGE_UP;
+    g_keycodes[KEY_PAGEDOWN] = RWL_KEY_PAGE_DOWN;
+    g_keycodes[KEY_INSERT] = RWL_KEY_INSERT;
+    g_keycodes[KEY_LEFT] = RWL_KEY_LEFT;
+    g_keycodes[KEY_RIGHT] = RWL_KEY_RIGHT;
+    g_keycodes[KEY_DOWN] = RWL_KEY_DOWN;
+    g_keycodes[KEY_UP] = RWL_KEY_UP;
+    g_keycodes[KEY_F1] = RWL_KEY_F1;
+    g_keycodes[KEY_F2] = RWL_KEY_F2;
+    g_keycodes[KEY_F3] = RWL_KEY_F3;
+    g_keycodes[KEY_F4] = RWL_KEY_F4;
+    g_keycodes[KEY_F5] = RWL_KEY_F5;
+    g_keycodes[KEY_F6] = RWL_KEY_F6;
+    g_keycodes[KEY_F7] = RWL_KEY_F7;
+    g_keycodes[KEY_F8] = RWL_KEY_F8;
+    g_keycodes[KEY_F9] = RWL_KEY_F9;
+    g_keycodes[KEY_F10] = RWL_KEY_F10;
+    g_keycodes[KEY_F11] = RWL_KEY_F11;
+    g_keycodes[KEY_F12] = RWL_KEY_F12;
+    g_keycodes[KEY_F13] = RWL_KEY_F13;
+    g_keycodes[KEY_F14] = RWL_KEY_F14;
+    g_keycodes[KEY_F15] = RWL_KEY_F15;
+    g_keycodes[KEY_F16] = RWL_KEY_F16;
+    g_keycodes[KEY_F17] = RWL_KEY_F17;
+    g_keycodes[KEY_F18] = RWL_KEY_F18;
+    g_keycodes[KEY_F19] = RWL_KEY_F19;
+    g_keycodes[KEY_F20] = RWL_KEY_F20;
+    g_keycodes[KEY_F21] = RWL_KEY_F21;
+    g_keycodes[KEY_F22] = RWL_KEY_F22;
+    g_keycodes[KEY_F23] = RWL_KEY_F23;
+    g_keycodes[KEY_F24] = RWL_KEY_F24;
+    g_keycodes[KEY_KPSLASH] = RWL_KEY_KP_DIVIDE;
+    g_keycodes[KEY_KPASTERISK] = RWL_KEY_KP_MULTIPLY;
+    g_keycodes[KEY_KPMINUS] = RWL_KEY_KP_SUBTRACT;
+    g_keycodes[KEY_KPPLUS] = RWL_KEY_KP_ADD;
+    g_keycodes[KEY_KP0] = RWL_KEY_KP_0;
+    g_keycodes[KEY_KP1] = RWL_KEY_KP_1;
+    g_keycodes[KEY_KP2] = RWL_KEY_KP_2;
+    g_keycodes[KEY_KP3] = RWL_KEY_KP_3;
+    g_keycodes[KEY_KP4] = RWL_KEY_KP_4;
+    g_keycodes[KEY_KP5] = RWL_KEY_KP_5;
+    g_keycodes[KEY_KP6] = RWL_KEY_KP_6;
+    g_keycodes[KEY_KP7] = RWL_KEY_KP_7;
+    g_keycodes[KEY_KP8] = RWL_KEY_KP_8;
+    g_keycodes[KEY_KP9] = RWL_KEY_KP_9;
+    g_keycodes[KEY_KPDOT] = RWL_KEY_KP_DECIMAL;
+    g_keycodes[KEY_KPEQUAL] = RWL_KEY_KP_EQUAL;
+    g_keycodes[KEY_KPENTER] = RWL_KEY_KP_ENTER;
+    g_keycodes[KEY_102ND] = RWL_KEY_WORLD_2;
+
+    for (int scancode = 0; scancode < 256; scancode++) {
+        if (g_keycodes[scancode] > 0)
+            g_scancodes[g_keycodes[scancode]] = static_cast<rwl_key>(scancode);
+    }
+}
+static rwl_key translate_key(uint32_t scancode) {
+    if (scancode < sizeof(g_keycodes) / sizeof(g_keycodes[0]))
+        return g_keycodes[scancode];
+
+    return RWL_KEY_UNKNOWN;
+}
+
 static rwl_log_callback g_log_callback = nullptr;
+static rwl_log_severity g_log_severity = RWL_LOG_DEBUG;
+
+static void rwl_log(rwl_log_severity severity, const char* message) {
+    if (severity < g_log_severity) {
+        return;
+    }
+    if (g_log_callback) {
+        g_log_callback(static_cast<uint32_t>(severity), message);
+    }
+}
+
 static int g_wake_fd = -1;
 static std::vector<std::unique_ptr<struct rwl_window_internal>> g_windows;
 static rwl_window_internal* g_window_with_keyboard = nullptr;
@@ -43,21 +206,6 @@ struct rwl_output_info {
 
 static std::vector<std::unique_ptr<rwl_output_info>> g_outputs;
 
-// Log severity levels matching the Rust log module
-enum rwl_log_severity {
-    RWL_LOG_DEBUG = 0,
-    RWL_LOG_INFO = 1,
-    RWL_LOG_WARNING = 2,
-    RWL_LOG_ERROR = 3,
-};
-
-// Internal logging helper
-static void rwl_log(rwl_log_severity severity, const char* message) {
-    if (g_log_callback) {
-        g_log_callback(static_cast<uint32_t>(severity), message);
-    }
-}
-
 // Internal window structure
 struct rwl_window_internal {
     wl_surface* surface;
@@ -72,11 +220,15 @@ struct rwl_window_internal {
     uint32_t width;
     uint32_t height;
     uint32_t preferred_fractional_scale;
+
     rwl_pixel_size_callback pixel_size_callback;
     rwl_logical_size_callback logical_size_callback;
+    rwl_key_callback key_callback;
 
     void* user_pointer;
+
     bool should_close;
+    bool key_states[RWL_KEY_COUNT + 1];
 };
 
 static void rwl_cleanup_window(rwl_window_internal* window) {
@@ -330,7 +482,67 @@ static void keyboard_handle_keymap(
         fd,
         size);
     rwl_log(RWL_LOG_DEBUG, buffer);
+
+    if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
+        snprintf(buffer, sizeof(buffer), "keyboard_handle_keymap: unsupported format=%u", format);
+        rwl_log(RWL_LOG_ERROR, buffer);
+
+        close(fd);
+        return;
+    }
+
+    auto keymap_data = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (keymap_data == MAP_FAILED) {
+        rwl_log(RWL_LOG_ERROR, "Failed to mmap keymap data");
+        close(fd);
+        return;
+    }
+
+    g_xkb_keymap = xkb_keymap_new_from_string(g_xkb_context,
+        static_cast<const char*>(keymap_data),
+        XKB_KEYMAP_FORMAT_TEXT_V1,
+        XKB_KEYMAP_COMPILE_NO_FLAGS);
+
+    munmap(keymap_data, size);
+    close(fd);
+
+    if (!g_xkb_keymap) {
+        rwl_log(RWL_LOG_ERROR, "Failed to create XKB keymap");
+        return;
+    }
+
+    g_xkb_state = xkb_state_new(g_xkb_keymap);
+    if (!g_xkb_state) {
+        rwl_log(RWL_LOG_ERROR, "Failed to create XKB state");
+        return;
+    }
+
+    const char* locale = getenv("LC_ALL");
+    if (!locale || !*locale)
+        locale = getenv("LC_CTYPE");
+    if (!locale || !*locale)
+        locale = getenv("LANG");
+    if (!locale || !*locale)
+        locale = "C";
+
+    auto compose_table =
+        xkb_compose_table_new_from_locale(g_xkb_context, locale, XKB_COMPOSE_COMPILE_NO_FLAGS);
+    if (compose_table) {
+        g_xkb_compose_state = xkb_compose_state_new(compose_table, XKB_COMPOSE_STATE_NO_FLAGS);
+        xkb_compose_table_unref(compose_table);
+        if (!g_xkb_compose_state) {
+            rwl_log(RWL_LOG_ERROR, "Failed to create XKB compose state");
+            return;
+        }
+    } else {
+        rwl_log(RWL_LOG_DEBUG, "No XKB compose table created");
+    }
+    g_xkb_mod_ctrl = xkb_keymap_mod_get_index(g_xkb_keymap, "Control");
+    g_xkb_mod_alt = xkb_keymap_mod_get_index(g_xkb_keymap, "Mod1");
+    g_xkb_mod_shift = xkb_keymap_mod_get_index(g_xkb_keymap, "Shift");
+    g_xkb_mod_super = xkb_keymap_mod_get_index(g_xkb_keymap, "Mod4");
 }
+
 static void keyboard_handle_enter(void* data,
     struct wl_keyboard* keyboard,
     uint32_t serial,
@@ -354,6 +566,7 @@ static void keyboard_handle_enter(void* data,
 
     g_window_with_keyboard = window;
 }
+
 static void keyboard_handle_leave(
     void* data, struct wl_keyboard* keyboard, uint32_t serial, struct wl_surface* surface) {
     char buffer[256];
@@ -365,21 +578,92 @@ static void keyboard_handle_leave(
         return;
     }
 
+    rwl_window_internal* window =
+        reinterpret_cast<rwl_window_internal*>(wl_surface_get_user_data(surface));
+
+    // Reset the window key states
+    for (int i = 0; i < RWL_KEY_COUNT; ++i) {
+        if (window->key_states[i]) {
+            window->key_states[i] = false;
+
+            if (window->key_callback) {
+                window->key_callback(reinterpret_cast<rwl_window*>(window),
+                    static_cast<rwl_key>(i),
+                    0,
+                    RWL_ACTION_RELEASE,
+                    0);
+            }
+        }
+    }
+
+    g_mods = RWL_MOD_NONE;
     g_window_with_keyboard = nullptr;
 }
+
 static void keyboard_handle_key(void* data,
     struct wl_keyboard* keyboard,
     uint32_t serial,
     uint32_t time,
     uint32_t scancode,
-    uint32_t state) {}
+    uint32_t state) {
+    char buffer[512];
+    snprintf(buffer,
+        sizeof(buffer),
+        "keyboard_handle_key: serial=%u time=%u scancode=%u state=%u",
+        serial,
+        time,
+        scancode,
+        state);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
+    rwl_window_internal* window = g_window_with_keyboard;
+    if (!window) {
+        return;
+    }
+
+    rwl_key key = translate_key(scancode);
+    rwl_action action =
+        (state == WL_KEYBOARD_KEY_STATE_PRESSED) ? RWL_ACTION_PRESS : RWL_ACTION_RELEASE;
+
+    if (action == RWL_ACTION_RELEASE) {
+        window->key_states[key] = false;
+    } else if (action == RWL_ACTION_PRESS) {
+        window->key_states[key] = true;
+    }
+
+    if (window->key_callback) {
+        window->key_callback(reinterpret_cast<rwl_window*>(window), key, scancode, action, g_mods);
+    }
+}
+
 static void keyboard_handle_modifiers(void* data,
     struct wl_keyboard* keyboard,
     uint32_t serial,
     uint32_t mods_depressed,
     uint32_t mods_latched,
     uint32_t mods_locked,
-    uint32_t group) {}
+    uint32_t group) {
+    if (!g_xkb_state) {
+        return;
+    }
+
+    xkb_state_update_mask(g_xkb_state, mods_depressed, mods_latched, mods_locked, 0, 0, group);
+    g_mods = RWL_MOD_NONE;
+
+    if (xkb_state_mod_name_is_active(g_xkb_state, XKB_MOD_NAME_SHIFT, XKB_STATE_MODS_EFFECTIVE)) {
+        g_mods = static_cast<rwl_mod>(g_mods | RWL_MOD_SHIFT);
+    }
+    if (xkb_state_mod_name_is_active(g_xkb_state, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE)) {
+        g_mods = static_cast<rwl_mod>(g_mods | RWL_MOD_CTRL);
+    }
+    if (xkb_state_mod_name_is_active(g_xkb_state, XKB_MOD_NAME_ALT, XKB_STATE_MODS_EFFECTIVE)) {
+        g_mods = static_cast<rwl_mod>(g_mods | RWL_MOD_ALT);
+    }
+    if (xkb_state_mod_name_is_active(g_xkb_state, XKB_MOD_NAME_LOGO, XKB_STATE_MODS_EFFECTIVE)) {
+        g_mods = static_cast<rwl_mod>(g_mods | RWL_MOD_SUPER);
+    }
+}
+
 static void keyboard_handle_repeat_info(
     void* data, struct wl_keyboard* keyboard, int32_t rate, int32_t delay) {}
 
@@ -553,17 +837,31 @@ static void xdg_toplevel_handle_close(void* data, struct xdg_toplevel* toplevel)
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
     xdg_toplevel_handle_configure, xdg_toplevel_handle_close};
 
-void rwlSetLogCallback(rwl_log_callback callback) {
+void rwlSetLogCallback(rwl_log_severity min_severity, rwl_log_callback callback) {
+    g_log_severity = min_severity;
     g_log_callback = callback;
 }
 
 rwl_status rwlStartup() {
     if (g_display) {
+        rwl_log(RWL_LOG_WARNING, "rwlStartup called but already initialized");
         return RWL_STATUS_ALREADY_INITIALIZED;
+    }
+
+    // ========== XKB
+    {
+        create_key_tables();
+
+        g_xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+        if (!g_xkb_context) {
+            rwl_log(RWL_LOG_ERROR, "Failed to create XKB context");
+            return RWL_STATUS_INTERNAL_ERROR;
+        }
     }
 
     g_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (g_wake_fd == -1) {
+        rwl_log(RWL_LOG_ERROR, "Failed to create wake eventfd");
         return RWL_STATUS_INTERNAL_ERROR;
     }
 
@@ -615,10 +913,34 @@ rwl_status rwlStartup() {
 }
 
 rwl_status rwlShutdown() {
+    if (!g_display) {
+        rwl_log(RWL_LOG_WARNING, "rwlShutdown called but not initialized");
+        return RWL_STATUS_NOT_INITIALIZED;
+    }
+
     g_window_with_keyboard = nullptr;
 
-    if (!g_display) {
-        return RWL_STATUS_NOT_INITIALIZED;
+    // ========== XKB
+    {
+        if (g_xkb_compose_state) {
+            xkb_compose_state_unref(g_xkb_compose_state);
+            g_xkb_compose_state = nullptr;
+        }
+
+        if (g_xkb_state) {
+            xkb_state_unref(g_xkb_state);
+            g_xkb_state = nullptr;
+        }
+
+        if (g_xkb_keymap) {
+            xkb_keymap_unref(g_xkb_keymap);
+            g_xkb_keymap = nullptr;
+        }
+
+        if (g_xkb_context) {
+            xkb_context_unref(g_xkb_context);
+            g_xkb_context = nullptr;
+        }
     }
 
     if (g_keyboard) {
@@ -843,6 +1165,17 @@ rwl_status rwlSetLogicalSizeCallback(rwl_window* window, rwl_logical_size_callba
 
     rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
     win->logical_size_callback = callback;
+
+    return RWL_STATUS_OK;
+}
+
+rwl_status rwlSetKeyCallback(rwl_window* window, rwl_key_callback callback) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->key_callback = callback;
 
     return RWL_STATUS_OK;
 }
