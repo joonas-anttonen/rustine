@@ -47,14 +47,24 @@ unsafe extern "C" {
     fn rdxcCompilerDestroy(compiler: *mut rdxc_compiler);
 }
 
-pub struct Compiler {
-    handle: *mut rdxc_compiler,
-}
-
 #[derive(Debug)]
 pub struct ShaderCompileResult {
     pub bytecode: Vec<u8>,
     pub error_message: Option<String>,
+}
+
+pub struct Compiler {
+    handle: *mut rdxc_compiler,
+}
+
+impl Drop for Compiler {
+    fn drop(&mut self) {
+        if !self.handle.is_null() {
+            unsafe {
+                rdxcCompilerDestroy(self.handle);
+            }
+        }
+    }
 }
 
 impl Compiler {
@@ -138,15 +148,5 @@ impl Compiler {
             bytecode,
             error_message,
         })
-    }
-}
-
-impl Drop for Compiler {
-    fn drop(&mut self) {
-        if !self.handle.is_null() {
-            unsafe {
-                rdxcCompilerDestroy(self.handle);
-            }
-        }
     }
 }
