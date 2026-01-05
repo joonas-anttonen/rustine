@@ -424,7 +424,7 @@ impl Gui {
         };
 
         let sev = match severity {
-            0 => return,
+            0 => Severity::Debug,
             1 => Severity::Info,
             2 => Severity::Warning,
             3 => Severity::Error,

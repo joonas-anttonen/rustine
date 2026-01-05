@@ -16,14 +16,19 @@
 static wl_display* g_display = nullptr;
 static wl_registry* g_registry = nullptr;
 static wl_compositor* g_compositor = nullptr;
+static wl_seat* g_seat = nullptr;
+static wl_keyboard* g_keyboard = nullptr;
+
 static zwlr_layer_shell_v1* g_layer_shell = nullptr;
 static wp_fractional_scale_manager_v1* g_fractional_scale_manager = nullptr;
+
 // XDG
 static xdg_wm_base* g_xdg_wm_base = nullptr;
 
 static rwl_log_callback g_log_callback = nullptr;
 static int g_wake_fd = -1;
 static std::vector<std::unique_ptr<struct rwl_window_internal>> g_windows;
+static rwl_window_internal* g_window_with_keyboard = nullptr;
 
 // Output information structure
 struct rwl_output_info {
@@ -69,35 +74,43 @@ struct rwl_window_internal {
     uint32_t preferred_fractional_scale;
     rwl_pixel_size_callback pixel_size_callback;
     rwl_logical_size_callback logical_size_callback;
-    rwl_frame_callback frame_callback;
-    wl_callback* frame_cb;
+
     void* user_pointer;
     bool should_close;
 };
 
-static void rwl_cleanup_window(rwl_window_internal* win) {
-    if (!win) {
+static void rwl_cleanup_window(rwl_window_internal* window) {
+    if (!window) {
         return;
     }
 
-    if (win->frame_cb) {
-        wl_callback_destroy(win->frame_cb);
-        win->frame_cb = nullptr;
+    if (g_window_with_keyboard == window) {
+        g_window_with_keyboard = nullptr;
     }
 
-    if (win->fractional_scale) {
-        wp_fractional_scale_v1_destroy(win->fractional_scale);
-        win->fractional_scale = nullptr;
+    if (window->xdg_toplevel) {
+        xdg_toplevel_destroy(window->xdg_toplevel);
+        window->xdg_toplevel = nullptr;
     }
 
-    if (win->layer_surface) {
-        zwlr_layer_surface_v1_destroy(win->layer_surface);
-        win->layer_surface = nullptr;
+    if (window->xdg_surface) {
+        xdg_surface_destroy(window->xdg_surface);
+        window->xdg_surface = nullptr;
     }
 
-    if (win->surface) {
-        wl_surface_destroy(win->surface);
-        win->surface = nullptr;
+    if (window->fractional_scale) {
+        wp_fractional_scale_v1_destroy(window->fractional_scale);
+        window->fractional_scale = nullptr;
+    }
+
+    if (window->layer_surface) {
+        zwlr_layer_surface_v1_destroy(window->layer_surface);
+        window->layer_surface = nullptr;
+    }
+
+    if (window->surface) {
+        wl_surface_destroy(window->surface);
+        window->surface = nullptr;
     }
 }
 
@@ -114,12 +127,19 @@ extern "C" {
 #endif
 
 // Layer surface listener callback
-static void layer_surface_configure(void* data, struct zwlr_layer_surface_v1* surface,
-                                    uint32_t serial, uint32_t width, uint32_t height) {
+static void layer_surface_configure(void* data,
+    struct zwlr_layer_surface_v1* surface,
+    uint32_t serial,
+    uint32_t width,
+    uint32_t height) {
     rwl_window_internal* window = static_cast<rwl_window_internal*>(data);
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "layer_surface_configure: width=%u height=%u serial=%u", width,
-             height, serial);
+    snprintf(buffer,
+        sizeof(buffer),
+        "layer_surface_configure: width=%u height=%u serial=%u",
+        width,
+        height,
+        serial);
     rwl_log(RWL_LOG_DEBUG, buffer);
 
     // Store logical size from compositor
@@ -145,8 +165,8 @@ static void layer_surface_configure(void* data, struct zwlr_layer_surface_v1* su
             pixel_width = width;
             pixel_height = height;
         }
-        window->pixel_size_callback(reinterpret_cast<rwl_window*>(window), pixel_width,
-                                    pixel_height);
+        window->pixel_size_callback(
+            reinterpret_cast<rwl_window*>(window), pixel_width, pixel_height);
     }
 }
 
@@ -163,15 +183,17 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
 };
 
 // Fractional scale listener callback
-static void window_fractional_scale_preferred_scale(void* data,
-                                                    struct wp_fractional_scale_v1* fractional_scale,
-                                                    uint32_t scale) {
+static void window_fractional_scale_preferred_scale(
+    void* data, struct wp_fractional_scale_v1* fractional_scale, uint32_t scale) {
     rwl_window_internal* window = static_cast<rwl_window_internal*>(data);
     window->preferred_fractional_scale = scale;
 
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "window_fractional_scale_preferred_scale: scale=%u (%.2fx)",
-             scale, scale / 120.0);
+    snprintf(buffer,
+        sizeof(buffer),
+        "window_fractional_scale_preferred_scale: scale=%u (%.2fx)",
+        scale,
+        scale / 120.0);
     rwl_log(RWL_LOG_INFO, buffer);
 
     // When fractional scale changes, recalculate and notify pixel size callback
@@ -184,8 +206,8 @@ static void window_fractional_scale_preferred_scale(void* data,
             pixel_width = window->width;
             pixel_height = window->height;
         }
-        window->pixel_size_callback(reinterpret_cast<rwl_window*>(window), pixel_width,
-                                    pixel_height);
+        window->pixel_size_callback(
+            reinterpret_cast<rwl_window*>(window), pixel_width, pixel_height);
     }
 }
 
@@ -194,38 +216,65 @@ static const struct wp_fractional_scale_v1_listener window_fractional_scale_list
 };
 
 // Output listener callbacks
-static void output_geometry(void* data, struct wl_output* output, int32_t x, int32_t y,
-                            int32_t width_mm, int32_t height_mm, int32_t subpixel, const char* make,
-                            const char* model, int32_t transform) {
+static void output_geometry(void* data,
+    struct wl_output* output,
+    int32_t x,
+    int32_t y,
+    int32_t width_mm,
+    int32_t height_mm,
+    int32_t subpixel,
+    const char* make,
+    const char* model,
+    int32_t transform) {
     char buffer[512];
-    snprintf(buffer, sizeof(buffer),
-             "output_geometry: make=%s model=%s x=%d y=%d width_mm=%d "
-             "height_mm=%d subpixel=%d "
-             "transform=%d",
-             make, model, x, y, width_mm, height_mm, subpixel, transform);
+    snprintf(buffer,
+        sizeof(buffer),
+        "output_geometry: make=%s model=%s x=%d y=%d width_mm=%d "
+        "height_mm=%d subpixel=%d "
+        "transform=%d",
+        make,
+        model,
+        x,
+        y,
+        width_mm,
+        height_mm,
+        subpixel,
+        transform);
     rwl_log(RWL_LOG_DEBUG, buffer);
 }
 
-static void output_mode(void* data, struct wl_output* output, uint32_t flags, int32_t width,
-                        int32_t height, int32_t refresh) {
+static void output_mode(void* data,
+    struct wl_output* output,
+    uint32_t flags,
+    int32_t width,
+    int32_t height,
+    int32_t refresh) {
     rwl_output_info* info = static_cast<rwl_output_info*>(data);
     info->width = width;
     info->height = height;
 
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "output_mode: width=%d height=%d refresh=%d flags=0x%x", width,
-             height, refresh, flags);
+    snprintf(buffer,
+        sizeof(buffer),
+        "output_mode: width=%d height=%d refresh=%d flags=0x%x",
+        width,
+        height,
+        refresh,
+        flags);
     rwl_log(RWL_LOG_DEBUG, buffer);
 }
 
 static void output_done(void* data, struct wl_output* output) {
     rwl_output_info* info = static_cast<rwl_output_info*>(data);
     char buffer[512];
-    snprintf(buffer, sizeof(buffer),
-             "output_done: name=%s description=%s width=%d height=%d scale=%d",
-             info->name.empty() ? "(unknown)" : info->name.c_str(),
-             info->description.empty() ? "(unknown)" : info->description.c_str(), info->width,
-             info->height, info->scale);
+    snprintf(buffer,
+        sizeof(buffer),
+        "output_done: name=%s description=%s width=%d height=%d scale=%d",
+        info->name.empty() ? "(unknown)" : info->name.c_str(),
+        info->description.empty() ? "(unknown)" : info->description.c_str(),
+        info->width,
+        info->height,
+        info->scale);
     rwl_log(RWL_LOG_INFO, buffer);
 }
 
@@ -257,21 +306,126 @@ static void output_description(void* data, struct wl_output* output, const char*
 }
 
 static const struct wl_output_listener output_listener = {
-    output_geometry, output_mode, output_done, output_scale, output_name, output_description,
+    output_geometry,
+    output_mode,
+    output_done,
+    output_scale,
+    output_name,
+    output_description,
 };
 
-static void wm_base_handle_ping(void* userData, struct xdg_wm_base* wmBase, uint32_t serial) {
-    xdg_wm_base_pong(wmBase, serial);
+static void wm_base_handle_ping(void* data, struct xdg_wm_base* wm_base, uint32_t serial) {
+    xdg_wm_base_pong(wm_base, serial);
 }
 
 static const struct xdg_wm_base_listener wm_base_listener = {wm_base_handle_ping};
 
-// Registry listener callback
-static void registry_global(void* data, struct wl_registry* registry, uint32_t name,
-                            const char* interface, uint32_t version) {
+static void keyboard_handle_keymap(
+    void* data, struct wl_keyboard* keyboard, uint32_t format, int fd, uint32_t size) {
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "registry_global: %s (name=%u version=%u)", interface, name,
-             version);
+    snprintf(buffer,
+        sizeof(buffer),
+        "keyboard_handle_keymap: format=%u fd=%d size=%u",
+        format,
+        fd,
+        size);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+}
+static void keyboard_handle_enter(void* data,
+    struct wl_keyboard* keyboard,
+    uint32_t serial,
+    struct wl_surface* surface,
+    struct wl_array* keys) {
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "keyboard_handle_enter: serial=%u", serial);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
+    // Just in case
+    if (!surface) {
+        return;
+    }
+
+    rwl_window_internal* window =
+        reinterpret_cast<rwl_window_internal*>(wl_surface_get_user_data(surface));
+
+    if (window->surface != surface) {
+        return;
+    }
+
+    g_window_with_keyboard = window;
+}
+static void keyboard_handle_leave(
+    void* data, struct wl_keyboard* keyboard, uint32_t serial, struct wl_surface* surface) {
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "keyboard_handle_leave: serial=%u", serial);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
+    // Just in case
+    if (!surface) {
+        return;
+    }
+
+    g_window_with_keyboard = nullptr;
+}
+static void keyboard_handle_key(void* data,
+    struct wl_keyboard* keyboard,
+    uint32_t serial,
+    uint32_t time,
+    uint32_t scancode,
+    uint32_t state) {}
+static void keyboard_handle_modifiers(void* data,
+    struct wl_keyboard* keyboard,
+    uint32_t serial,
+    uint32_t mods_depressed,
+    uint32_t mods_latched,
+    uint32_t mods_locked,
+    uint32_t group) {}
+static void keyboard_handle_repeat_info(
+    void* data, struct wl_keyboard* keyboard, int32_t rate, int32_t delay) {}
+
+static const struct wl_keyboard_listener keyboard_listener{keyboard_handle_keymap,
+    keyboard_handle_enter,
+    keyboard_handle_leave,
+    keyboard_handle_key,
+    keyboard_handle_modifiers,
+    keyboard_handle_repeat_info};
+
+static void seat_handle_capabilities(void* data, struct wl_seat* seat, uint32_t capabilities) {
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "seat_handle_capabilities: capabilities=0x%x", capabilities);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
+    if ((capabilities & WL_SEAT_CAPABILITY_KEYBOARD) && !g_keyboard) {
+        g_keyboard = wl_seat_get_keyboard(seat);
+        wl_keyboard_add_listener(g_keyboard, &keyboard_listener, nullptr);
+    }
+    if (!(capabilities & WL_SEAT_CAPABILITY_KEYBOARD) && g_keyboard) {
+        wl_keyboard_destroy(g_keyboard);
+        g_keyboard = nullptr;
+    }
+}
+static void seat_handle_name(void* data, struct wl_seat* seat, const char* name) {
+    // Handle seat name here
+}
+
+static const struct wl_seat_listener seat_listener = {
+    seat_handle_capabilities,
+    seat_handle_name,
+};
+
+// Registry listener callback
+static void registry_global(void* data,
+    struct wl_registry* registry,
+    uint32_t name,
+    const char* interface,
+    uint32_t version) {
+    char buffer[256];
+    snprintf(buffer,
+        sizeof(buffer),
+        "registry_global: %s (name=%u version=%u)",
+        interface,
+        name,
+        version);
     rwl_log(RWL_LOG_DEBUG, buffer);
 
     if (strcmp(interface, wl_compositor_interface.name) == 0) {
@@ -307,6 +461,11 @@ static void registry_global(void* data, struct wl_registry* registry, uint32_t n
             wl_registry_bind(registry, name, &xdg_wm_base_interface, std::min(version, 2u)));
         xdg_wm_base_add_listener(g_xdg_wm_base, &wm_base_listener, nullptr);
         rwl_log(RWL_LOG_WARNING, "Binding xdg_wm_base");
+    } else if (strcmp(interface, wl_seat_interface.name) == 0) {
+        g_seat = static_cast<wl_seat*>(
+            wl_registry_bind(registry, name, &wl_seat_interface, std::min(version, 5u)));
+        wl_seat_add_listener(g_seat, &seat_listener, nullptr);
+        rwl_log(RWL_LOG_WARNING, "Binding wl_seat");
     }
 }
 
@@ -318,8 +477,10 @@ static void registry_remove(void* data, struct wl_registry* registry, uint32_t n
     // Remove output if it matches
     for (auto it = g_outputs.begin(); it != g_outputs.end(); ++it) {
         if ((*it)->wl_name == name) {
-            snprintf(buffer, sizeof(buffer), "Removing output: %s",
-                     (*it)->name.empty() ? "(unknown)" : (*it)->name.c_str());
+            snprintf(buffer,
+                sizeof(buffer),
+                "Removing output: %s",
+                (*it)->name.empty() ? "(unknown)" : (*it)->name.c_str());
             rwl_log(RWL_LOG_INFO, buffer);
 
             if ((*it)->output) {
@@ -336,7 +497,7 @@ static const struct wl_registry_listener registry_listener = {
     registry_remove,
 };
 
-static void xdg_surface_configure(void* userData, struct xdg_surface* surface, uint32_t serial) {
+static void xdg_surface_configure(void* data, struct xdg_surface* surface, uint32_t serial) {
     xdg_surface_ack_configure(surface, serial);
 }
 
@@ -344,21 +505,25 @@ static const struct xdg_surface_listener xdg_surface_listener = {
     xdg_surface_configure,
 };
 
-static void xdg_toplevel_handle_configure(void* userData, struct xdg_toplevel* toplevel,
-                                          int32_t width, int32_t height, struct wl_array* states) {
-    rwl_window_internal* window = reinterpret_cast<rwl_window_internal*>(userData);
+static void xdg_toplevel_handle_configure(void* data,
+    struct xdg_toplevel* toplevel,
+    int32_t width,
+    int32_t height,
+    struct wl_array* states) {
+    rwl_window_internal* window = reinterpret_cast<rwl_window_internal*>(data);
 
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "xdg_toplevel_handle_configure: width=%u height=%u", width,
-             height);
+    snprintf(
+        buffer, sizeof(buffer), "xdg_toplevel_handle_configure: width=%u height=%u", width, height);
     rwl_log(RWL_LOG_DEBUG, buffer);
 
-    // Store logical size from compositor
-    // This is the surface size in logical coordinates
-    // The actual buffer size will be calculated using fractional scale in
-    // rwlGetFramebufferSize()
+    bool size_is_changing = (window->width != width) || (window->height != height);
     window->width = width;
     window->height = height;
+
+    if (!size_is_changing) {
+        return;
+    }
 
     // Call logical size callback
     if (window->logical_size_callback) {
@@ -375,18 +540,18 @@ static void xdg_toplevel_handle_configure(void* userData, struct xdg_toplevel* t
             pixel_width = width;
             pixel_height = height;
         }
-        window->pixel_size_callback(reinterpret_cast<rwl_window*>(window), pixel_width,
-                                    pixel_height);
+        window->pixel_size_callback(
+            reinterpret_cast<rwl_window*>(window), pixel_width, pixel_height);
     }
 }
 
-static void xdg_toplevel_handle_close(void* userData, struct xdg_toplevel* toplevel) {
-    rwl_window_internal* window = reinterpret_cast<rwl_window_internal*>(userData);
+static void xdg_toplevel_handle_close(void* data, struct xdg_toplevel* toplevel) {
+    rwl_window_internal* window = reinterpret_cast<rwl_window_internal*>(data);
     window->should_close = true;
 }
 
-static const struct xdg_toplevel_listener xdg_toplevel_listener = {xdg_toplevel_handle_configure,
-                                                                   xdg_toplevel_handle_close};
+static const struct xdg_toplevel_listener xdg_toplevel_listener = {
+    xdg_toplevel_handle_configure, xdg_toplevel_handle_close};
 
 void rwlSetLogCallback(rwl_log_callback callback) {
     g_log_callback = callback;
@@ -450,8 +615,25 @@ rwl_status rwlStartup() {
 }
 
 rwl_status rwlShutdown() {
+    g_window_with_keyboard = nullptr;
+
     if (!g_display) {
         return RWL_STATUS_NOT_INITIALIZED;
+    }
+
+    if (g_keyboard) {
+        wl_keyboard_destroy(g_keyboard);
+        g_keyboard = nullptr;
+    }
+
+    if (g_seat) {
+        wl_seat_destroy(g_seat);
+        g_seat = nullptr;
+    }
+
+    if (g_xdg_wm_base) {
+        xdg_wm_base_destroy(g_xdg_wm_base);
+        g_xdg_wm_base = nullptr;
     }
 
     // Clean up outputs
@@ -494,8 +676,11 @@ rwl_status rwlShutdown() {
     return RWL_STATUS_OK;
 }
 
-rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t width, uint32_t height,
-                           rwl_window** window_out) {
+rwl_status rwlCreateWindow(rwl_window_type type,
+    wl_output* output,
+    uint32_t width,
+    uint32_t height,
+    rwl_window** window_out) {
     if (!window_out) {
         return RWL_STATUS_INVALID_ARGUMENT;
     }
@@ -524,13 +709,15 @@ rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t wid
         return RWL_STATUS_INTERNAL_ERROR;
     }
 
+    wl_surface_set_user_data(window->surface, window.get());
+
     // Create fractional scale object if manager is available
     if (g_fractional_scale_manager) {
         window->fractional_scale = wp_fractional_scale_manager_v1_get_fractional_scale(
             g_fractional_scale_manager, window->surface);
         if (window->fractional_scale) {
-            wp_fractional_scale_v1_add_listener(window->fractional_scale,
-                                                &window_fractional_scale_listener, window.get());
+            wp_fractional_scale_v1_add_listener(
+                window->fractional_scale, &window_fractional_scale_listener, window.get());
             rwl_log(RWL_LOG_DEBUG, "Created fractional scale object for window");
         }
     }
@@ -568,8 +755,8 @@ rwl_status rwlCreateWindow(rwl_window_type type, wl_output* output, uint32_t wid
             wl_surface_destroy(window->surface);
             return RWL_STATUS_INTERNAL_ERROR;
         }
-        zwlr_layer_surface_v1_add_listener(window->layer_surface, &layer_surface_listener,
-                                           window.get());
+        zwlr_layer_surface_v1_add_listener(
+            window->layer_surface, &layer_surface_listener, window.get());
         zwlr_layer_surface_v1_set_size(window->layer_surface, width, height);
         zwlr_layer_surface_v1_set_anchor(window->layer_surface, anchor);
         zwlr_layer_surface_v1_set_exclusive_zone(window->layer_surface, exclusive_zone);
