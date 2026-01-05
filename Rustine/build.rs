@@ -1,4 +1,4 @@
-use std::{env, path::Path, path::PathBuf, process::Command};
+use std::{env, fs, path::Path, path::PathBuf, process::Command};
 
 fn main() {
     let profile = env::var("PROFILE").expect("PROFILE environment variable not set");
@@ -29,6 +29,7 @@ fn main() {
     build_glfw(&project_dir, &out_dir, &target_os);
     build_rustine_vma(&project_dir, &out_dir, &target_os);
     build_rustine_webp(&project_dir, &out_dir, &target_os);
+    build_rustine_dxc(&project_dir, &out_dir, &target_os);
     
     if target_os == "linux" {
         build_rustine_wl(&project_dir, &out_dir);
@@ -194,4 +195,77 @@ fn build_rustine_wl(project_dir: &Path, out_dir: &Path) {
     println!("cargo:rerun-if-changed={}", rustine_wl_dir.join("CMakeLists.txt").display());
     println!("cargo:rerun-if-changed={}", rustine_wl_dir.join("rustine-wl.cpp").display());
     println!("cargo:rerun-if-changed={}", rustine_wl_dir.join("rustine-wl.hpp").display());
+}
+
+fn build_rustine_dxc(project_dir: &Path, out_dir: &Path, target_os: &str) {
+    let generator = choose_generator(target_os);
+
+    // Set DXC include directory from environment variable
+    // Users should set DXC_INCLUDE_DIR to point to the directory containing dxcapi.h
+    let dxc_include_dir = env::var("DXC_INCLUDE_DIR")
+        .expect("DXC_INCLUDE_DIR environment variable must be set to the DXC include directory (containing dxcapi.h)");
+
+    let mut config = cmake::Config::new(project_dir.join("ext").join("rustine-dxc"));
+    config
+        .generator(generator)
+        .out_dir(out_dir.join("rustine-dxc"))
+        .always_configure(true);
+
+    // Pass DXC include directory to CMake
+    config.env("DXC_INCLUDE_DIR", &dxc_include_dir);
+
+    let destination_dir = config.build();
+
+    let lib_dir = prefer_lib64(&destination_dir);
+
+    println!(
+        "cargo:rustc-link-search=native={}",
+        lib_dir.display()
+    );
+    println!("cargo:rustc-link-lib=static=rustine-dxc");
+
+    // Find DXC library location for copying
+    // Users should set DXC_LIB_DIR to point to the directory containing libdxcompiler.so/dxcompiler.dll
+    let dxc_lib_dir = env::var("DXC_LIB_DIR")
+        .expect("DXC_LIB_DIR environment variable must be set to the DXC library directory (containing libdxcompiler.so or dxcompiler.dll)");
+
+    // Copy DXC libraries to target directory for redistribution
+    let target_dir = project_dir.join("target").join(env::var("PROFILE").unwrap());
+    
+    match target_os {
+        "windows" => {
+            let src_compiler = PathBuf::from(&dxc_lib_dir).join("dxcompiler.dll");
+            let src_dxil = PathBuf::from(&dxc_lib_dir).join("dxil.dll");
+            let dst_compiler = target_dir.join("dxcompiler.dll");
+            let dst_dxil = target_dir.join("dxil.dll");
+            
+            if src_compiler.exists() {
+                fs::copy(&src_compiler, &dst_compiler)
+                    .expect("Failed to copy dxcompiler.dll to target directory");
+            }
+            if src_dxil.exists() {
+                fs::copy(&src_dxil, &dst_dxil)
+                    .expect("Failed to copy dxil.dll to target directory");
+            }
+        }
+        "linux" => {
+            let src_compiler = PathBuf::from(&dxc_lib_dir).join("libdxcompiler.so");
+            let dst_compiler = target_dir.join("libdxcompiler.so");
+            
+            if src_compiler.exists() {
+                fs::copy(&src_compiler, &dst_compiler)
+                    .expect("Failed to copy libdxcompiler.so to target directory");
+            }
+            
+            println!("cargo:rustc-link-lib=dylib=dl");
+            // Use $ORIGIN to find libdxcompiler.so next to the binary
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+        }
+        _ => {}
+    }
+
+    let rustine_dxc_dir = project_dir.join("ext").join("rustine-dxc");
+    println!("cargo:rerun-if-changed={}", rustine_dxc_dir.join("CMakeLists.txt").display());
+    println!("cargo:rerun-if-changed={}", rustine_dxc_dir.join("rustine-dxc.cpp").display());
+    println!("cargo:rerun-if-changed={}", rustine_dxc_dir.join("rustine-dxc.hpp").display());
 }

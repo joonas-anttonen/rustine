@@ -30,11 +30,16 @@
           wayland-protocols
           wayland-scanner
           libxkbcommon
+
+          directx-shader-compiler
+          directx-shader-compiler.dev
       
         ];
 
         shellHook = ''
           export RUST_BACKTRACE=1
+          export DXC_INCLUDE_DIR="${pkgs.directx-shader-compiler.dev}/include/dxc"
+          export DXC_LIB_DIR="${pkgs.directx-shader-compiler}/lib"
         '';
       };
     });

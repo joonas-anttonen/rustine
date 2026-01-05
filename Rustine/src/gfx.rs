@@ -17,6 +17,7 @@ pub use command::CommandPool;
 pub mod buffer;
 pub use buffer::MemoryBuffer;
 pub use buffer::PixelBuffer;
+pub mod dxc_ffi;
 
 use crate::version::Version;
 

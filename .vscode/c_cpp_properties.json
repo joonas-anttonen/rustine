@@ -25,7 +25,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/Rustine/ext/vma/include"
+                "${workspaceFolder}/Rustine/ext/vma/include",
+                "${workspaceFolder}/Rustine/ext/dxc/include"
             ],
             "defines": [
                 "_DEBUG",
