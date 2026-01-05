@@ -3,7 +3,7 @@ use std::ptr;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RdxcStatus {
+pub enum Status {
     Ok = 0,
     InvalidArgument = 1,
     CompilationFailed = 2,
@@ -12,7 +12,7 @@ pub enum RdxcStatus {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RdxcShaderStage {
+pub enum Stage {
     Vertex,
     Fragment,
     Compute,
@@ -30,24 +30,24 @@ type rdxc_compiler = std::ffi::c_void;
 
 #[link(name = "rustine-dxc", kind = "static")]
 unsafe extern "C" {
-    fn rdxcCompilerCreate(out_compiler: *mut *mut rdxc_compiler) -> RdxcStatus;
+    fn rdxcCompilerCreate(out_compiler: *mut *mut rdxc_compiler) -> Status;
 
     fn rdxcCompileToSpirv(
         compiler: *mut rdxc_compiler,
         source: *const u8,
         source_length: usize,
         entry_point: *const i8,
-        stage: RdxcShaderStage,
+        stage: Stage,
         defines: *const *const i8,
         define_count: usize,
         out_result: *mut RdxcShaderResult,
-    ) -> RdxcStatus;
+    ) -> Status;
 
     fn rdxcShaderResultDestroy(result: *mut RdxcShaderResult);
     fn rdxcCompilerDestroy(compiler: *mut rdxc_compiler);
 }
 
-pub struct DxcCompiler {
+pub struct Compiler {
     handle: *mut rdxc_compiler,
 }
 
@@ -57,13 +57,13 @@ pub struct ShaderCompileResult {
     pub error_message: Option<String>,
 }
 
-impl DxcCompiler {
+impl Compiler {
     /// Creates a new instance of the DXC compiler.
-    pub fn new() -> Result<Self, RdxcStatus> {
+    pub fn new() -> Result<Self, Status> {
         let mut handle = ptr::null_mut();
         let status = unsafe { rdxcCompilerCreate(&mut handle) };
 
-        if status != RdxcStatus::Ok {
+        if status != Status::Ok {
             return Err(status);
         }
 
@@ -75,16 +75,16 @@ impl DxcCompiler {
         &self,
         source: &str,
         entry_point: &str,
-        stage: RdxcShaderStage,
+        stage: Stage,
         defines: &[&str],
-    ) -> Result<ShaderCompileResult, RdxcStatus> {
-        let entry_point_c = CString::new(entry_point).map_err(|_| RdxcStatus::InvalidArgument)?;
+    ) -> Result<ShaderCompileResult, Status> {
+        let entry_point_c = CString::new(entry_point).map_err(|_| Status::InvalidArgument)?;
 
         let define_cstrings: Vec<CString> = defines
             .iter()
             .map(|s| CString::new(*s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| RdxcStatus::InvalidArgument)?;
+            .map_err(|_| Status::InvalidArgument)?;
 
         let define_ptrs: Vec<*const i8> = define_cstrings.iter().map(|s| s.as_ptr()).collect();
 
@@ -130,7 +130,7 @@ impl DxcCompiler {
             None
         };
 
-        if status != RdxcStatus::Ok {
+        if status != Status::Ok {
             return Err(status);
         }
 
@@ -141,7 +141,7 @@ impl DxcCompiler {
     }
 }
 
-impl Drop for DxcCompiler {
+impl Drop for Compiler {
     fn drop(&mut self) {
         if !self.handle.is_null() {
             unsafe {
