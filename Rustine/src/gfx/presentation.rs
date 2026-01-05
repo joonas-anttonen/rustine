@@ -174,27 +174,17 @@ impl PresentationProvider for SwapchainProvider {
 
 impl SwapchainProvider {
     pub fn new(device: &Arc<vulkan::Device>, params: Parameters) -> Self {
-        let physical_device_handle = device.physical_device_handle();
+        let physical_device = device.physical_device();
         let surface_handle = params.surface_handle as vk::VkSurfaceKHR;
 
-        let mut surface_capabilities: vk::VkSurfaceCapabilitiesKHR = unsafe { std::mem::zeroed() };
-        vk_call!(vk::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-            physical_device_handle,
-            surface_handle,
-            &mut surface_capabilities
-        ))
-        .unwrap();
+        let surface_capabilities = physical_device
+            .get_surface_capabilities(surface_handle)
+            .unwrap();
 
-        let surface_formats = vulkan::enumerate_physical_device_surface_formats(
-            physical_device_handle,
-            surface_handle,
-        )
-        .unwrap();
-        let surface_present_modes = vulkan::enumerate_physical_device_surface_present_modes(
-            physical_device_handle,
-            surface_handle,
-        )
-        .unwrap();
+        let surface_formats = physical_device.get_surface_formats(surface_handle).unwrap();
+        let surface_present_modes = physical_device
+            .get_surface_present_modes(surface_handle)
+            .unwrap();
 
         let chosen_extent = match surface_capabilities.currentExtent.width {
             std::u32::MAX => vk::VkExtent2D {
@@ -282,71 +272,71 @@ impl SwapchainProvider {
         .unwrap();
 
         let mut acquire_semaphores = Vec::new();
-        let swapchain_images: Vec<PresentationImage> =
-            vulkan::enumerate_swapchain_images(device.handle(), swapchain_handle)
-                .unwrap()
-                .into_iter()
-                .enumerate()
-                .map(|(index, img_handle)| {
-                    // Create image view for each swapchain image
-                    let image_view_create_info = vk::VkImageViewCreateInfo {
-                        sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
-                        pNext: std::ptr::null(),
-                        flags: 0,
-                        image: img_handle,
-                        viewType: vk::VkImageViewType::X2D,
-                        format: chosen_format.format,
-                        components: vk::VkComponentMapping {
-                            r: vk::VkComponentSwizzle::IDENTITY,
-                            g: vk::VkComponentSwizzle::IDENTITY,
-                            b: vk::VkComponentSwizzle::IDENTITY,
-                            a: vk::VkComponentSwizzle::IDENTITY,
-                        },
-                        subresourceRange: vk::VkImageSubresourceRange {
-                            aspectMask: vk::VkImageAspectFlags::COLOR_BIT as u32,
-                            baseMipLevel: 0,
-                            levelCount: 1,
-                            baseArrayLayer: 0,
-                            layerCount: 1,
-                        },
-                    };
+        let swapchain_images: Vec<PresentationImage> = device
+            .get_swapchain_images(swapchain_handle)
+            .unwrap()
+            .into_iter()
+            .enumerate()
+            .map(|(index, img_handle)| {
+                // Create image view for each swapchain image
+                let image_view_create_info = vk::VkImageViewCreateInfo {
+                    sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
+                    pNext: std::ptr::null(),
+                    flags: 0,
+                    image: img_handle,
+                    viewType: vk::VkImageViewType::X2D,
+                    format: chosen_format.format,
+                    components: vk::VkComponentMapping {
+                        r: vk::VkComponentSwizzle::IDENTITY,
+                        g: vk::VkComponentSwizzle::IDENTITY,
+                        b: vk::VkComponentSwizzle::IDENTITY,
+                        a: vk::VkComponentSwizzle::IDENTITY,
+                    },
+                    subresourceRange: vk::VkImageSubresourceRange {
+                        aspectMask: vk::VkImageAspectFlags::COLOR_BIT as u32,
+                        baseMipLevel: 0,
+                        levelCount: 1,
+                        baseArrayLayer: 0,
+                        layerCount: 1,
+                    },
+                };
 
-                    let mut image_view_handle: vk::VkImageView = std::ptr::null_mut();
-                    vk_call!(vk::vkCreateImageView(
-                        device.handle(),
-                        &image_view_create_info,
-                        std::ptr::null(),
-                        &mut image_view_handle
-                    ))
-                    .unwrap();
+                let mut image_view_handle: vk::VkImageView = std::ptr::null_mut();
+                vk_call!(vk::vkCreateImageView(
+                    device.handle(),
+                    &image_view_create_info,
+                    std::ptr::null(),
+                    &mut image_view_handle
+                ))
+                .unwrap();
 
-                    let mut acquire_semaphore: vk::VkSemaphore = std::ptr::null_mut();
-                    let semaphore_create_info = vk::VkSemaphoreCreateInfo {
-                        sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO as u32,
-                        pNext: std::ptr::null(),
-                        flags: 0,
-                    };
-                    vk_call!(vk::vkCreateSemaphore(
-                        device.handle(),
-                        &semaphore_create_info,
-                        std::ptr::null(),
-                        &mut acquire_semaphore
-                    ))
-                    .unwrap();
+                let mut acquire_semaphore: vk::VkSemaphore = std::ptr::null_mut();
+                let semaphore_create_info = vk::VkSemaphoreCreateInfo {
+                    sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO as u32,
+                    pNext: std::ptr::null(),
+                    flags: 0,
+                };
+                vk_call!(vk::vkCreateSemaphore(
+                    device.handle(),
+                    &semaphore_create_info,
+                    std::ptr::null(),
+                    &mut acquire_semaphore
+                ))
+                .unwrap();
 
-                    acquire_semaphores.push(acquire_semaphore);
+                acquire_semaphores.push(acquire_semaphore);
 
-                    PresentationImage {
-                        memory: std::ptr::null_mut(),
-                        image: img_handle,
-                        image_view: image_view_handle,
-                        format: chosen_format.format,
-                        index: index as u32,
-                        swapchain_handle,
-                        acquire_semaphore: std::ptr::null_mut(),
-                    }
-                })
-                .collect();
+                PresentationImage {
+                    memory: std::ptr::null_mut(),
+                    image: img_handle,
+                    image_view: image_view_handle,
+                    format: chosen_format.format,
+                    index: index as u32,
+                    swapchain_handle,
+                    acquire_semaphore: std::ptr::null_mut(),
+                }
+            })
+            .collect();
 
         let fence_create_info = vk::VkFenceCreateInfo {
             sType: vk::VkStructureType::FENCE_CREATE_INFO as u32,

@@ -29,7 +29,7 @@ impl Allocator {
 
         let create_info = vma_ffi::VmaAllocatorCreateInfo {
             flags: flags,
-            physicalDevice: device.physical_device_handle(),
+            physicalDevice: device.physical_device().handle(),
             device: device.handle(),
             preferredLargeHeapBlockSize: 0,
             pAllocationCallbacks: std::ptr::null(),

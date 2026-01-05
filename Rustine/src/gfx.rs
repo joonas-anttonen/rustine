@@ -218,37 +218,5 @@ impl Status {
     }
 }
 
-/// Represents the type of a physical graphics device.
-#[derive(Debug)]
-pub enum PhysicalDeviceType {
-    Discrete,
-    Integrated,
-    Virtual,
-    Cpu,
-    Other,
-}
-
-/// Represents a physical graphics device (GPU) in the system.
-#[derive(Debug)]
-pub struct PhysicalDevice {
-    pub name: String,
-    pub driver: Version,
-    pub api: Version,
-    pub device_type: PhysicalDeviceType,
-    pub id: u128,
-    pub luid: u64,
-    pub handle: u64,
-}
-
-impl std::fmt::Display for PhysicalDevice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} (API: {}, Driver: {}, Type: {:?}, Id: {:?})",
-            self.name, self.api, self.driver, self.device_type, self.id
-        )
-    }
-}
-
 /// Represents the result of a graphics operation.
 pub type Result<T> = std::result::Result<T, Status>;

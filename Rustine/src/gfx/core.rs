@@ -14,7 +14,6 @@ pub struct Core {
     test_pixel_buffer: PixelBuffer,
     queue: Option<Queue>,
     allocator: Arc<vma::Allocator>,
-    physical_device: PhysicalDevice,
     device: Arc<vulkan::Device>,
     instance: vulkan::Instance,
     frame_n: u64,
@@ -34,14 +33,12 @@ impl Drop for Core {
 impl Core {
     pub fn new(
         instance: vulkan::Instance,
-        physical_device: PhysicalDevice,
         device: Arc<vulkan::Device>,
         allocator: Arc<vma::Allocator>,
         test_pixel_buffer: PixelBuffer,
     ) -> Self {
         Core {
             instance,
-            physical_device,
             device,
             allocator,
             test_pixel_buffer,
@@ -51,8 +48,8 @@ impl Core {
     }
 
     /// Enumerates all available physical devices (GPUs) accessible via the Vulkan instance.
-    pub fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>> {
-        let devices = vulkan::enumerate_physical_devices(&self.instance)?;
+    pub fn enumerate_physical_devices(&self) -> Result<Vec<vulkan::PhysicalDevice>> {
+        let devices = self.instance.enumerate_physical_devices()?;
         Ok(devices)
     }
 
@@ -62,8 +59,8 @@ impl Core {
     }
 
     /// Returns a reference to the selected physical device.
-    pub fn selected_physical_device(&self) -> &PhysicalDevice {
-        &self.physical_device
+    pub fn selected_physical_device(&self) -> &vulkan::PhysicalDevice {
+        &self.device.physical_device()
     }
 
     pub fn vulkan_instance_handle(&self) -> vulkan_ffi::VkInstance {
@@ -218,19 +215,19 @@ impl CoreBuilder {
     /// Builds the `Core` instance.
     pub fn build(self) -> Result<Core> {
         // 1. Create Vulkan instance
-        let vk_instance = vulkan::create_instance(&self.params)?;
+        let vk_instance = vulkan::Instance::new(&self.params)?;
 
         // 2. Select physical device
         let selected_device = {
-            let devices = vulkan::enumerate_physical_devices(&vk_instance)?;
+            let devices = vk_instance.enumerate_physical_devices()?;
 
-            let pick_type_score = |t: &PhysicalDeviceType| -> i32 {
+            let pick_type_score = |t: &vulkan::PhysicalDeviceType| -> i32 {
                 match t {
-                    PhysicalDeviceType::Discrete => 3,
-                    PhysicalDeviceType::Integrated => 2,
-                    PhysicalDeviceType::Virtual => 1,
-                    PhysicalDeviceType::Cpu => 0,
-                    PhysicalDeviceType::Other => 0,
+                    vulkan::PhysicalDeviceType::Discrete => 3,
+                    vulkan::PhysicalDeviceType::Integrated => 2,
+                    vulkan::PhysicalDeviceType::Virtual => 1,
+                    vulkan::PhysicalDeviceType::Cpu => 0,
+                    vulkan::PhysicalDeviceType::Other => 0,
                 }
             };
 
@@ -251,9 +248,9 @@ impl CoreBuilder {
         };
 
         // 3. Create logical device
-        let vk_device = Arc::new(vulkan::create_device(
+        let vk_device = Arc::new(vulkan::Device::new(
             &self.params,
-            selected_device.handle as vulkan_ffi::VkPhysicalDevice,
+            selected_device,
         )?);
 
         // 4. Create VMA
@@ -270,7 +267,6 @@ impl CoreBuilder {
 
         Ok(Core::new(
             vk_instance,
-            selected_device,
             vk_device,
             allocator,
             test_pixel_buffer,
