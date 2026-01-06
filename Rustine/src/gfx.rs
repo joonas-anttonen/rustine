@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 mod core;
-mod vma;
 mod instance;
+mod vma;
 pub use instance::Instance;
 mod device;
 pub use device::*;
@@ -20,6 +20,9 @@ pub mod buffer;
 pub use buffer::MemoryBuffer;
 pub use buffer::PixelBuffer;
 pub mod compiler;
+pub use compiler::*;
+pub mod pipeline;
+pub use pipeline::*;
 
 use crate::version::Version;
 
@@ -42,20 +45,24 @@ pub struct StartupParameters {
 
 use vulkan as vk;
 
+#[allow(non_snake_case, non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Format(vk::VkFormat);
+pub enum Format {
+    R8G8B8A8_UNORM,
+    B8G8R8A8_UNORM,
+    D32_SFLOAT,
+    D24_UNORM_S8_UINT,
+    D32_SFLOAT_S8_UINT,
+}
 impl Format {
-    pub const R8G8B8A8_UNORM: Self = Self(vk::VkFormat::R8G8B8A8_UNORM);
-    pub const B8G8R8A8_UNORM: Self = Self(vk::VkFormat::B8G8R8A8_UNORM);
-    pub const D32_SFLOAT: Self = Self(vk::VkFormat::D32_SFLOAT);
-    pub const D24_UNORM_S8_UINT: Self = Self(vk::VkFormat::D24_UNORM_S8_UINT);
-    pub const D32_SFLOAT_S8_UINT: Self = Self(vk::VkFormat::D32_SFLOAT_S8_UINT);
-
     pub fn to_vk(&self) -> vk::VkFormat {
-        self.0
-    }
-    pub fn from_vk(format: vk::VkFormat) -> Self {
-        Self(format)
+        match self {
+            Format::R8G8B8A8_UNORM => vk::VkFormat::R8G8B8A8_UNORM,
+            Format::B8G8R8A8_UNORM => vk::VkFormat::B8G8R8A8_UNORM,
+            Format::D32_SFLOAT => vk::VkFormat::D32_SFLOAT,
+            Format::D24_UNORM_S8_UINT => vk::VkFormat::D24_UNORM_S8_UINT,
+            Format::D32_SFLOAT_S8_UINT => vk::VkFormat::D32_SFLOAT_S8_UINT,
+        }
     }
 }
 
@@ -80,8 +87,8 @@ impl ImageLayout {
 
 /// Represents the sample count flags for a pixel buffer (image).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ImageSamples(u32);
-impl ImageSamples {
+pub struct Samples(u32);
+impl Samples {
     pub const X1: Self = Self(vulkan::VkSampleCountFlags::X1_BIT as u32);
     pub const X2: Self = Self(vulkan::VkSampleCountFlags::X2_BIT as u32);
     pub const X4: Self = Self(vulkan::VkSampleCountFlags::X4_BIT as u32);
@@ -90,7 +97,7 @@ impl ImageSamples {
     pub const X32: Self = Self(vulkan::VkSampleCountFlags::X32_BIT as u32);
     pub const X64: Self = Self(vulkan::VkSampleCountFlags::X64_BIT as u32);
 }
-impl std::ops::BitOr for ImageSamples {
+impl std::ops::BitOr for Samples {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self {
         Self(self.0 | rhs.0)

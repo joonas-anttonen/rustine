@@ -1,7 +1,4 @@
-use crate::{
-    gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*,
-    warning,
-};
+use crate::{gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*, warning};
 
 use std::sync::Arc;
 
@@ -92,31 +89,24 @@ impl Core {
         &mut self,
         presentation_provider: impl PresentationProvider + 'static,
     ) {
-        self.queue = Some(Queue::new(
-            &self.device,
-            presentation_provider,
-        ));
+        self.queue = Some(Queue::new(&self.device, presentation_provider));
     }
 
     pub fn initialize_shared_image_queue(
         &mut self,
         presentation_provider: impl PresentationProvider + 'static,
     ) {
-        self.queue = Some(Queue::new(
-            &self.device,
-            presentation_provider,
-        ));
+        self.queue = Some(Queue::new(&self.device, presentation_provider));
     }
 
-    pub fn initialize_queue(
-        &mut self,
-        presentation_provider: impl PresentationProvider + 'static,
-    ) {
-        self.queue = Some(Queue::new(
-            &self.device,
-            presentation_provider,
-        ));
+    pub fn create_pipeline(&self, parameters: pipeline::Parameters) -> Pipeline {
+        Pipeline::new(self.device.handle(), &parameters).unwrap()
     }
+
+    pub fn initialize_queue(&mut self, presentation_provider: impl PresentationProvider + 'static) {
+        self.queue = Some(Queue::new(&self.device, presentation_provider));
+    }
+
     pub fn render(&mut self, t: f64, _dt: f32) {
         self.next_frame();
 
@@ -248,10 +238,7 @@ impl CoreBuilder {
         };
 
         // 3. Create logical device
-        let vk_device = Arc::new(Device::new(
-            &self.params,
-            selected_device,
-        )?);
+        let vk_device = Arc::new(Device::new(&self.params, selected_device)?);
 
         // 4. Create VMA
         let allocator = vma::Allocator::new(&vk_instance, Arc::clone(&vk_device))?;
@@ -262,7 +249,7 @@ impl CoreBuilder {
             256,
             ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
             ImageAspect::COLOR,
-            ImageSamples::X1,
+            Samples::X1,
         )?;
 
         Ok(Core::new(

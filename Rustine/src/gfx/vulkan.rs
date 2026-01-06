@@ -270,6 +270,163 @@ unsafe extern "C" {
         commandBuffer: VkCommandBuffer,
         pDependencyInfo: *const VkDependencyInfo,
     );
+
+    pub fn vkCreateShaderModule(
+        device: VkDevice,
+        pCreateInfo: *const VkShaderModuleCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pShaderModule: *mut VkShaderModule,
+    ) -> i32;
+
+    pub fn vkDestroyShaderModule(
+        device: VkDevice,
+        shaderModule: VkShaderModule,
+        pAllocator: *const std::ffi::c_void,
+    );
+
+    pub fn vkCreateGraphicsPipelines(
+        device: VkDevice,
+        pipelineCache: *const std::ffi::c_void,
+        createInfoCount: u32,
+        pCreateInfos: *const VkGraphicsPipelineCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pPipelines: *mut VkPipeline,
+    ) -> i32;
+
+    pub fn vkCreateComputePipelines(
+        device: VkDevice,
+        pipelineCache: *const std::ffi::c_void,
+        createInfoCount: u32,
+        pCreateInfos: *const VkComputePipelineCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pPipelines: *mut VkPipeline,
+    ) -> i32;
+
+    pub fn vkDestroyPipeline(
+        device: VkDevice,
+        pipeline: VkPipeline,
+        pAllocator: *const std::ffi::c_void,
+    );
+
+    pub fn vkCreateSampler(
+        device: VkDevice,
+        pCreateInfo: *const VkSamplerCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pSampler: *mut VkSampler,
+    ) -> i32;
+
+    pub fn vkDestroySampler(
+        device: VkDevice,
+        sampler: VkSampler,
+        pAllocator: *const std::ffi::c_void,
+    );
+
+    pub fn vkCreateDescriptorSetLayout(
+        device: VkDevice,
+        pCreateInfo: *const VkDescriptorSetLayoutCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pSetLayout: *mut VkDescriptorSetLayout,
+    ) -> i32;
+    pub fn vkDestroyDescriptorSetLayout(
+        device: VkDevice,
+        descriptorSetLayout: VkDescriptorSetLayout,
+        pAllocator: *const std::ffi::c_void,
+    );
+    pub fn vkCreatePipelineLayout(
+        device: VkDevice,
+        pCreateInfo: *const VkPipelineLayoutCreateInfo,
+        pAllocator: *const std::ffi::c_void,
+        pPipelineLayout: *mut VkPipelineLayout,
+    ) -> i32;
+    pub fn vkDestroyPipelineLayout(
+        device: VkDevice,
+        pipelineLayout: VkPipelineLayout,
+        pAllocator: *const std::ffi::c_void,
+    );
+
+    pub fn vkCmdBeginRendering(
+        commandBuffer: VkCommandBuffer,
+        pRenderingInfo: *const VkRenderingInfo,
+    );
+    pub fn vkCmdEndRendering(commandBuffer: VkCommandBuffer);
+    pub fn vkCmdSetDepthTestEnable(commandBuffer: VkCommandBuffer, depthTestEnable: u32);
+    pub fn vkCmdSetDepthWriteEnable(commandBuffer: VkCommandBuffer, depthWriteEnable: u32);
+    pub fn vkCmdBindPipeline(
+        commandBuffer: VkCommandBuffer,
+        pipelineBindPoint: VkPipelineBindPoint,
+        pipeline: VkPipeline,
+    );
+
+    pub fn vkCmdSetViewport(
+        commandBuffer: VkCommandBuffer,
+        firstViewport: u32,
+        viewportCount: u32,
+        pViewports: *const VkViewport,
+    );
+    pub fn vkCmdSetScissor(
+        commandBuffer: VkCommandBuffer,
+        firstScissor: u32,
+        scissorCount: u32,
+        pScissors: *const VkRect2D,
+    );
+    pub fn vkCmdBindIndexBuffer(
+        commandBuffer: VkCommandBuffer,
+        buffer: VkBuffer,
+        offset: VkDeviceSize,
+        indexType: VkIndexType,
+    );
+    pub fn vkCmdBindVertexBuffers(
+        commandBuffer: VkCommandBuffer,
+        firstBinding: u32,
+        bindingCount: u32,
+        pBuffers: *const VkBuffer,
+        pOffsets: *const VkDeviceSize,
+    );
+    pub fn vkCmdDraw(
+        commandBuffer: VkCommandBuffer,
+        vertexCount: u32,
+        instanceCount: u32,
+        firstVertex: u32,
+        firstInstance: u32,
+    );
+    pub fn vkCmdDrawIndexed(
+        commandBuffer: VkCommandBuffer,
+        indexCount: u32,
+        instanceCount: u32,
+        firstIndex: u32,
+        vertexOffset: i32,
+        firstInstance: u32,
+    );
+    pub fn vkCmdDrawIndirect(
+        commandBuffer: VkCommandBuffer,
+        buffer: VkBuffer,
+        offset: VkDeviceSize,
+        drawCount: u32,
+        stride: u32,
+    );
+    pub fn vkCmdDrawIndexedIndirect(
+        commandBuffer: VkCommandBuffer,
+        buffer: VkBuffer,
+        offset: VkDeviceSize,
+        drawCount: u32,
+        stride: u32,
+    );
+    pub fn vkCmdPushConstants(
+        commandBuffer: VkCommandBuffer,
+        layout: VkPipelineLayout,
+        stageFlags: VkShaderStageFlags,
+        offset: u32,
+        size: u32,
+        pValues: *const std::ffi::c_void,
+    );
+    pub fn vkCmdPushDescriptorSet(
+        commandBuffer: VkCommandBuffer,
+        pipelineBindPoint: VkPipelineBindPoint,
+        layout: VkPipelineLayout,
+        set: u32,
+        descriptorWriteCount: u32,
+        pDescriptorWrites: *const VkWriteDescriptorSet,
+    );
 }
 
 pub type VkInstance = *mut std::ffi::c_void;
@@ -288,6 +445,11 @@ pub type VkBuffer = *mut std::ffi::c_void;
 pub type VkSurfaceKHR = *mut std::ffi::c_void;
 pub type VkSwapchainKHR = *mut std::ffi::c_void;
 pub type VkDebugUtilsMessengerEXT = *mut std::ffi::c_void;
+pub type VkDescriptorSetLayout = *mut std::ffi::c_void;
+pub type VkPipelineLayout = *mut std::ffi::c_void;
+pub type VkPipeline = *mut std::ffi::c_void;
+pub type VkShaderModule = *mut std::ffi::c_void;
+pub type VkSampler = *mut std::ffi::c_void;
 
 pub const VK_ATTACHMENT_UNUSED: u32 = u32::MAX;
 pub const VK_FALSE: u32 = 0;
@@ -306,6 +468,754 @@ pub const VK_MAX_DESCRIPTION_SIZE: usize = 256;
 pub const VK_MAX_MEMORY_HEAPS: u32 = 16;
 
 #[repr(C)]
+pub struct VkWriteDescriptorSet {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub dstSet: *const std::ffi::c_void,
+    pub dstBinding: u32,
+    pub dstArrayElement: u32,
+    pub descriptorCount: u32,
+    pub descriptorType: VkDescriptorType,
+    pub pImageInfo: *const VkDescriptorImageInfo,
+    pub pBufferInfo: *const VkDescriptorBufferInfo,
+    pub pTexelBufferView: *const std::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct VkDescriptorBufferInfo {
+    pub buffer: VkBuffer,
+    pub offset: VkDeviceSize,
+    pub range: VkDeviceSize,
+}
+
+#[repr(C)]
+pub struct VkDescriptorImageInfo {
+    pub sampler: VkSampler,
+    pub imageView: VkImageView,
+    pub imageLayout: VkImageLayout,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkIndexType {
+    UINT16 = 0,
+    UINT32 = 1,
+}
+
+#[repr(C)]
+pub struct VkComputePipelineCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub stage: VkPipelineShaderStageCreateInfo,
+    pub layout: VkPipelineLayout,
+    pub basePipelineHandle: *const std::ffi::c_void,
+    pub basePipelineIndex: i32,
+}
+
+#[repr(C)]
+pub struct VkPipelineTessellationStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub patchControlPoints: u32,
+}
+
+#[repr(C)]
+pub struct VkGraphicsPipelineCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub stageCount: u32,
+    pub pStages: *const VkPipelineShaderStageCreateInfo,
+    pub pVertexInputState: *const VkPipelineVertexInputStateCreateInfo,
+    pub pInputAssemblyState: *const VkPipelineInputAssemblyStateCreateInfo,
+    pub pTessellationState: *const VkPipelineTessellationStateCreateInfo,
+    pub pViewportState: *const VkPipelineViewportStateCreateInfo,
+    pub pRasterizationState: *const VkPipelineRasterizationStateCreateInfo,
+    pub pMultisampleState: *const VkPipelineMultisampleStateCreateInfo,
+    pub pDepthStencilState: *const VkPipelineDepthStencilStateCreateInfo,
+    pub pColorBlendState: *const VkPipelineColorBlendStateCreateInfo,
+    pub pDynamicState: *const VkPipelineDynamicStateCreateInfo,
+    pub layout: VkPipelineLayout,
+    pub renderPass: *const std::ffi::c_void,
+    pub subpass: u32,
+    pub basePipelineHandle: *const std::ffi::c_void,
+    pub basePipelineIndex: i32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkResolveModeFlags(u32);
+impl VkResolveModeFlags {
+    pub const NONE: Self = Self(0);
+    pub const SAMPLE_ZERO_BIT: Self = Self(0x00000001);
+    pub const AVERAGE_BIT: Self = Self(0x00000002);
+    pub const MIN_BIT: Self = Self(0x00000004);
+    pub const MAX_BIT: Self = Self(0x00000008);
+    pub const EXTERNAL_FORMAT_DOWNSAMPLE_BIT_ANDROID: Self = Self(0x00000010);
+    pub const CUSTOM_BIT_EXT: Self = Self(0x00000020);
+    pub const NONE_KHR: Self = Self(0);
+    pub const SAMPLE_ZERO_BIT_KHR: Self = Self(0x00000001);
+    pub const AVERAGE_BIT_KHR: Self = Self(0x00000002);
+    pub const MIN_BIT_KHR: Self = Self(0x00000004);
+    pub const MAX_BIT_KHR: Self = Self(0x00000008);
+}
+
+#[repr(C)]
+pub struct VkRenderingAttachmentInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub imageView: VkImageView,
+    pub imageLayout: VkImageLayout,
+    pub resolveMode: VkResolveModeFlags,
+    pub resolveImageView: VkImageView,
+    pub resolveImageLayout: VkImageLayout,
+    pub loadOp: VkAttachmentLoadOp,
+    pub storeOp: VkAttachmentStoreOp,
+    pub clearValue: VkClearValue,
+}
+
+#[repr(C)]
+pub struct VkRenderingInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub renderArea: VkRect2D,
+    pub layerCount: u32,
+    pub viewMask: u32,
+    pub colorAttachmentCount: u32,
+    pub pColorAttachments: *const VkRenderingAttachmentInfo,
+    pub pDepthAttachment: *const VkRenderingAttachmentInfo,
+    pub pStencilAttachment: *const VkRenderingAttachmentInfo,
+}
+
+#[repr(C)]
+pub struct VkPipelineRenderingCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub viewMask: u32,
+    pub colorAttachmentCount: u32,
+    pub pColorAttachmentFormats: *const VkFormat,
+    pub depthAttachmentFormat: VkFormat,
+    pub stencilAttachmentFormat: VkFormat,
+}
+
+#[repr(C)]
+pub struct VkPipelineVertexInputStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub vertexBindingDescriptionCount: u32,
+    pub pVertexBindingDescriptions: *const VkVertexInputBindingDescription,
+    pub vertexAttributeDescriptionCount: u32,
+    pub pVertexAttributeDescriptions: *const VkVertexInputAttributeDescription,
+}
+
+#[repr(C)]
+pub struct VkVertexInputBindingDescription {
+    pub binding: u32,
+    pub stride: u32,
+    pub inputRate: VkVertexInputRate,
+}
+
+#[repr(C)]
+pub struct VkVertexInputAttributeDescription {
+    pub location: u32,
+    pub binding: u32,
+    pub format: VkFormat,
+    pub offset: u32,
+}
+
+#[repr(C)]
+pub struct VkPipelineMultisampleStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub rasterizationSamples: u32,
+    pub sampleShadingEnable: u32,
+    pub minSampleShading: f32,
+    pub pSampleMask: *const u32,
+    pub alphaToCoverageEnable: u32,
+    pub alphaToOneEnable: u32,
+}
+
+#[repr(C)]
+pub struct VkPipelineDynamicStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub dynamicStateCount: u32,
+    pub pDynamicStates: *const VkDynamicState,
+}
+
+#[repr(C)]
+pub struct VkOffset2D {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[repr(C)]
+pub struct VkRect2D {
+    pub offset: VkOffset2D,
+    pub extent: VkExtent2D,
+}
+
+#[repr(C)]
+pub struct VkViewport {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub minDepth: f32,
+    pub maxDepth: f32,
+}
+
+#[repr(C)]
+pub struct VkPipelineViewportStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub viewportCount: u32,
+    pub pViewports: *const VkViewport,
+    pub scissorCount: u32,
+    pub pScissors: *const VkRect2D,
+}
+
+#[repr(C)]
+pub struct VkStencilOpState {
+    pub failOp: VkStencilOp,
+    pub passOp: VkStencilOp,
+    pub depthFailOp: VkStencilOp,
+    pub compareOp: VkCompareOp,
+    pub compareMask: u32,
+    pub writeMask: u32,
+    pub reference: u32,
+}
+
+#[repr(C)]
+pub struct VkPipelineDepthStencilStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub depthTestEnable: u32,
+    pub depthWriteEnable: u32,
+    pub depthCompareOp: VkCompareOp,
+    pub depthBoundsTestEnable: u32,
+    pub stencilTestEnable: u32,
+    pub front: VkStencilOpState,
+    pub back: VkStencilOpState,
+    pub minDepthBounds: f32,
+    pub maxDepthBounds: f32,
+}
+
+#[repr(C)]
+pub struct VkPipelineRasterizationStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub depthClampEnable: u32,
+    pub rasterizerDiscardEnable: u32,
+    pub polygonMode: VkPolygonMode,
+    pub cullMode: VkCullModeFlags,
+    pub frontFace: VkFrontFace,
+    pub depthBiasEnable: u32,
+    pub depthBiasConstantFactor: f32,
+    pub depthBiasClamp: f32,
+    pub depthBiasSlopeFactor: f32,
+    pub lineWidth: f32,
+}
+
+#[repr(C)]
+pub struct VkPipelineInputAssemblyStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub topology: VkPrimitiveTopology,
+    pub primitiveRestartEnable: u32,
+}
+
+#[repr(C)]
+pub struct VkShaderModuleCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub codeSize: usize,
+    pub pCode: *const u32,
+}
+
+#[repr(C)]
+pub struct VkPipelineShaderStageCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub stage: VkShaderStageFlags,
+    pub module: VkShaderModule,
+    pub pName: *const i8,
+    pub pSpecializationInfo: *const std::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct VkSamplerCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub magFilter: u32,
+    pub minFilter: u32,
+    pub mipmapMode: u32,
+    pub addressModeU: u32,
+    pub addressModeV: u32,
+    pub addressModeW: u32,
+    pub mipLodBias: f32,
+    pub anisotropyEnable: u32,
+    pub maxAnisotropy: f32,
+    pub compareEnable: u32,
+    pub compareOp: u32,
+    pub minLod: f32,
+    pub maxLod: f32,
+    pub borderColor: u32,
+    pub unnormalizedCoordinates: u32,
+}
+
+#[repr(C)]
+pub struct VkPushConstantRange {
+    pub stageFlags: VkShaderStageFlags,
+    pub offset: u32,
+    pub size: u32,
+}
+
+#[repr(C)]
+pub struct VkPipelineLayoutCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub setLayoutCount: u32,
+    pub pSetLayouts: *const VkDescriptorSetLayout,
+    pub pushConstantRangeCount: u32,
+    pub pPushConstantRanges: *const VkPushConstantRange,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkShaderStageFlags(u32);
+impl VkShaderStageFlags {
+    pub const VERTEX_BIT: Self = Self(0x00000001);
+    pub const TESSELLATION_CONTROL_BIT: Self = Self(0x00000002);
+    pub const TESSELLATION_EVALUATION_BIT: Self = Self(0x00000004);
+    pub const GEOMETRY_BIT: Self = Self(0x00000008);
+    pub const FRAGMENT_BIT: Self = Self(0x00000010);
+    pub const COMPUTE_BIT: Self = Self(0x00000020);
+    pub const ALL_GRAPHICS: Self = Self(0x0000001F);
+    pub const ALL: Self = Self(0x7FFFFFFF);
+    pub const RAYGEN_BIT_KHR: Self = Self(0x00000100);
+    pub const ANY_HIT_BIT_KHR: Self = Self(0x00000200);
+    pub const CLOSEST_HIT_BIT_KHR: Self = Self(0x00000400);
+    pub const MISS_BIT_KHR: Self = Self(0x00000800);
+    pub const INTERSECTION_BIT_KHR: Self = Self(0x00001000);
+    pub const CALLABLE_BIT_KHR: Self = Self(0x00002000);
+    pub const TASK_BIT_EXT: Self = Self(0x00000040);
+    pub const MESH_BIT_EXT: Self = Self(0x00000080);
+    pub const SUBPASS_SHADING_BIT_HUAWEI: Self = Self(0x00004000);
+    pub const CLUSTER_CULLING_BIT_HUAWEI: Self = Self(0x00080000);
+    pub const RAYGEN_BIT_NV: Self = Self(0x00000100);
+    pub const ANY_HIT_BIT_NV: Self = Self(0x00000200);
+    pub const CLOSEST_HIT_BIT_NV: Self = Self(0x00000400);
+    pub const MISS_BIT_NV: Self = Self(0x00000800);
+    pub const INTERSECTION_BIT_NV: Self = Self(0x00001000);
+    pub const CALLABLE_BIT_NV: Self = Self(0x00002000);
+    pub const TASK_BIT_NV: Self = Self(0x00000040);
+    pub const MESH_BIT_NV: Self = Self(0x00000080);
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkDescriptorSetLayoutCreateFlags(u32);
+impl VkDescriptorSetLayoutCreateFlags {
+    pub const UPDATE_AFTER_BIND_POOL_BIT: Self = Self(0x00000002);
+    pub const PUSH_DESCRIPTOR_BIT: Self = Self(0x00000001);
+    pub const DESCRIPTOR_BUFFER_BIT_EXT: Self = Self(0x00000010);
+    pub const EMBEDDED_IMMUTABLE_SAMPLERS_BIT_EXT: Self = Self(0x00000020);
+    pub const INDIRECT_BINDABLE_BIT_NV: Self = Self(0x00000080);
+    pub const HOST_ONLY_POOL_BIT_EXT: Self = Self(0x00000004);
+    pub const PER_STAGE_BIT_NV: Self = Self(0x00000040);
+    pub const PUSH_DESCRIPTOR_BIT_KHR: Self = Self(0x00000001);
+    pub const UPDATE_AFTER_BIND_POOL_BIT_EXT: Self = Self(0x00000002);
+    pub const HOST_ONLY_POOL_BIT_VALVE: Self = Self(0x00000004);
+}
+
+#[repr(C)]
+pub struct VkDescriptorSetLayoutBinding {
+    pub binding: u32,
+    pub descriptorType: VkDescriptorType,
+    pub descriptorCount: u32,
+    pub stageFlags: VkShaderStageFlags,
+}
+
+#[repr(C)]
+pub struct VkDescriptorSetLayoutCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: VkDescriptorSetLayoutCreateFlags,
+    pub bindingCount: u32,
+    pub pBindings: *const VkDescriptorSetLayoutBinding,
+}
+
+#[repr(C)]
+pub struct VkPipelineColorBlendAttachmentState {
+    pub blend_enable: u32,
+    pub src_color_blend_factor: VkBlendFactor,
+    pub dst_color_blend_factor: VkBlendFactor,
+    pub color_blend_op: VkBlendOp,
+    pub src_alpha_blend_factor: VkBlendFactor,
+    pub dst_alpha_blend_factor: VkBlendFactor,
+    pub alpha_blend_op: VkBlendOp,
+    pub color_write_mask: VkColorComponentFlags,
+}
+
+#[repr(C)]
+pub struct VkPipelineColorBlendStateCreateInfo {
+    pub sType: VkStructureType,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub logicOpEnable: u32,
+    pub logicOp: VkLogicOp,
+    pub attachmentCount: u32,
+    pub pAttachments: *const VkPipelineColorBlendAttachmentState,
+    pub blendConstants: [f32; 4],
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkBorderColor {
+    FLOAT_TRANSPARENT_BLACK = 0,
+    INT_TRANSPARENT_BLACK = 1,
+    FLOAT_OPAQUE_BLACK = 2,
+    INT_OPAQUE_BLACK = 3,
+    FLOAT_OPAQUE_WHITE = 4,
+    INT_OPAQUE_WHITE = 5,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkFilter {
+    NEAREST = 0,
+    LINEAR = 1,
+    CUBIC_EXT = 1000015000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkSamplerAddressMode {
+    REPEAT = 0,
+    MIRRORED_REPEAT = 1,
+    CLAMP_TO_EDGE = 2,
+    CLAMP_TO_BORDER = 3,
+    MIRROR_CLAMP_TO_EDGE = 4,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkSamplerMipmapMode {
+    NEAREST = 0,
+    LINEAR = 1,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkCompareOp {
+    NEVER = 0,
+    LESS = 1,
+    EQUAL = 2,
+    LESS_OR_EQUAL = 3,
+    GREATER = 4,
+    NOT_EQUAL = 5,
+    GREATER_OR_EQUAL = 6,
+    ALWAYS = 7,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkDescriptorType {
+    SAMPLER = 0,
+    COMBINED_IMAGE_SAMPLER = 1,
+    SAMPLED_IMAGE = 2,
+    STORAGE_IMAGE = 3,
+    UNIFORM_TEXEL_BUFFER = 4,
+    STORAGE_TEXEL_BUFFER = 5,
+    UNIFORM_BUFFER = 6,
+    STORAGE_BUFFER = 7,
+    UNIFORM_BUFFER_DYNAMIC = 8,
+    STORAGE_BUFFER_DYNAMIC = 9,
+    INPUT_ATTACHMENT = 10,
+    INLINE_UNIFORM_BLOCK = 1000138000,
+    ACCELERATION_STRUCTURE_KHR = 1000150000,
+    ACCELERATION_STRUCTURE_NV = 1000165000,
+    SAMPLE_WEIGHT_IMAGE_QCOM = 1000440000,
+    BLOCK_MATCH_IMAGE_QCOM = 1000440001,
+    TENSOR_ARM = 1000460000,
+    MUTABLE_EXT = 1000351000,
+    PARTITIONED_ACCELERATION_STRUCTURE_NV = 1000570000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkPipelineBindPoint {
+    GRAPHICS = 0,
+    COMPUTE = 1,
+    RAY_TRACING_KHR = 1000165000,
+    SUBPASS_SHADING_HUAWEI = 1000369003,
+    DATA_GRAPH_ARM = 1000507000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkBlendFactor {
+    ZERO = 0,
+    ONE = 1,
+    SRC_COLOR = 2,
+    ONE_MINUS_SRC_COLOR = 3,
+    DST_COLOR = 4,
+    ONE_MINUS_DST_COLOR = 5,
+    SRC_ALPHA = 6,
+    ONE_MINUS_SRC_ALPHA = 7,
+    DST_ALPHA = 8,
+    ONE_MINUS_DST_ALPHA = 9,
+    CONSTANT_COLOR = 10,
+    ONE_MINUS_CONSTANT_COLOR = 11,
+    CONSTANT_ALPHA = 12,
+    ONE_MINUS_CONSTANT_ALPHA = 13,
+    SRC_ALPHA_SATURATE = 14,
+    SRC1_COLOR = 15,
+    ONE_MINUS_SRC1_COLOR = 16,
+    SRC1_ALPHA = 17,
+    ONE_MINUS_SRC1_ALPHA = 18,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkBlendOp {
+    ADD = 0,
+    SUBTRACT = 1,
+    REVERSE_SUBTRACT = 2,
+    MIN = 3,
+    MAX = 4,
+    ZERO_EXT = 1000148000,
+    SRC_EXT = 1000148001,
+    DST_EXT = 1000148002,
+    SRC_OVER_EXT = 1000148003,
+    DST_OVER_EXT = 1000148004,
+    SRC_IN_EXT = 1000148005,
+    DST_IN_EXT = 1000148006,
+    SRC_OUT_EXT = 1000148007,
+    DST_OUT_EXT = 1000148008,
+    SRC_ATOP_EXT = 1000148009,
+    DST_ATOP_EXT = 1000148010,
+    XOR_EXT = 1000148011,
+    MULTIPLY_EXT = 1000148012,
+    SCREEN_EXT = 1000148013,
+    OVERLAY_EXT = 1000148014,
+    DARKEN_EXT = 1000148015,
+    LIGHTEN_EXT = 1000148016,
+    COLORDODGE_EXT = 1000148017,
+    COLORBURN_EXT = 1000148018,
+    HARDLIGHT_EXT = 1000148019,
+    SOFTLIGHT_EXT = 1000148020,
+    DIFFERENCE_EXT = 1000148021,
+    EXCLUSION_EXT = 1000148022,
+    INVERT_EXT = 1000148023,
+    INVERT_RGB_EXT = 1000148024,
+    LINEARDODGE_EXT = 1000148025,
+    LINEARBURN_EXT = 1000148026,
+    VIVIDLIGHT_EXT = 1000148027,
+    LINEARLIGHT_EXT = 1000148028,
+    PINLIGHT_EXT = 1000148029,
+    HARDMIX_EXT = 1000148030,
+    HSL_HUE_EXT = 1000148031,
+    HSL_SATURATION_EXT = 1000148032,
+    HSL_COLOR_EXT = 1000148033,
+    HSL_LUMINOSITY_EXT = 1000148034,
+    PLUS_EXT = 1000148035,
+    PLUS_CLAMPED_EXT = 1000148036,
+    PLUS_CLAMPED_ALPHA_EXT = 1000148037,
+    PLUS_DARKER_EXT = 1000148038,
+    MINUS_EXT = 1000148039,
+    MINUS_CLAMPED_EXT = 1000148040,
+    CONTRAST_EXT = 1000148041,
+    INVERT_OVG_EXT = 1000148042,
+    RED_EXT = 1000148043,
+    GREEN_EXT = 1000148044,
+    BLUE_EXT = 1000148045,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkDynamicState {
+    VIEWPORT = 0,
+    SCISSOR = 1,
+    LINE_WIDTH = 2,
+    DEPTH_BIAS = 3,
+    BLEND_CONSTANTS = 4,
+    DEPTH_BOUNDS = 5,
+    STENCIL_COMPARE_MASK = 6,
+    STENCIL_WRITE_MASK = 7,
+    STENCIL_REFERENCE = 8,
+    CULL_MODE = 1000267000,
+    FRONT_FACE = 1000267001,
+    PRIMITIVE_TOPOLOGY = 1000267002,
+    VIEWPORT_WITH_COUNT = 1000267003,
+    SCISSOR_WITH_COUNT = 1000267004,
+    VERTEX_INPUT_BINDING_STRIDE = 1000267005,
+    DEPTH_TEST_ENABLE = 1000267006,
+    DEPTH_WRITE_ENABLE = 1000267007,
+    DEPTH_COMPARE_OP = 1000267008,
+    DEPTH_BOUNDS_TEST_ENABLE = 1000267009,
+    STENCIL_TEST_ENABLE = 1000267010,
+    STENCIL_OP = 1000267011,
+    RASTERIZER_DISCARD_ENABLE = 1000377001,
+    DEPTH_BIAS_ENABLE = 1000377002,
+    PRIMITIVE_RESTART_ENABLE = 1000377004,
+    LINE_STIPPLE = 1000259000,
+    VIEWPORT_W_SCALING_NV = 1000087000,
+    DISCARD_RECTANGLE_EXT = 1000099000,
+    DISCARD_RECTANGLE_ENABLE_EXT = 1000099001,
+    DISCARD_RECTANGLE_MODE_EXT = 1000099002,
+    SAMPLE_LOCATIONS_EXT = 1000143000,
+    RAY_TRACING_PIPELINE_STACK_SIZE_KHR = 1000347000,
+    VIEWPORT_SHADING_RATE_PALETTE_NV = 1000164004,
+    VIEWPORT_COARSE_SAMPLE_ORDER_NV = 1000164006,
+    EXCLUSIVE_SCISSOR_ENABLE_NV = 1000205000,
+    EXCLUSIVE_SCISSOR_NV = 1000205001,
+    FRAGMENT_SHADING_RATE_KHR = 1000226000,
+    VERTEX_INPUT_EXT = 1000352000,
+    PATCH_CONTROL_POINTS_EXT = 1000377000,
+    LOGIC_OP_EXT = 1000377003,
+    COLOR_WRITE_ENABLE_EXT = 1000381000,
+    DEPTH_CLAMP_ENABLE_EXT = 1000455003,
+    POLYGON_MODE_EXT = 1000455004,
+    RASTERIZATION_SAMPLES_EXT = 1000455005,
+    SAMPLE_MASK_EXT = 1000455006,
+    ALPHA_TO_COVERAGE_ENABLE_EXT = 1000455007,
+    ALPHA_TO_ONE_ENABLE_EXT = 1000455008,
+    LOGIC_OP_ENABLE_EXT = 1000455009,
+    COLOR_BLEND_ENABLE_EXT = 1000455010,
+    COLOR_BLEND_EQUATION_EXT = 1000455011,
+    COLOR_WRITE_MASK_EXT = 1000455012,
+    TESSELLATION_DOMAIN_ORIGIN_EXT = 1000455002,
+    RASTERIZATION_STREAM_EXT = 1000455013,
+    CONSERVATIVE_RASTERIZATION_MODE_EXT = 1000455014,
+    EXTRA_PRIMITIVE_OVERESTIMATION_SIZE_EXT = 1000455015,
+    DEPTH_CLIP_ENABLE_EXT = 1000455016,
+    SAMPLE_LOCATIONS_ENABLE_EXT = 1000455017,
+    COLOR_BLEND_ADVANCED_EXT = 1000455018,
+    PROVOKING_VERTEX_MODE_EXT = 1000455019,
+    LINE_RASTERIZATION_MODE_EXT = 1000455020,
+    LINE_STIPPLE_ENABLE_EXT = 1000455021,
+    DEPTH_CLIP_NEGATIVE_ONE_TO_ONE_EXT = 1000455022,
+    VIEWPORT_W_SCALING_ENABLE_NV = 1000455023,
+    VIEWPORT_SWIZZLE_NV = 1000455024,
+    COVERAGE_TO_COLOR_ENABLE_NV = 1000455025,
+    COVERAGE_TO_COLOR_LOCATION_NV = 1000455026,
+    COVERAGE_MODULATION_MODE_NV = 1000455027,
+    COVERAGE_MODULATION_TABLE_ENABLE_NV = 1000455028,
+    COVERAGE_MODULATION_TABLE_NV = 1000455029,
+    SHADING_RATE_IMAGE_ENABLE_NV = 1000455030,
+    REPRESENTATIVE_FRAGMENT_TEST_ENABLE_NV = 1000455031,
+    COVERAGE_REDUCTION_MODE_NV = 1000455032,
+    ATTACHMENT_FEEDBACK_LOOP_ENABLE_EXT = 1000524000,
+    DEPTH_CLAMP_RANGE_EXT = 1000582000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkStencilOp {
+    KEEP = 0,
+    ZERO = 1,
+    REPLACE = 2,
+    INCREMENT_AND_CLAMP = 3,
+    DECREMENT_AND_CLAMP = 4,
+    INVERT = 5,
+    INCREMENT_AND_WRAP = 6,
+    DECREMENT_AND_WRAP = 7,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkLogicOp {
+    CLEAR = 0,
+    AND = 1,
+    AND_REVERSE = 2,
+    COPY = 3,
+    AND_INVERTED = 4,
+    NO_OP = 5,
+    XOR = 6,
+    OR = 7,
+    NOR = 8,
+    EQUIVALENT = 9,
+    INVERT = 10,
+    OR_REVERSE = 11,
+    COPY_INVERTED = 12,
+    OR_INVERTED = 13,
+    NAND = 14,
+    SET = 15,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkAttachmentLoadOp {
+    LOAD = 0,
+    CLEAR = 1,
+    DONT_CARE = 2,
+    NONE = 1000400000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkAttachmentStoreOp {
+    STORE = 0,
+    DONT_CARE = 1,
+    NONE = 1000301000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkPolygonMode {
+    FILL = 0,
+    LINE = 1,
+    POINT = 2,
+    FILL_RECTANGLE_NV = 1000153000,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkVertexInputRate {
+    VERTEX = 0,
+    INSTANCE = 1,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkFrontFace {
+    COUNTER_CLOCKWISE = 0,
+    CLOCKWISE = 1,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VkPrimitiveTopology {
+    POINT_LIST = 0,
+    LINE_LIST = 1,
+    LINE_STRIP = 2,
+    TRIANGLE_LIST = 3,
+    TRIANGLE_STRIP = 4,
+    TRIANGLE_FAN = 5,
+    LINE_LIST_WITH_ADJACENCY = 6,
+    LINE_STRIP_WITH_ADJACENCY = 7,
+    TRIANGLE_LIST_WITH_ADJACENCY = 8,
+    TRIANGLE_STRIP_WITH_ADJACENCY = 9,
+    PATCH_LIST = 10,
+}
+
+#[repr(C)]
 pub struct VkWaylandSurfaceCreateInfoKHR {
     pub sType: u32,
     pub pNext: *const std::ffi::c_void,
@@ -316,8 +1226,7 @@ pub struct VkWaylandSurfaceCreateInfoKHR {
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VkPresentModeKHR
-{
+pub enum VkPresentModeKHR {
     IMMEDIATE = 0,
     MAILBOX = 1,
     FIFO = 2,
@@ -325,6 +1234,38 @@ pub enum VkPresentModeKHR
     SHARED_DEMAND_REFRESH_KHR = 1000111000,
     SHARED_CONTINUOUS_REFRESH_KHR = 1000111001,
     FIFO_LATEST_READY_EXT = 1000361000,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkCullModeFlags(u32);
+impl std::ops::BitOr for VkCullModeFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+impl VkCullModeFlags {
+    pub const NONE: Self = Self(0);
+    pub const FRONT_BIT: Self = Self(0x00000001);
+    pub const BACK_BIT: Self = Self(0x00000002);
+    pub const FRONT_AND_BACK: Self = Self(0x00000003);
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VkColorComponentFlags(u32);
+impl std::ops::BitOr for VkColorComponentFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+impl VkColorComponentFlags {
+    pub const R_BIT: Self = Self(0x00000001);
+    pub const G_BIT: Self = Self(0x00000002);
+    pub const B_BIT: Self = Self(0x00000004);
+    pub const A_BIT: Self = Self(0x00000008);
 }
 
 #[repr(C)]
@@ -814,6 +1755,20 @@ pub struct VkDependencyInfo {
     pub pBufferMemoryBarriers: *const VkBufferMemoryBarrier2,
     pub imageMemoryBarrierCount: u32,
     pub pImageMemoryBarriers: *const VkImageMemoryBarrier2,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct VkClearDepthStencilValue {
+    pub depth: f32,
+    pub stencil: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union VkClearValue {
+    pub color: VkClearColorValue,
+    pub depthStencil: VkClearDepthStencilValue,
 }
 
 #[repr(C)]
@@ -1835,23 +2790,23 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO = 13,
     IMAGE_CREATE_INFO = 14,
     IMAGE_VIEW_CREATE_INFO = 15,
-    VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO = 16,
+    SHADER_MODULE_CREATE_INFO = 16,
     VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO = 17,
-    VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO = 18,
-    VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO = 19,
-    VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO = 20,
+    PIPELINE_SHADER_STAGE_CREATE_INFO = 18,
+    PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO = 19,
+    PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO = 20,
     VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO = 21,
-    VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO = 22,
-    VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO = 23,
-    VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO = 24,
-    VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO = 25,
-    VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO = 26,
-    VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO = 27,
-    VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO = 28,
+    PIPELINE_VIEWPORT_STATE_CREATE_INFO = 22,
+    PIPELINE_RASTERIZATION_STATE_CREATE_INFO = 23,
+    PIPELINE_MULTISAMPLE_STATE_CREATE_INFO = 24,
+    PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO = 25,
+    PIPELINE_COLOR_BLEND_STATE_CREATE_INFO = 26,
+    PIPELINE_DYNAMIC_STATE_CREATE_INFO = 27,
+    GRAPHICS_PIPELINE_CREATE_INFO = 28,
     VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO = 29,
-    VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO = 30,
+    PIPELINE_LAYOUT_CREATE_INFO = 30,
     VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO = 31,
-    VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO = 32,
+    DESCRIPTOR_SET_LAYOUT_CREATE_INFO = 32,
     VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO = 33,
     VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO = 34,
     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET = 35,
@@ -2024,7 +2979,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES = 1000066000,
     VK_STRUCTURE_TYPE_RENDERING_INFO = 1000044000,
     VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO = 1000044001,
-    VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO = 1000044002,
+    PIPELINE_RENDERING_CREATE_INFO = 1000044002,
     PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES = 1000044003,
     VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO = 1000044004,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES = 1000280000,

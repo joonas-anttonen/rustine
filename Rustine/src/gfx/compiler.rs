@@ -1,6 +1,8 @@
 use std::ffi::{CStr, CString};
 use std::ptr;
 
+use crate::gfx::vulkan as vk;
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -16,6 +18,26 @@ pub enum Stage {
     Vertex,
     Fragment,
     Compute,
+}
+
+impl Stage {
+    pub fn to_vk(&self) -> vk::VkShaderStageFlags {
+        match self {
+            Stage::Vertex => vk::VkShaderStageFlags::VERTEX_BIT,
+            Stage::Fragment => vk::VkShaderStageFlags::FRAGMENT_BIT,
+            Stage::Compute => vk::VkShaderStageFlags::COMPUTE_BIT,
+        }
+    }
+}
+
+pub struct Shader {
+    pub stage: Stage,
+    pub entry_point: String,
+    pub bytecode: Vec<u8>,
+}
+
+pub struct ShaderProgram {
+    pub stages: Vec<Shader>,
 }
 
 #[repr(C)]

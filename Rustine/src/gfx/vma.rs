@@ -63,7 +63,7 @@ impl Allocator {
         height: u32,
         usage: ImageUsage,
         aspect: ImageAspect,
-        samples: ImageSamples,
+        samples: Samples,
     ) -> Result<PixelBuffer> {
         let image_create_info = vulkan::VkImageCreateInfo {
             sType: vulkan::VkStructureType::IMAGE_CREATE_INFO as u32,
@@ -265,7 +265,7 @@ impl Allocator {
             },
             mipLevels: 1,
             arrayLayers: 1,
-            samples: ImageSamples::X1.0,
+            samples: Samples::X1.0,
             tiling: vulkan::VkImageTiling::OPTIMAL,
             usage: usage.0,
             sharingMode: vulkan::VkSharingMode::EXCLUSIVE,
