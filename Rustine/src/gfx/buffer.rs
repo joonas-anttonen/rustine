@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::warning;
-use crate::{gfx::vma, gfx::vulkan_ffi as vulkan};
+use crate::{gfx::vma, gfx::vulkan};
 
 use std::sync::Arc;
 

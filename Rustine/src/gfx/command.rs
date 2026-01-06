@@ -1,36 +1,36 @@
 #![allow(dead_code)]
 
 use crate::{error, vk_call, warning};
-use crate::{gfx::vulkan, gfx::vulkan_ffi, gfx::*};
+use crate::{gfx::vulkan as vk, gfx::*};
 
 use std::sync::Arc;
 
 pub struct CommandPool {
-    handle: vulkan_ffi::VkCommandPool,
-    device: Arc<vulkan::Device>,
+    handle: vk::VkCommandPool,
+    device: Arc<Device>,
 }
 
 impl Drop for CommandPool {
     fn drop(&mut self) {
         warning!("CommandPool::drop");
         unsafe {
-            vulkan_ffi::vkDestroyCommandPool(self.device.handle(), self.handle, std::ptr::null());
+            vk::vkDestroyCommandPool(self.device.handle(), self.handle, std::ptr::null());
         }
     }
 }
 
 impl CommandPool {
-    pub fn new(family_index: u32, device: &Arc<vulkan::Device>) -> Arc<Self> {
-        let command_pool_create_info = vulkan_ffi::VkCommandPoolCreateInfo {
-            sType: vulkan_ffi::VkStructureType::COMMAND_POOL_CREATE_INFO as u32,
+    pub fn new(family_index: u32, device: &Arc<Device>) -> Arc<Self> {
+        let command_pool_create_info = vk::VkCommandPoolCreateInfo {
+            sType: vk::VkStructureType::COMMAND_POOL_CREATE_INFO as u32,
             pNext: std::ptr::null(),
-            flags: vulkan_ffi::VkCommandPoolCreateFlags::TRANSIENT_BIT
-                | vulkan_ffi::VkCommandPoolCreateFlags::RESET_COMMAND_BUFFER_BIT,
+            flags: vk::VkCommandPoolCreateFlags::TRANSIENT_BIT
+                | vk::VkCommandPoolCreateFlags::RESET_COMMAND_BUFFER_BIT,
             queueFamilyIndex: family_index,
         };
 
-        let mut command_pool_handle: vulkan_ffi::VkCommandPool = std::ptr::null_mut();
-        vk_call!(vulkan_ffi::vkCreateCommandPool(
+        let mut command_pool_handle: vk::VkCommandPool = std::ptr::null_mut();
+        vk_call!(vk::vkCreateCommandPool(
             device.handle(),
             &command_pool_create_info,
             std::ptr::null(),
@@ -46,42 +46,42 @@ impl CommandPool {
     }
 
     pub fn allocate_command_buffer(self: &Arc<Self>) -> Result<CommandBuffer> {
-        let allocate_info = vulkan_ffi::VkCommandBufferAllocateInfo {
-            sType: vulkan_ffi::VkStructureType::COMMAND_BUFFER_ALLOCATE_INFO as u32,
+        let allocate_info = vk::VkCommandBufferAllocateInfo {
+            sType: vk::VkStructureType::COMMAND_BUFFER_ALLOCATE_INFO as u32,
             pNext: std::ptr::null(),
             commandPool: self.handle,
-            level: vulkan_ffi::VkCommandBufferLevel::PRIMARY,
+            level: vk::VkCommandBufferLevel::PRIMARY,
             commandBufferCount: 1,
         };
 
-        let mut command_buffer_handle = vulkan_ffi::VkCommandBuffer::default();
-        vk_call!(vulkan_ffi::vkAllocateCommandBuffers(
+        let mut command_buffer_handle = vk::VkCommandBuffer::default();
+        vk_call!(vk::vkAllocateCommandBuffers(
             self.device.handle(),
             &allocate_info,
             &mut command_buffer_handle
         ))?;
 
         // Create fence
-        let fence_info = vulkan_ffi::VkFenceCreateInfo {
-            sType: vulkan_ffi::VkStructureType::FENCE_CREATE_INFO as u32,
+        let fence_info = vk::VkFenceCreateInfo {
+            sType: vk::VkStructureType::FENCE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
         };
-        let mut fence_handle = vulkan_ffi::VkFence::default();
-        vk_call!(vulkan_ffi::vkCreateFence(
+        let mut fence_handle = vk::VkFence::default();
+        vk_call!(vk::vkCreateFence(
             self.device.handle(),
             &fence_info,
             std::ptr::null(),
             &mut fence_handle
         ))?;
 
-        let semaphore_info = vulkan_ffi::VkSemaphoreCreateInfo {
-            sType: vulkan_ffi::VkStructureType::SEMAPHORE_CREATE_INFO as u32,
+        let semaphore_info = vk::VkSemaphoreCreateInfo {
+            sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
         };
-        let mut semaphore_handle = vulkan_ffi::VkSemaphore::default();
-        vk_call!(vulkan_ffi::vkCreateSemaphore(
+        let mut semaphore_handle = vk::VkSemaphore::default();
+        vk_call!(vk::vkCreateSemaphore(
             self.device.handle(),
             &semaphore_info,
             std::ptr::null(),
@@ -99,9 +99,9 @@ impl CommandPool {
 
 /// Represents a command buffer used for recording graphics commands.
 pub struct CommandBuffer {
-    handle: vulkan_ffi::VkCommandBuffer,
-    fence: vulkan_ffi::VkFence,
-    semaphore: vulkan_ffi::VkSemaphore,
+    handle: vk::VkCommandBuffer,
+    fence: vk::VkFence,
+    semaphore: vk::VkSemaphore,
     pool: Arc<CommandPool>,
 }
 
@@ -109,13 +109,13 @@ impl Drop for CommandBuffer {
     fn drop(&mut self) {
         warning!("CommandBuffer::drop");
         unsafe {
-            vulkan_ffi::vkDestroySemaphore(
+            vk::vkDestroySemaphore(
                 self.pool.device.handle(),
                 self.semaphore,
                 std::ptr::null(),
             );
-            vulkan_ffi::vkDestroyFence(self.pool.device.handle(), self.fence, std::ptr::null());
-            vulkan_ffi::vkFreeCommandBuffers(
+            vk::vkDestroyFence(self.pool.device.handle(), self.fence, std::ptr::null());
+            vk::vkFreeCommandBuffers(
                 self.pool.device.handle(),
                 self.pool.handle,
                 1,
@@ -128,9 +128,9 @@ impl Drop for CommandBuffer {
 impl CommandBuffer {
     /// Creates a new command buffer with the given handle, fence, semaphore, and pool.
     pub fn new(
-        handle: vulkan_ffi::VkCommandBuffer,
-        fence: vulkan_ffi::VkFence,
-        semaphore: vulkan_ffi::VkSemaphore,
+        handle: vk::VkCommandBuffer,
+        fence: vk::VkFence,
+        semaphore: vk::VkSemaphore,
         pool: Arc<CommandPool>,
     ) -> Self {
         CommandBuffer {
@@ -141,23 +141,23 @@ impl CommandBuffer {
         }
     }
 
-    pub fn handle(&self) -> vulkan_ffi::VkCommandBuffer {
+    pub fn handle(&self) -> vk::VkCommandBuffer {
         self.handle
     }
 
-    pub fn semaphore(&self) -> vulkan_ffi::VkSemaphore {
+    pub fn semaphore(&self) -> vk::VkSemaphore {
         self.semaphore
     }
 
-    pub fn fence(&self) -> vulkan_ffi::VkFence {
+    pub fn fence(&self) -> vk::VkFence {
         self.fence
     }
 
     pub fn is_complete(&self) -> bool {
-        let status = unsafe { vulkan_ffi::vkGetFenceStatus(self.pool.device.handle(), self.fence) };
+        let status = unsafe { vk::vkGetFenceStatus(self.pool.device.handle(), self.fence) };
         match status {
-            vulkan_ffi::VkResult::SUCCESS => true,
-            vulkan_ffi::VkResult::NOT_READY => false,
+            vk::VkResult::SUCCESS => true,
+            vk::VkResult::NOT_READY => false,
             _ => {
                 error!("Failed to get fence status: {:?}", status);
                 false
@@ -167,17 +167,17 @@ impl CommandBuffer {
 
     pub fn wait_for_completion(&self, timeout_ns: u64) -> bool {
         let result = unsafe {
-            vulkan_ffi::vkWaitForFences(
+            vk::vkWaitForFences(
                 self.pool.device.handle(),
                 1,
                 &self.fence,
-                vulkan_ffi::VK_TRUE,
+                vk::VK_TRUE,
                 timeout_ns,
             )
         };
         match result {
-            vulkan_ffi::VkResult::SUCCESS => true,
-            vulkan_ffi::VkResult::TIMEOUT => false,
+            vk::VkResult::SUCCESS => true,
+            vk::VkResult::TIMEOUT => false,
             _ => {
                 error!("Failed to wait for fence: {:?}", result);
                 false
@@ -186,7 +186,7 @@ impl CommandBuffer {
     }
 
     pub fn reset(&self) {
-        vk_call!(vulkan_ffi::vkResetFences(
+        vk_call!(vk::vkResetFences(
             self.pool.device.handle(),
             1,
             &self.fence
@@ -194,106 +194,106 @@ impl CommandBuffer {
         .unwrap_or_else(|r| {
             error!("Failed to reset fence: {:?}", r);
         });
-        vk_call!(vulkan_ffi::vkResetCommandBuffer(self.handle, 0)).unwrap_or_else(|r| {
+        vk_call!(vk::vkResetCommandBuffer(self.handle, 0)).unwrap_or_else(|r| {
             error!("Failed to reset command buffer: {:?}", r);
         });
     }
 
     /// Begins recording commands into the command buffer.
     pub fn begin(&self) {
-        let begin_info = vulkan_ffi::VkCommandBufferBeginInfo {
-            sType: vulkan_ffi::VkStructureType::COMMAND_BUFFER_BEGIN_INFO as u32,
+        let begin_info = vk::VkCommandBufferBeginInfo {
+            sType: vk::VkStructureType::COMMAND_BUFFER_BEGIN_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
             pInheritanceInfo: std::ptr::null(),
         };
-        vk_call!(vulkan_ffi::vkBeginCommandBuffer(self.handle, &begin_info)).unwrap_or_else(|r| {
+        vk_call!(vk::vkBeginCommandBuffer(self.handle, &begin_info)).unwrap_or_else(|r| {
             error!("Failed to begin command buffer: {:?}", r);
         });
     }
 
     /// Ends recording commands into the command buffer.
     pub fn end(&self) {
-        vk_call!(vulkan_ffi::vkEndCommandBuffer(self.handle)).unwrap_or_else(|r| {
+        vk_call!(vk::vkEndCommandBuffer(self.handle)).unwrap_or_else(|r| {
             error!("Failed to end command buffer: {:?}", r);
         });
     }
 
-    fn barrier_stage_mask(layout: vulkan_ffi::VkImageLayout) -> vulkan_ffi::VkPipelineStageFlags2 {
+    fn barrier_stage_mask(layout: vk::VkImageLayout) -> vk::VkPipelineStageFlags2 {
         match layout {
-            vulkan_ffi::VkImageLayout::UNDEFINED => {
-                vulkan_ffi::VkPipelineStageFlags2::TOP_OF_PIPE_BIT
+            vk::VkImageLayout::UNDEFINED => {
+                vk::VkPipelineStageFlags2::TOP_OF_PIPE_BIT
             }
-            vulkan_ffi::VkImageLayout::TRANSFER_DST_OPTIMAL => {
-                vulkan_ffi::VkPipelineStageFlags2::ALL_TRANSFER_BIT
+            vk::VkImageLayout::TRANSFER_DST_OPTIMAL => {
+                vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT
             }
-            vulkan_ffi::VkImageLayout::TRANSFER_SRC_OPTIMAL => {
-                vulkan_ffi::VkPipelineStageFlags2::ALL_TRANSFER_BIT
+            vk::VkImageLayout::TRANSFER_SRC_OPTIMAL => {
+                vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT
             }
-            vulkan_ffi::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL => {
-                vulkan_ffi::VkPipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT_BIT
+            vk::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL => {
+                vk::VkPipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT_BIT
             }
-            vulkan_ffi::VkImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => {
-                vulkan_ffi::VkPipelineStageFlags2::EARLY_FRAGMENT_TESTS_BIT
-                    | vulkan_ffi::VkPipelineStageFlags2::LATE_FRAGMENT_TESTS_BIT
+            vk::VkImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => {
+                vk::VkPipelineStageFlags2::EARLY_FRAGMENT_TESTS_BIT
+                    | vk::VkPipelineStageFlags2::LATE_FRAGMENT_TESTS_BIT
             }
-            vulkan_ffi::VkImageLayout::SHADER_READ_ONLY_OPTIMAL => {
-                vulkan_ffi::VkPipelineStageFlags2::FRAGMENT_SHADER_BIT
+            vk::VkImageLayout::SHADER_READ_ONLY_OPTIMAL => {
+                vk::VkPipelineStageFlags2::FRAGMENT_SHADER_BIT
             }
-            vulkan_ffi::VkImageLayout::PRESENT_SRC_KHR => {
-                vulkan_ffi::VkPipelineStageFlags2::BOTTOM_OF_PIPE_BIT
+            vk::VkImageLayout::PRESENT_SRC_KHR => {
+                vk::VkPipelineStageFlags2::BOTTOM_OF_PIPE_BIT
             }
             // Something else: you get everything
-            _ => vulkan_ffi::VkPipelineStageFlags2::ALL_COMMANDS_BIT,
+            _ => vk::VkPipelineStageFlags2::ALL_COMMANDS_BIT,
         }
     }
 
-    fn barrier_access_mask(layout: vulkan_ffi::VkImageLayout) -> vulkan_ffi::VkAccessFlags2 {
+    fn barrier_access_mask(layout: vk::VkImageLayout) -> vk::VkAccessFlags2 {
         match layout {
-            vulkan_ffi::VkImageLayout::UNDEFINED => vulkan_ffi::VkAccessFlags2::NONE,
-            vulkan_ffi::VkImageLayout::PRESENT_SRC_KHR => vulkan_ffi::VkAccessFlags2::NONE,
-            vulkan_ffi::VkImageLayout::TRANSFER_DST_OPTIMAL => {
-                vulkan_ffi::VkAccessFlags2::TRANSFER_WRITE_BIT
+            vk::VkImageLayout::UNDEFINED => vk::VkAccessFlags2::NONE,
+            vk::VkImageLayout::PRESENT_SRC_KHR => vk::VkAccessFlags2::NONE,
+            vk::VkImageLayout::TRANSFER_DST_OPTIMAL => {
+                vk::VkAccessFlags2::TRANSFER_WRITE_BIT
             }
-            vulkan_ffi::VkImageLayout::TRANSFER_SRC_OPTIMAL => {
-                vulkan_ffi::VkAccessFlags2::TRANSFER_READ_BIT
+            vk::VkImageLayout::TRANSFER_SRC_OPTIMAL => {
+                vk::VkAccessFlags2::TRANSFER_READ_BIT
             }
-            vulkan_ffi::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL => {
-                vulkan_ffi::VkAccessFlags2::COLOR_ATTACHMENT_WRITE_BIT
+            vk::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL => {
+                vk::VkAccessFlags2::COLOR_ATTACHMENT_WRITE_BIT
             }
-            vulkan_ffi::VkImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => {
-                vulkan_ffi::VkAccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+            vk::VkImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => {
+                vk::VkAccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
             }
-            vulkan_ffi::VkImageLayout::SHADER_READ_ONLY_OPTIMAL => {
-                vulkan_ffi::VkAccessFlags2::SHADER_READ_BIT
+            vk::VkImageLayout::SHADER_READ_ONLY_OPTIMAL => {
+                vk::VkAccessFlags2::SHADER_READ_BIT
             }
             // Something else: you get everything
             _ => {
-                vulkan_ffi::VkAccessFlags2::MEMORY_READ_BIT
-                    | vulkan_ffi::VkAccessFlags2::MEMORY_WRITE_BIT
-                    | vulkan_ffi::VkAccessFlags2::TRANSFER_READ_BIT
-                    | vulkan_ffi::VkAccessFlags2::TRANSFER_WRITE_BIT
-                    | vulkan_ffi::VkAccessFlags2::COLOR_ATTACHMENT_READ_BIT
-                    | vulkan_ffi::VkAccessFlags2::COLOR_ATTACHMENT_WRITE_BIT
-                    | vulkan_ffi::VkAccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ_BIT
-                    | vulkan_ffi::VkAccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-                    | vulkan_ffi::VkAccessFlags2::SHADER_READ_BIT
-                    | vulkan_ffi::VkAccessFlags2::SHADER_WRITE_BIT
+                vk::VkAccessFlags2::MEMORY_READ_BIT
+                    | vk::VkAccessFlags2::MEMORY_WRITE_BIT
+                    | vk::VkAccessFlags2::TRANSFER_READ_BIT
+                    | vk::VkAccessFlags2::TRANSFER_WRITE_BIT
+                    | vk::VkAccessFlags2::COLOR_ATTACHMENT_READ_BIT
+                    | vk::VkAccessFlags2::COLOR_ATTACHMENT_WRITE_BIT
+                    | vk::VkAccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ_BIT
+                    | vk::VkAccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+                    | vk::VkAccessFlags2::SHADER_READ_BIT
+                    | vk::VkAccessFlags2::SHADER_WRITE_BIT
             }
         }
     }
 
     pub fn full_barrier(&self) {
-        let memory_barrier = vulkan_ffi::VkMemoryBarrier2 {
-            sType: vulkan_ffi::VkStructureType::MEMORY_BARRIER_2 as u32,
+        let memory_barrier = vk::VkMemoryBarrier2 {
+            sType: vk::VkStructureType::MEMORY_BARRIER_2 as u32,
             pNext: std::ptr::null(),
-            srcStageMask: vulkan_ffi::VkPipelineStageFlags2::ALL_COMMANDS_BIT,
-            srcAccessMask: vulkan_ffi::VkAccessFlags2::NONE,
-            dstStageMask: vulkan_ffi::VkPipelineStageFlags2::ALL_COMMANDS_BIT,
-            dstAccessMask: vulkan_ffi::VkAccessFlags2::NONE,
+            srcStageMask: vk::VkPipelineStageFlags2::ALL_COMMANDS_BIT,
+            srcAccessMask: vk::VkAccessFlags2::NONE,
+            dstStageMask: vk::VkPipelineStageFlags2::ALL_COMMANDS_BIT,
+            dstAccessMask: vk::VkAccessFlags2::NONE,
         };
-        let dependency_info = vulkan_ffi::VkDependencyInfo {
-            sType: vulkan_ffi::VkStructureType::DEPENDENCY_INFO as u32,
+        let dependency_info = vk::VkDependencyInfo {
+            sType: vk::VkStructureType::DEPENDENCY_INFO as u32,
             pNext: std::ptr::null(),
             dependencyFlags: 0,
             memoryBarrierCount: 1,
@@ -304,21 +304,21 @@ impl CommandBuffer {
             pImageMemoryBarriers: std::ptr::null(),
         };
         unsafe {
-            vulkan_ffi::vkCmdPipelineBarrier2(self.handle, &dependency_info);
+            vk::vkCmdPipelineBarrier2(self.handle, &dependency_info);
         }
     }
 
     pub fn transfer_barrier(&self) {
-        let memory_barrier = vulkan_ffi::VkMemoryBarrier2 {
-            sType: vulkan_ffi::VkStructureType::MEMORY_BARRIER_2 as u32,
+        let memory_barrier = vk::VkMemoryBarrier2 {
+            sType: vk::VkStructureType::MEMORY_BARRIER_2 as u32,
             pNext: std::ptr::null(),
-            srcStageMask: vulkan_ffi::VkPipelineStageFlags2::ALL_TRANSFER_BIT,
-            srcAccessMask: vulkan_ffi::VkAccessFlags2::TRANSFER_WRITE_BIT,
-            dstStageMask: vulkan_ffi::VkPipelineStageFlags2::ALL_TRANSFER_BIT,
-            dstAccessMask: vulkan_ffi::VkAccessFlags2::TRANSFER_READ_BIT,
+            srcStageMask: vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT,
+            srcAccessMask: vk::VkAccessFlags2::TRANSFER_WRITE_BIT,
+            dstStageMask: vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT,
+            dstAccessMask: vk::VkAccessFlags2::TRANSFER_READ_BIT,
         };
-        let dependency_info = vulkan_ffi::VkDependencyInfo {
-            sType: vulkan_ffi::VkStructureType::DEPENDENCY_INFO as u32,
+        let dependency_info = vk::VkDependencyInfo {
+            sType: vk::VkStructureType::DEPENDENCY_INFO as u32,
             pNext: std::ptr::null(),
             dependencyFlags: 0,
             memoryBarrierCount: 1,
@@ -329,7 +329,7 @@ impl CommandBuffer {
             pImageMemoryBarriers: std::ptr::null(),
         };
         unsafe {
-            vulkan_ffi::vkCmdPipelineBarrier2(self.handle, &dependency_info);
+            vk::vkCmdPipelineBarrier2(self.handle, &dependency_info);
         }
     }
 
@@ -353,12 +353,12 @@ impl CommandBuffer {
 
     fn raw_image_barrier(
         &self,
-        image: vulkan_ffi::VkImage,
+        image: vk::VkImage,
         old_layout: ImageLayout,
         new_layout: ImageLayout,
     ) {
-        let image_memory_barrier = vulkan_ffi::VkImageMemoryBarrier2 {
-            sType: vulkan_ffi::VkStructureType::IMAGE_MEMORY_BARRIER_2 as u32,
+        let image_memory_barrier = vk::VkImageMemoryBarrier2 {
+            sType: vk::VkStructureType::IMAGE_MEMORY_BARRIER_2 as u32,
             pNext: std::ptr::null(),
             srcStageMask: Self::barrier_stage_mask(old_layout.to_vk()),
             srcAccessMask: Self::barrier_access_mask(old_layout.to_vk()),
@@ -366,20 +366,20 @@ impl CommandBuffer {
             dstAccessMask: Self::barrier_access_mask(new_layout.to_vk()),
             oldLayout: old_layout.to_vk(),
             newLayout: new_layout.to_vk(),
-            srcQueueFamilyIndex: vulkan_ffi::VK_QUEUE_FAMILY_IGNORED,
-            dstQueueFamilyIndex: vulkan_ffi::VK_QUEUE_FAMILY_IGNORED,
+            srcQueueFamilyIndex: vk::VK_QUEUE_FAMILY_IGNORED,
+            dstQueueFamilyIndex: vk::VK_QUEUE_FAMILY_IGNORED,
             image: image,
-            subresourceRange: vulkan_ffi::VkImageSubresourceRange {
+            subresourceRange: vk::VkImageSubresourceRange {
                 // TODO: Support more aspects
-                aspectMask: vulkan_ffi::VkImageAspectFlags::COLOR_BIT as u32,
+                aspectMask: vk::VkImageAspectFlags::COLOR_BIT as u32,
                 baseMipLevel: 0,
                 levelCount: 1,
                 baseArrayLayer: 0,
                 layerCount: 1,
             },
         };
-        let dependency_info = vulkan_ffi::VkDependencyInfo {
-            sType: vulkan_ffi::VkStructureType::DEPENDENCY_INFO as u32,
+        let dependency_info = vk::VkDependencyInfo {
+            sType: vk::VkStructureType::DEPENDENCY_INFO as u32,
             pNext: std::ptr::null(),
             dependencyFlags: 0,
             memoryBarrierCount: 0,
@@ -391,7 +391,7 @@ impl CommandBuffer {
         };
 
         unsafe {
-            vulkan_ffi::vkCmdPipelineBarrier2(self.handle, &dependency_info);
+            vk::vkCmdPipelineBarrier2(self.handle, &dependency_info);
         }
     }
 
@@ -405,20 +405,20 @@ impl CommandBuffer {
         self.raw_clear_pixel_buffer(buffer.image(), color);
     }
 
-    pub fn raw_clear_pixel_buffer(&self, image: vulkan_ffi::VkImage, color: [f32; 4]) {
-        let clear_color = vulkan_ffi::VkClearColorValue { float32: color };
-        let image_subresource_range = vulkan_ffi::VkImageSubresourceRange {
-            aspectMask: vulkan_ffi::VkImageAspectFlags::COLOR_BIT as u32,
+    pub fn raw_clear_pixel_buffer(&self, image: vk::VkImage, color: [f32; 4]) {
+        let clear_color = vk::VkClearColorValue { float32: color };
+        let image_subresource_range = vk::VkImageSubresourceRange {
+            aspectMask: vk::VkImageAspectFlags::COLOR_BIT as u32,
             baseMipLevel: 0,
             levelCount: 1,
             baseArrayLayer: 0,
             layerCount: 1,
         };
         unsafe {
-            vulkan_ffi::vkCmdClearColorImage(
+            vk::vkCmdClearColorImage(
                 self.handle,
                 image,
-                vulkan_ffi::VkImageLayout::GENERAL,
+                vk::VkImageLayout::GENERAL,
                 &clear_color,
                 1,
                 &image_subresource_range,

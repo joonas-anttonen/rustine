@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use crate::{error, gfx, gfx::vulkan_ffi as vk, warning};
+use crate::{error, gfx::*, gfx::vulkan as vk, warning};
 use crate::{
     gfx::CommandBuffer, gfx::CommandPool, gfx::presentation::AcquireStatus,
     gfx::presentation::Method, gfx::presentation::PresentationImage,
-    gfx::presentation::PresentationProvider, gfx::vulkan,
+    gfx::presentation::PresentationProvider,
 };
 
 use std::{
@@ -16,7 +16,7 @@ pub enum SubmitStatus {
     Success,
     Timeout,
     OutOfDate,
-    Error(gfx::Status),
+    Error(Status),
 }
 
 /*/// Represents a transfer operation type.
@@ -100,7 +100,7 @@ impl Drop for Queue {
 
 impl Queue {
     pub fn new(
-        device: &Arc<vulkan::Device>,
+        device: &Arc<Device>,
         presentation_provider: impl PresentationProvider + 'static,
     ) -> Self {
         let family_index = device.general_queue_family_index();
@@ -132,7 +132,7 @@ impl Queue {
             vk::VkResult::SUCCESS => {}
             _ => error!(
                 "Queue::wait_for_idle: {:?}",
-                gfx::Status::from_code(result.0)
+                Status::from_code(result.0)
             ),
         }
     }
@@ -372,7 +372,7 @@ impl Queue {
         match result {
             vk::VkResult::SUCCESS => SubmitStatus::Success,
             vk::VkResult::TIMEOUT => SubmitStatus::Timeout,
-            _ => SubmitStatus::Error(gfx::Status::from_code(result.0)),
+            _ => SubmitStatus::Error(Status::from_code(result.0)),
         }
     }
 }

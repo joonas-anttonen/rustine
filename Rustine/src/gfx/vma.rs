@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::{gfx::vulkan, gfx::*};
+use crate::gfx::*;
 use crate::{vk_call, warning};
 
 pub use ffi::VmaAllocation;
@@ -12,7 +12,7 @@ pub use ffi::vmaDestroyImage;
 
 pub struct Allocator {
     pub handle: ffi::VmaAllocator,
-    pub device: Arc<vulkan::Device>,
+    pub device: Arc<Device>,
 }
 
 impl Drop for Allocator {
@@ -25,7 +25,7 @@ impl Drop for Allocator {
 }
 
 impl Allocator {
-    pub fn new(instance: &vulkan::Instance, device: Arc<vulkan::Device>) -> Result<Arc<Self>> {
+    pub fn new(instance: &Instance, device: Arc<Device>) -> Result<Arc<Self>> {
         let mut flags = ffi::VmaAllocatorCreateFlags::NONE as u32;
         // If Windows platform, enable external memory handle types
         if cfg!(target_os = "windows") {
@@ -48,10 +48,7 @@ impl Allocator {
 
         let mut allocator_handle: ffi::VmaAllocator = std::ptr::null_mut();
 
-        vk_call!(ffi::vmaCreateAllocator(
-            &create_info,
-            &mut allocator_handle
-        ))?;
+        vk_call!(ffi::vmaCreateAllocator(&create_info, &mut allocator_handle))?;
 
         Ok(Arc::new(Allocator {
             handle: allocator_handle,
@@ -68,13 +65,13 @@ impl Allocator {
         aspect: ImageAspect,
         samples: ImageSamples,
     ) -> Result<PixelBuffer> {
-        let image_create_info = vulkan_ffi::VkImageCreateInfo {
-            sType: vulkan_ffi::VkStructureType::IMAGE_CREATE_INFO as u32,
+        let image_create_info = vulkan::VkImageCreateInfo {
+            sType: vulkan::VkStructureType::IMAGE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
-            imageType: vulkan_ffi::VkImageType::X2D,
+            imageType: vulkan::VkImageType::X2D,
             format: format.to_vk(),
-            extent: vulkan_ffi::VkExtent3D {
+            extent: vulkan::VkExtent3D {
                 width,
                 height,
                 depth: 1,
@@ -82,27 +79,27 @@ impl Allocator {
             mipLevels: 1,
             arrayLayers: 1,
             samples: samples.0,
-            tiling: vulkan_ffi::VkImageTiling::OPTIMAL,
+            tiling: vulkan::VkImageTiling::OPTIMAL,
             usage: usage.0,
-            sharingMode: vulkan_ffi::VkSharingMode::EXCLUSIVE,
+            sharingMode: vulkan::VkSharingMode::EXCLUSIVE,
             queueFamilyIndexCount: 0,
             pQueueFamilyIndices: std::ptr::null(),
-            initialLayout: vulkan_ffi::VkImageLayout::UNDEFINED,
+            initialLayout: vulkan::VkImageLayout::UNDEFINED,
         };
-        let mut image_view_create_info = vulkan_ffi::VkImageViewCreateInfo {
-            sType: vulkan_ffi::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
+        let mut image_view_create_info = vulkan::VkImageViewCreateInfo {
+            sType: vulkan::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
             image: std::ptr::null_mut(), // NOTE: image not available yet, will be set in allocate_image
-            viewType: vulkan_ffi::VkImageViewType::X2D,
+            viewType: vulkan::VkImageViewType::X2D,
             format: format.to_vk(),
-            components: vulkan_ffi::VkComponentMapping {
-                r: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                g: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                b: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                a: vulkan_ffi::VkComponentSwizzle::IDENTITY,
+            components: vulkan::VkComponentMapping {
+                r: vulkan::VkComponentSwizzle::IDENTITY,
+                g: vulkan::VkComponentSwizzle::IDENTITY,
+                b: vulkan::VkComponentSwizzle::IDENTITY,
+                a: vulkan::VkComponentSwizzle::IDENTITY,
             },
-            subresourceRange: vulkan_ffi::VkImageSubresourceRange {
+            subresourceRange: vulkan::VkImageSubresourceRange {
                 aspectMask: aspect.0,
                 baseMipLevel: 0,
                 levelCount: 1,
@@ -116,11 +113,11 @@ impl Allocator {
 
     fn allocate_image(
         self: &Arc<Self>,
-        image_create_info: &vulkan_ffi::VkImageCreateInfo,
-        image_view_create_info: &mut vulkan_ffi::VkImageViewCreateInfo,
+        image_create_info: &vulkan::VkImageCreateInfo,
+        image_view_create_info: &mut vulkan::VkImageViewCreateInfo,
     ) -> Result<PixelBuffer> {
-        let mut image: vulkan_ffi::VkImage = std::ptr::null_mut();
-        let mut image_view: vulkan_ffi::VkImageView = std::ptr::null_mut();
+        let mut image: vulkan::VkImage = std::ptr::null_mut();
+        let mut image_view: vulkan::VkImageView = std::ptr::null_mut();
         let mut allocation: ffi::VmaAllocation = std::ptr::null_mut();
         let mut allocation_info: ffi::VmaAllocationInfo = unsafe { std::mem::zeroed() };
 
@@ -146,7 +143,7 @@ impl Allocator {
 
         image_view_create_info.image = image; // Set the image now that it's created
 
-        vk_call!(vulkan_ffi::vkCreateImageView(
+        vk_call!(vulkan::vkCreateImageView(
             self.device.handle(),
             image_view_create_info,
             std::ptr::null(),
@@ -173,28 +170,28 @@ impl Allocator {
     fn allocate_external_image(
         self: &Arc<Self>,
         handle: *const std::ffi::c_void,
-        image_create_info: &mut vulkan_ffi::VkImageCreateInfo,
-        image_view_create_info: &mut vulkan_ffi::VkImageViewCreateInfo,
+        image_create_info: &mut vulkan::VkImageCreateInfo,
+        image_view_create_info: &mut vulkan::VkImageViewCreateInfo,
     ) -> Result<PixelBuffer> {
-        let external_image_create_info = vulkan_ffi::VkExternalMemoryImageCreateInfo {
-            sType: vulkan_ffi::VkStructureType::EXTERNAL_MEMORY_IMAGE_CREATE_INFO as u32,
+        let external_image_create_info = vulkan::VkExternalMemoryImageCreateInfo {
+            sType: vulkan::VkStructureType::EXTERNAL_MEMORY_IMAGE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
-            handleTypes: vulkan_ffi::VkExternalMemoryHandleTypeFlags::D3D11_TEXTURE_BIT as u32,
+            handleTypes: vulkan::VkExternalMemoryHandleTypeFlags::D3D11_TEXTURE_BIT as u32,
         };
         image_create_info.pNext = &external_image_create_info
-            as *const vulkan_ffi::VkExternalMemoryImageCreateInfo
+            as *const vulkan::VkExternalMemoryImageCreateInfo
             as *const std::ffi::c_void;
 
-        let import_memory_win32_info = vulkan_ffi::VkImportMemoryWin32HandleInfoKHR {
-            sType: vulkan_ffi::VkStructureType::IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR as u32,
+        let import_memory_win32_info = vulkan::VkImportMemoryWin32HandleInfoKHR {
+            sType: vulkan::VkStructureType::IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR as u32,
             pNext: std::ptr::null(),
-            handleType: vulkan_ffi::VkExternalMemoryHandleTypeFlags::D3D11_TEXTURE_BIT as u32,
+            handleType: vulkan::VkExternalMemoryHandleTypeFlags::D3D11_TEXTURE_BIT as u32,
             handle: handle as *mut std::ffi::c_void,
             name: std::ptr::null(),
         };
 
-        let mut image: vulkan_ffi::VkImage = std::ptr::null_mut();
-        let mut image_view: vulkan_ffi::VkImageView = std::ptr::null_mut();
+        let mut image: vulkan::VkImage = std::ptr::null_mut();
+        let mut image_view: vulkan::VkImageView = std::ptr::null_mut();
         let mut allocation: ffi::VmaAllocation = std::ptr::null_mut();
         let mut allocation_info: ffi::VmaAllocationInfo = unsafe { std::mem::zeroed() };
 
@@ -213,7 +210,7 @@ impl Allocator {
             self.handle,
             image_create_info,
             &allocation_create_info,
-            &import_memory_win32_info as *const vulkan_ffi::VkImportMemoryWin32HandleInfoKHR
+            &import_memory_win32_info as *const vulkan::VkImportMemoryWin32HandleInfoKHR
                 as *const std::ffi::c_void,
             &mut image,
             &mut allocation,
@@ -222,7 +219,7 @@ impl Allocator {
 
         image_view_create_info.image = image; // Set the image now that it's created
 
-        vk_call!(vulkan_ffi::vkCreateImageView(
+        vk_call!(vulkan::vkCreateImageView(
             self.device.handle(),
             image_view_create_info,
             std::ptr::null(),
@@ -255,13 +252,13 @@ impl Allocator {
         aspect: ImageAspect,
         handle: *const std::ffi::c_void,
     ) -> Result<PixelBuffer> {
-        let mut image_create_info = vulkan_ffi::VkImageCreateInfo {
-            sType: vulkan_ffi::VkStructureType::IMAGE_CREATE_INFO as u32,
+        let mut image_create_info = vulkan::VkImageCreateInfo {
+            sType: vulkan::VkStructureType::IMAGE_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
-            imageType: vulkan_ffi::VkImageType::X2D,
+            imageType: vulkan::VkImageType::X2D,
             format: format.to_vk(),
-            extent: vulkan_ffi::VkExtent3D {
+            extent: vulkan::VkExtent3D {
                 width,
                 height,
                 depth: 1,
@@ -269,27 +266,27 @@ impl Allocator {
             mipLevels: 1,
             arrayLayers: 1,
             samples: ImageSamples::X1.0,
-            tiling: vulkan_ffi::VkImageTiling::OPTIMAL,
+            tiling: vulkan::VkImageTiling::OPTIMAL,
             usage: usage.0,
-            sharingMode: vulkan_ffi::VkSharingMode::EXCLUSIVE,
+            sharingMode: vulkan::VkSharingMode::EXCLUSIVE,
             queueFamilyIndexCount: 0,
             pQueueFamilyIndices: std::ptr::null(),
-            initialLayout: vulkan_ffi::VkImageLayout::UNDEFINED,
+            initialLayout: vulkan::VkImageLayout::UNDEFINED,
         };
-        let mut image_view_create_info = vulkan_ffi::VkImageViewCreateInfo {
-            sType: vulkan_ffi::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
+        let mut image_view_create_info = vulkan::VkImageViewCreateInfo {
+            sType: vulkan::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
             image: std::ptr::null_mut(), // NOTE: image not available yet, will be set in allocate_image
-            viewType: vulkan_ffi::VkImageViewType::X2D,
+            viewType: vulkan::VkImageViewType::X2D,
             format: format.to_vk(),
-            components: vulkan_ffi::VkComponentMapping {
-                r: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                g: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                b: vulkan_ffi::VkComponentSwizzle::IDENTITY,
-                a: vulkan_ffi::VkComponentSwizzle::IDENTITY,
+            components: vulkan::VkComponentMapping {
+                r: vulkan::VkComponentSwizzle::IDENTITY,
+                g: vulkan::VkComponentSwizzle::IDENTITY,
+                b: vulkan::VkComponentSwizzle::IDENTITY,
+                a: vulkan::VkComponentSwizzle::IDENTITY,
             },
-            subresourceRange: vulkan_ffi::VkImageSubresourceRange {
+            subresourceRange: vulkan::VkImageSubresourceRange {
                 aspectMask: aspect.0,
                 baseMipLevel: 0,
                 levelCount: 1,
@@ -309,7 +306,7 @@ impl Allocator {
     non_upper_case_globals
 )]
 mod ffi {
-    use crate::gfx::vulkan_ffi::{
+    use crate::gfx::vulkan::{
         VkBuffer, VkBufferCreateInfo, VkDevice, VkDeviceMemory, VkDeviceSize, VkImage,
         VkImageCreateInfo, VkInstance, VkPhysicalDevice,
     };

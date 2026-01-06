@@ -1,5 +1,5 @@
-use crate::{error, gfx, vk_call, warning};
-use crate::{gfx::PixelBuffer, gfx::vulkan, gfx::vulkan_ffi as vk};
+use crate::{error, vk_call, warning};
+use crate::{gfx::PixelBuffer, gfx::*, gfx::vulkan as vk};
 
 use std::sync::Arc;
 
@@ -48,14 +48,14 @@ pub struct SharedImageProvider {
     output_frame: PixelBuffer,
 }
 impl SharedImageProvider {
-    pub fn new(allocator: &Arc<gfx::vma::Allocator>, parameters: Parameters) -> Self {
+    pub fn new(allocator: &Arc<vma::Allocator>, parameters: Parameters) -> Self {
         let output_frame = allocator
             .create_external_pixel_buffer(
-                gfx::Format::B8G8R8A8_UNORM,
+                Format::B8G8R8A8_UNORM,
                 parameters.width,
                 parameters.height,
-                gfx::ImageUsage::COLOR_ATTACHMENT | gfx::ImageUsage::TRANSFER_DST,
-                gfx::ImageAspect::COLOR,
+                ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
+                ImageAspect::COLOR,
                 parameters.surface_handle,
             )
             .unwrap();
@@ -92,7 +92,7 @@ pub struct SwapchainProvider {
     current_acquire_index: u32,
     acquire_fence: vk::VkFence,
     acquire_semaphores: Vec<vk::VkSemaphore>,
-    device: Arc<vulkan::Device>,
+    device: Arc<Device>,
 }
 
 impl Drop for SwapchainProvider {
@@ -183,7 +183,7 @@ impl PresentationProvider for SwapchainProvider {
 }
 
 impl SwapchainProvider {
-    pub fn new(device: &Arc<vulkan::Device>, params: Parameters) -> Self {
+    pub fn new(device: &Arc<Device>, params: Parameters) -> Self {
         let physical_device = device.physical_device();
         let surface_handle = params.surface_handle as vk::VkSurfaceKHR;
 

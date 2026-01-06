@@ -3,7 +3,7 @@
 mod input;
 //use input::{Action, Key, KeyEvent, Mods};
 
-use crate::gfx::{self, presentation, vulkan_ffi as vk};
+use crate::gfx::{self, presentation, vulkan as vk};
 use crate::{debug, warning};
 
 use std::sync::{Arc, Mutex};

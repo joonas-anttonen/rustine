@@ -48,9 +48,6 @@ fn main() {
 fn build_rustine_webp(project_dir: &Path, out_dir: &Path, generator: &'static str) {
     let destination_dir = cmake::Config::new(project_dir.join("ext").join("rustine-webp"))
         .generator(generator)
-        .define("BUILD_SHARED_LIBS", "OFF")
-        .define("WEBP_ENABLE_SIMD", "ON")
-        .define("WEBP_USE_THREAD", "ON")
         .out_dir(out_dir.join("rustine-webp"))
         .always_configure(true)
         .build();

@@ -2,8 +2,11 @@
 
 mod core;
 mod vma;
+mod instance;
+pub use instance::Instance;
+mod device;
+pub use device::*;
 pub mod vulkan;
-pub mod vulkan_ffi;
 pub use core::Core;
 pub mod presentation;
 pub mod queue;
@@ -37,7 +40,7 @@ pub struct StartupParameters {
     pub host_name: String,
 }
 
-use vulkan_ffi as vk;
+use vulkan as vk;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Format(vk::VkFormat);
@@ -79,13 +82,13 @@ impl ImageLayout {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageSamples(u32);
 impl ImageSamples {
-    pub const X1: Self = Self(vulkan_ffi::VkSampleCountFlags::X1_BIT as u32);
-    pub const X2: Self = Self(vulkan_ffi::VkSampleCountFlags::X2_BIT as u32);
-    pub const X4: Self = Self(vulkan_ffi::VkSampleCountFlags::X4_BIT as u32);
-    pub const X8: Self = Self(vulkan_ffi::VkSampleCountFlags::X8_BIT as u32);
-    pub const X16: Self = Self(vulkan_ffi::VkSampleCountFlags::X16_BIT as u32);
-    pub const X32: Self = Self(vulkan_ffi::VkSampleCountFlags::X32_BIT as u32);
-    pub const X64: Self = Self(vulkan_ffi::VkSampleCountFlags::X64_BIT as u32);
+    pub const X1: Self = Self(vulkan::VkSampleCountFlags::X1_BIT as u32);
+    pub const X2: Self = Self(vulkan::VkSampleCountFlags::X2_BIT as u32);
+    pub const X4: Self = Self(vulkan::VkSampleCountFlags::X4_BIT as u32);
+    pub const X8: Self = Self(vulkan::VkSampleCountFlags::X8_BIT as u32);
+    pub const X16: Self = Self(vulkan::VkSampleCountFlags::X16_BIT as u32);
+    pub const X32: Self = Self(vulkan::VkSampleCountFlags::X32_BIT as u32);
+    pub const X64: Self = Self(vulkan::VkSampleCountFlags::X64_BIT as u32);
 }
 impl std::ops::BitOr for ImageSamples {
     type Output = Self;
@@ -98,9 +101,9 @@ impl std::ops::BitOr for ImageSamples {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageAspect(u32);
 impl ImageAspect {
-    pub const COLOR: Self = Self(vulkan_ffi::VkImageAspectFlags::COLOR_BIT as u32);
-    pub const DEPTH: Self = Self(vulkan_ffi::VkImageAspectFlags::DEPTH_BIT as u32);
-    pub const STENCIL: Self = Self(vulkan_ffi::VkImageAspectFlags::STENCIL_BIT as u32);
+    pub const COLOR: Self = Self(vulkan::VkImageAspectFlags::COLOR_BIT as u32);
+    pub const DEPTH: Self = Self(vulkan::VkImageAspectFlags::DEPTH_BIT as u32);
+    pub const STENCIL: Self = Self(vulkan::VkImageAspectFlags::STENCIL_BIT as u32);
 
     pub fn contains(&self, other: Self) -> bool {
         (self.0 & other.0) == other.0
@@ -115,15 +118,15 @@ impl std::ops::BitOr for ImageAspect {
 
 /// Represents the usage flags for a pixel buffer (image).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ImageUsage(vulkan_ffi::VkImageUsageFlags);
+pub struct ImageUsage(vulkan::VkImageUsageFlags);
 impl ImageUsage {
-    pub const TRANSFER_SRC: Self = Self(vulkan_ffi::VkImageUsageFlags::TRANSFER_SRC_BIT);
-    pub const TRANSFER_DST: Self = Self(vulkan_ffi::VkImageUsageFlags::TRANSFER_DST_BIT);
-    pub const SAMPLED: Self = Self(vulkan_ffi::VkImageUsageFlags::SAMPLED_BIT);
-    pub const STORAGE: Self = Self(vulkan_ffi::VkImageUsageFlags::STORAGE_BIT);
-    pub const COLOR_ATTACHMENT: Self = Self(vulkan_ffi::VkImageUsageFlags::COLOR_ATTACHMENT_BIT);
+    pub const TRANSFER_SRC: Self = Self(vulkan::VkImageUsageFlags::TRANSFER_SRC_BIT);
+    pub const TRANSFER_DST: Self = Self(vulkan::VkImageUsageFlags::TRANSFER_DST_BIT);
+    pub const SAMPLED: Self = Self(vulkan::VkImageUsageFlags::SAMPLED_BIT);
+    pub const STORAGE: Self = Self(vulkan::VkImageUsageFlags::STORAGE_BIT);
+    pub const COLOR_ATTACHMENT: Self = Self(vulkan::VkImageUsageFlags::COLOR_ATTACHMENT_BIT);
     pub const DEPTH_ATTACHMENT: Self =
-        Self(vulkan_ffi::VkImageUsageFlags::DEPTH_STENCIL_ATTACHMENT_BIT);
+        Self(vulkan::VkImageUsageFlags::DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 impl std::ops::BitOr for ImageUsage {
     type Output = Self;
@@ -136,13 +139,13 @@ impl std::ops::BitOr for ImageUsage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferUsage(u32);
 impl BufferUsage {
-    pub const TRANSFER_SRC: Self = Self(vulkan_ffi::VkBufferUsageFlags::TRANSFER_SRC_BIT as u32);
-    pub const TRANSFER_DST: Self = Self(vulkan_ffi::VkBufferUsageFlags::TRANSFER_DST_BIT as u32);
-    pub const UNIFORM: Self = Self(vulkan_ffi::VkBufferUsageFlags::UNIFORM_BUFFER_BIT as u32);
-    pub const STORAGE: Self = Self(vulkan_ffi::VkBufferUsageFlags::STORAGE_BUFFER_BIT as u32);
-    pub const INDEX: Self = Self(vulkan_ffi::VkBufferUsageFlags::INDEX_BUFFER_BIT as u32);
-    pub const VERTEX: Self = Self(vulkan_ffi::VkBufferUsageFlags::VERTEX_BUFFER_BIT as u32);
-    pub const INDIRECT: Self = Self(vulkan_ffi::VkBufferUsageFlags::INDIRECT_BUFFER_BIT as u32);
+    pub const TRANSFER_SRC: Self = Self(vulkan::VkBufferUsageFlags::TRANSFER_SRC_BIT as u32);
+    pub const TRANSFER_DST: Self = Self(vulkan::VkBufferUsageFlags::TRANSFER_DST_BIT as u32);
+    pub const UNIFORM: Self = Self(vulkan::VkBufferUsageFlags::UNIFORM_BUFFER_BIT as u32);
+    pub const STORAGE: Self = Self(vulkan::VkBufferUsageFlags::STORAGE_BUFFER_BIT as u32);
+    pub const INDEX: Self = Self(vulkan::VkBufferUsageFlags::INDEX_BUFFER_BIT as u32);
+    pub const VERTEX: Self = Self(vulkan::VkBufferUsageFlags::VERTEX_BUFFER_BIT as u32);
+    pub const INDIRECT: Self = Self(vulkan::VkBufferUsageFlags::INDIRECT_BUFFER_BIT as u32);
 
     pub fn contains(&self, other: Self) -> bool {
         (self.0 & other.0) == other.0
