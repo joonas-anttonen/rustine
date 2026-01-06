@@ -1,5 +1,5 @@
 use crate::{
-    gfx::presentation::Method, gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*,
+    gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*,
     warning,
 };
 
@@ -67,6 +67,10 @@ impl Core {
         self.instance.handle()
     }
 
+    pub fn instance(&self) -> &vulkan::Instance {
+        &self.instance
+    }
+
     pub fn device(&self) -> &Arc<vulkan::Device> {
         &self.device
     }
@@ -90,7 +94,6 @@ impl Core {
     ) {
         self.queue = Some(Queue::new(
             &self.device,
-            Method::Swapchain,
             presentation_provider,
         ));
     }
@@ -101,19 +104,16 @@ impl Core {
     ) {
         self.queue = Some(Queue::new(
             &self.device,
-            Method::SharedImage,
             presentation_provider,
         ));
     }
 
     pub fn initialize_queue(
         &mut self,
-        presentation_method: Method,
         presentation_provider: impl PresentationProvider + 'static,
     ) {
         self.queue = Some(Queue::new(
             &self.device,
-            presentation_method,
             presentation_provider,
         ));
     }

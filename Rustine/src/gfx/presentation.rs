@@ -39,6 +39,7 @@ pub struct PresentationImage {
 }
 
 pub trait PresentationProvider {
+    fn method(&self) -> Method;
     fn image_count(&self) -> u32;
     fn acquire(&mut self) -> AcquireStatus;
 }
@@ -63,6 +64,10 @@ impl SharedImageProvider {
 }
 
 impl PresentationProvider for SharedImageProvider {
+    fn method(&self) -> Method {
+        Method::SharedImage
+    }
+
     fn image_count(&self) -> u32 {
         1
     }
@@ -119,9 +124,14 @@ impl Drop for SwapchainProvider {
 }
 
 impl PresentationProvider for SwapchainProvider {
+    fn method(&self) -> Method {
+        Method::Swapchain
+    }
+
     fn image_count(&self) -> u32 {
         self.swapchain_images.len() as u32
     }
+
     fn acquire(&mut self) -> AcquireStatus {
         let previous_acquire_index = if self.current_acquire_index == 0 {
             (self.acquire_semaphores.len() - 1) as u32
@@ -209,13 +219,13 @@ impl SwapchainProvider {
             None => surface_formats[0],
         };
 
-        let mut chosen_present_mode = vk::VkPresentModeKHR::FIFO_KHR;
+        let mut chosen_present_mode = vk::VkPresentModeKHR::FIFO;
         if params.vertical_sync == 0 {
             for &present_mode in &surface_present_modes {
-                if present_mode == vk::VkPresentModeKHR::MAILBOX_KHR {
+                if present_mode == vk::VkPresentModeKHR::MAILBOX {
                     chosen_present_mode = present_mode;
                     break;
-                } else if present_mode == vk::VkPresentModeKHR::IMMEDIATE_KHR {
+                } else if present_mode == vk::VkPresentModeKHR::IMMEDIATE {
                     chosen_present_mode = present_mode;
                 }
             }
@@ -354,7 +364,9 @@ impl SwapchainProvider {
 
         // DEBUG: Log swapchain information
         warning!(
-            "Created swapchain: {} images, format: {:?}, present mode: {:?}",
+            "{}x{}x{} {:?} {:?}",
+            chosen_extent.width,
+            chosen_extent.height,
             swapchain_images.len(),
             chosen_format.format,
             chosen_present_mode,

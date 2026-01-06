@@ -1180,11 +1180,14 @@ rwl_status rwlSetKeyCallback(rwl_window* window, rwl_key_callback callback) {
     return RWL_STATUS_OK;
 }
 
-rwl_status rwlCreateSurface(VkInstance instance, rwl_window* window, VkSurfaceKHR* surface_out) {
-    if (!window || !surface_out) {
+rwl_status rwlGetWaylandHandles(
+    rwl_window* window, wl_display** out_display, wl_surface** out_surface) {
+    if (!window || !out_display || !out_surface) {
         return RWL_STATUS_INVALID_ARGUMENT;
     }
-    *surface_out = VK_NULL_HANDLE;
+
+    *out_display = nullptr;
+    *out_surface = nullptr;
 
     if (!g_display) {
         return RWL_STATUS_NOT_INITIALIZED;
@@ -1195,23 +1198,8 @@ rwl_status rwlCreateSurface(VkInstance instance, rwl_window* window, VkSurfaceKH
         return RWL_STATUS_INTERNAL_ERROR;
     }
 
-    // Get vkCreateWaylandSurfaceKHR function pointer
-    PFN_vkCreateWaylandSurfaceKHR vkCreateWaylandSurfaceKHR =
-        (PFN_vkCreateWaylandSurfaceKHR)vkGetInstanceProcAddr(instance, "vkCreateWaylandSurfaceKHR");
-    if (!vkCreateWaylandSurfaceKHR) {
-        return RWL_STATUS_INTERNAL_ERROR;
-    }
-
-    // Create Vulkan surface from window's wl_surface
-    VkWaylandSurfaceCreateInfoKHR create_info = {};
-    create_info.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-    create_info.display = g_display;
-    create_info.surface = win->surface;
-
-    VkResult result = vkCreateWaylandSurfaceKHR(instance, &create_info, nullptr, surface_out);
-    if (result != VK_SUCCESS) {
-        return RWL_STATUS_INTERNAL_ERROR;
-    }
+    *out_display = g_display;
+    *out_surface = win->surface;
 
     return RWL_STATUS_OK;
 }

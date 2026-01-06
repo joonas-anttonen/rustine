@@ -190,7 +190,7 @@ typedef enum rwl_status {
 } rwl_status;
 
 // Log severity levels matching the Rust log module
-typedef enum rwl_log_severity{
+typedef enum rwl_log_severity {
     RWL_LOG_DEBUG = 0,
     RWL_LOG_INFO = 1,
     RWL_LOG_WARNING = 2,
@@ -222,13 +222,11 @@ rwl_status rwlGetPixelSize(rwl_window* window, uint32_t* width, uint32_t* height
 // Get the logical surface size (the size reported by the compositor).
 rwl_status rwlGetLogicalSize(rwl_window* window, uint32_t* width, uint32_t* height);
 
-// Create a Vulkan surface for the given window.
-// VkInstance must be valid with VK_KHR_wayland_surface extension.
-// The created VkSurfaceKHR is returned via surface_out.
-rwl_status rwlCreateSurface(VkInstance instance, rwl_window* window, VkSurfaceKHR* surface_out);
+// Get the Wayland display and surface handles for the given window.
+rwl_status rwlGetWaylandHandles(
+    rwl_window* window, wl_display** out_display, wl_surface** out_surface);
 
-// Output management - retrieve available outputs using Vulkan-style enumeration
-// Output information structure
+// Information about a particular output
 typedef struct rwl_output_info_public {
     // Opaque pointer to the wl_output
     void* wl_output;
@@ -244,6 +242,7 @@ typedef struct rwl_output_info_public {
     int32_t height;
 } rwl_output_info_public;
 
+// Get the list of available outputs
 rwl_status rwlEnumerateOutputs(uint32_t* count, rwl_output_info_public* outputs_out);
 
 // Event loop control

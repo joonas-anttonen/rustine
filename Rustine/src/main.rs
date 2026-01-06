@@ -1,5 +1,5 @@
 use rustine::{error, info};
-use rustine::{gfx, gui, log::ConsoleLogListener, log::Log, version::Version};
+use rustine::{gfx, gui, log::*, version::Version};
 
 #[cfg(unix)]
 use libc;
@@ -11,11 +11,12 @@ static EXIT_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 
 #[cfg(unix)]
 extern "C" fn handle_termination_signal(_signal: i32) {
+    info!("SIGTERM");
     EXIT_FLAG.store(true, atomic::Ordering::Relaxed);
 }
 
 #[cfg(unix)]
-fn install_signal_handlers() -> io::Result<()> {
+fn install_signal_handlers() {
     unsafe {
         let mut sa: libc::sigaction = std::mem::zeroed();
         sa.sa_sigaction = handle_termination_signal as usize;
@@ -23,29 +24,25 @@ fn install_signal_handlers() -> io::Result<()> {
         libc::sigemptyset(&mut sa.sa_mask);
 
         if libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut()) != 0 {
-            return Err(io::Error::last_os_error());
+            let os_error = io::Error::last_os_error();
+            eprintln!("Failed to install SIGINT handler: {os_error:?}",);
         }
         if libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut()) != 0 {
-            return Err(io::Error::last_os_error());
+            let os_error = io::Error::last_os_error();
+            eprintln!("Failed to install SIGTERM handler: {os_error:?}",);
         }
     }
-
-    Ok(())
 }
 
 #[cfg(not(unix))]
-fn install_signal_handlers() -> io::Result<()> {
-    Ok(())
-}
+fn install_signal_handlers() {}
 
 fn main() {
     let log = Log::global();
     log.set_current_thread_name("main");
-    log.add_listener(ConsoleLogListener::new(true));
+    log.add_listener(ConsoleListener::new(true));
 
-    if let Err(e) = install_signal_handlers() {
-        error!("Failed to install signal handlers: {}", e);
-    }
+    install_signal_handlers();
 
     info!("STARTUP");
 
@@ -75,7 +72,7 @@ fn main() {
         };
 
         let dev = gfx_core.selected_physical_device();
-        info!("Selected device: {}", dev);
+        info!("{dev}");
 
         let gfx = Arc::new(Mutex::new(gfx_core));
 
@@ -107,6 +104,7 @@ fn gui_thread_function(gui: &gui::Gui, exit_flag: &atomic::AtomicBool) {
     while !exit_flag.load(atomic::Ordering::Relaxed) && !gui.should_close() {
         gui.process_events();
     }
+
     info!("GUI STOP");
 }
 

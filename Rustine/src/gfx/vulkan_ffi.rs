@@ -33,6 +33,12 @@ unsafe extern "C" {
         instance: VkInstance,
         pName: *const ffi::c_char,
     ) -> Option<unsafe extern "C" fn()>;
+    pub fn vkCreateWaylandSurfaceKHR(
+        instance: VkInstance,
+        pCreateInfo: *const VkWaylandSurfaceCreateInfoKHR,
+        pAllocator: *const std::ffi::c_void,
+        pSurface: *mut VkSurfaceKHR,
+    ) -> i32;
     pub fn vkDestroySurfaceKHR(
         instance: VkInstance,
         surface: VkSurfaceKHR,
@@ -277,16 +283,25 @@ pub const VK_MAX_DESCRIPTION_SIZE: usize = 256;
 pub const VK_MAX_MEMORY_HEAPS: u32 = 16;
 
 #[repr(C)]
+pub struct VkWaylandSurfaceCreateInfoKHR {
+    pub sType: u32,
+    pub pNext: *const std::ffi::c_void,
+    pub flags: u32,
+    pub display: *const std::ffi::c_void,
+    pub surface: *const std::ffi::c_void,
+}
+
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VkPresentModeKHR(u32);
-impl VkPresentModeKHR {
-    pub const IMMEDIATE_KHR: Self = Self(0);
-    pub const MAILBOX_KHR: Self = Self(1);
-    pub const FIFO_KHR: Self = Self(2);
-    pub const FIFO_RELAXED_KHR: Self = Self(3);
-    pub const SHARED_DEMAND_REFRESH_KHR: Self = Self(1000111000);
-    pub const SHARED_CONTINUOUS_REFRESH_KHR: Self = Self(1000111001);
-    pub const FIFO_LATEST_READY_EXT: Self = Self(1000361000);
+pub enum VkPresentModeKHR
+{
+    IMMEDIATE = 0,
+    MAILBOX = 1,
+    FIFO = 2,
+    FIFO_RELAXED = 3,
+    SHARED_DEMAND_REFRESH_KHR = 1000111000,
+    SHARED_CONTINUOUS_REFRESH_KHR = 1000111001,
+    FIFO_LATEST_READY_EXT = 1000361000,
 }
 
 #[repr(C)]
@@ -868,7 +883,7 @@ pub struct VkWin32KeyedMutexAcquireReleaseInfoKHR {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct VkExtent2D {
     pub width: u32,
     pub height: u32,

@@ -30,11 +30,7 @@ impl Drop for Gui {
 
         unsafe {
             if !self.gfx_surface.is_null() {
-                vk::vkDestroySurfaceKHR(
-                    gfx.vulkan_instance_handle(),
-                    self.gfx_surface,
-                    std::ptr::null(),
-                );
+                gfx.instance().destroy_surface(self.gfx_surface);
             }
 
             ffi::panic_if_error(ffi::rwlDestroyWindow(self.rwl_window));
@@ -121,16 +117,21 @@ impl Gui {
             rwl_window
         };
 
-        let gfx_surface = unsafe {
-            let mut surface_handle: vk::VkSurfaceKHR = std::ptr::null_mut();
-            ffi::panic_if_error(ffi::rwlCreateSurface(
-                gfx.lock().unwrap().vulkan_instance_handle(),
+        let mut wl_output = std::ptr::null_mut();
+        let mut wl_surface = std::ptr::null_mut();
+        unsafe {
+            ffi::panic_if_error(ffi::rwlGetWaylandHandles(
                 rwl_window,
-                &mut surface_handle,
+                &mut wl_output,
+                &mut wl_surface,
             ));
+        }
 
-            surface_handle
-        };
+        let gfx_surface = gfx
+            .lock()
+            .unwrap()
+            .instance()
+            .create_wayland_surface(wl_output as *const _, wl_surface as *const _);
 
         let gui = Arc::new(Self {
             gfx,
@@ -140,11 +141,12 @@ impl Gui {
 
         unsafe {
             let gui_raw_ptr = Arc::as_ptr(&gui);
-            ffi::rwlSetWindowUserPointer(gui.rwl_window, gui_raw_ptr as *mut _);
-        }
+            ffi::panic_if_error(ffi::rwlSetWindowUserPointer(
+                gui.rwl_window,
+                gui_raw_ptr as *const _,
+            ));
 
-        // Manually invoke the framebuffer size callback to initialize the swapchain
-        unsafe {
+            // Manually invoke the framebuffer size callback to initialize the swapchain
             let mut width: u32 = 0;
             let mut height: u32 = 0;
             ffi::panic_if_error(ffi::rwlGetPixelSize(
@@ -513,7 +515,10 @@ mod ffi {
 
         pub fn rwlDestroyWindow(window: RwlWindow) -> RwlStatus;
 
-        pub fn rwlSetWindowUserPointer(window: RwlWindow, pointer: *mut std::ffi::c_void) -> RwlStatus;
+        pub fn rwlSetWindowUserPointer(
+            window: RwlWindow,
+            pointer: *const std::ffi::c_void,
+        ) -> RwlStatus;
         pub fn rwlGetWindowUserPointer(window: RwlWindow) -> *mut std::ffi::c_void;
 
         pub fn rwlSetPixelSizeCallback(
@@ -531,11 +536,10 @@ mod ffi {
         pub fn rwlGetLogicalSize(window: RwlWindow, width: *mut u32, height: *mut u32)
         -> RwlStatus;
 
-        // Vulkan surface creation
-        pub fn rwlCreateSurface(
-            instance: crate::gfx::vulkan_ffi::VkInstance,
+        pub fn rwlGetWaylandHandles(
             window: RwlWindow,
-            surface_out: *mut crate::gfx::vulkan_ffi::VkSurfaceKHR,
+            out_display: *mut *mut std::ffi::c_void,
+            out_surface: *mut *mut std::ffi::c_void,
         ) -> RwlStatus;
 
         // Output management - Vulkan style enumeration

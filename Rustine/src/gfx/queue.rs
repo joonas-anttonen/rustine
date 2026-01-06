@@ -87,7 +87,6 @@ pub struct Queue {
     recorded_commands: VecDeque<CommandBuffer>,
     queued_commands: VecDeque<CommandBuffer>,
 
-    presentation_method: Method,
     presentation_provider: Box<dyn PresentationProvider>,
 }
 
@@ -102,7 +101,6 @@ impl Drop for Queue {
 impl Queue {
     pub fn new(
         device: &Arc<vulkan::Device>,
-        presentation_method: Method,
         presentation_provider: impl PresentationProvider + 'static,
     ) -> Self {
         let family_index = device.general_queue_family_index();
@@ -123,7 +121,6 @@ impl Queue {
             available_commands,
             recorded_commands: VecDeque::new(),
             queued_commands: VecDeque::new(),
-            presentation_method,
             presentation_provider: Box::new(presentation_provider),
         }
     }
@@ -224,7 +221,7 @@ impl Queue {
         command_recorder(&command_buffer, &output_frame);
         command_buffer.end();
 
-        let submit_status = match self.presentation_method {
+        let submit_status = match self.presentation_provider.method() {
             Method::Headless => {
                 warning!(
                     "Queue::enqueue_present: Headless presentation method does not support presenting"

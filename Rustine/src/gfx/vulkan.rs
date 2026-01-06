@@ -88,7 +88,10 @@ impl PhysicalDevice {
         self.handle
     }
 
-    pub fn get_surface_capabilities(&self, surface_handle: vk::VkSurfaceKHR) -> Result<vk::VkSurfaceCapabilitiesKHR> {
+    pub fn get_surface_capabilities(
+        &self,
+        surface_handle: vk::VkSurfaceKHR,
+    ) -> Result<vk::VkSurfaceCapabilitiesKHR> {
         let mut surface_capabilities: vk::VkSurfaceCapabilitiesKHR = unsafe { std::mem::zeroed() };
         vk_call!(vk::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
             self.handle(),
@@ -241,6 +244,37 @@ impl Drop for Instance {
 impl Instance {
     pub fn handle(&self) -> vk::VkInstance {
         self.handle
+    }
+
+    pub fn create_wayland_surface(
+        &self,
+        wl_output: *const std::ffi::c_void,
+        wl_surface: *const std::ffi::c_void,
+    ) -> vk::VkSurfaceKHR {
+        let create_info = vk::VkWaylandSurfaceCreateInfoKHR {
+            sType: vk::VkStructureType::VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR as u32,
+            pNext: std::ptr::null(),
+            flags: 0,
+            display: wl_output,
+            surface: wl_surface,
+        };
+
+        let mut surface_handle: vk::VkSurfaceKHR = std::ptr::null_mut();
+        vk_call!(vk::vkCreateWaylandSurfaceKHR(
+            self.handle,
+            &create_info,
+            std::ptr::null(),
+            &mut surface_handle,
+        ))
+        .unwrap();
+
+        surface_handle
+    }
+
+    pub fn destroy_surface(&self, surface: vk::VkSurfaceKHR) {
+        unsafe {
+            vk::vkDestroySurfaceKHR(self.handle, surface, std::ptr::null());
+        }
     }
 
     /// Creates a Vulkan instance based on the provided parameters.
@@ -514,10 +548,8 @@ impl Device {
         parameters: &super::StartupParameters,
         physical_device: PhysicalDevice,
     ) -> Result<Device> {
-        let available_device_extensions: collections::HashSet<std::ffi::CString> = physical_device
-            .get_extensions()?
-            .into_iter()
-            .collect();
+        let available_device_extensions: collections::HashSet<std::ffi::CString> =
+            physical_device.get_extensions()?.into_iter().collect();
 
         let mut enabled_extensions_cstrings: Vec<std::ffi::CString> = Vec::new();
         enabled_extensions_cstrings.push(std::ffi::CString::new("VK_KHR_swapchain").unwrap());
@@ -677,10 +709,7 @@ impl Device {
         })
     }
 
-    pub fn get_swapchain_images(
-        &self,
-        swapchain: vk::VkSwapchainKHR,
-    ) -> Result<Vec<vk::VkImage>> {
+    pub fn get_swapchain_images(&self, swapchain: vk::VkSwapchainKHR) -> Result<Vec<vk::VkImage>> {
         let mut image_count: u32 = 0;
         vk_call!(vk::vkGetSwapchainImagesKHR(
             self.handle,

@@ -111,12 +111,12 @@ pub trait LogListener: Send + Sync {
 ///
 /// Events are formatted as short strings and colored based on severity
 /// (blue for debug, white for info, yellow for warning, red for error).
-pub struct ConsoleLogListener {
+pub struct ConsoleListener {
     use_short_display: bool,
     time_base: time::SystemTime,
 }
 
-impl ConsoleLogListener {
+impl ConsoleListener {
     /// Creates a new console log listener.
     pub fn new(use_short_display: bool) -> Self {
         Self {
@@ -135,7 +135,7 @@ impl ConsoleLogListener {
     }
 }
 
-impl LogListener for ConsoleLogListener {
+impl LogListener for ConsoleListener {
     fn append(&self, event: &Event) {
         let color = Self::color_code(event.severity);
         let reset = "\u{1b}[0m";
