@@ -1,15 +1,15 @@
 #![allow(dead_code)]
 
 use crate::warning;
-use crate::{gfx::vma, gfx::vma_ffi, gfx::vulkan_ffi};
+use crate::{gfx::vma, gfx::vulkan_ffi as vulkan};
 
 use std::sync::Arc;
 
 pub struct PixelBuffer {
-    image: vulkan_ffi::VkImage,
-    image_view: vulkan_ffi::VkImageView,
-    allocation: vma_ffi::VmaAllocation,
-    allocation_info: vma_ffi::VmaAllocationInfo, // TODO: Don't store this, retrieve on demand
+    image: vulkan::VkImage,
+    image_view: vulkan::VkImageView,
+    allocation: vma::VmaAllocation,
+    allocation_info: vma::VmaAllocationInfo, // TODO: Don't store this, retrieve on demand
     allocator: Arc<vma::Allocator>,
 }
 
@@ -17,22 +17,22 @@ impl Drop for PixelBuffer {
     fn drop(&mut self) {
         warning!("PixelBuffer::drop");
         unsafe {
-            vulkan_ffi::vkDestroyImageView(
+            vulkan::vkDestroyImageView(
                 self.allocator.device.handle(),
                 self.image_view,
                 std::ptr::null(),
             );
-            vma_ffi::vmaDestroyImage(self.allocator.handle, self.image, self.allocation);
+            vma::vmaDestroyImage(self.allocator.handle, self.image, self.allocation);
         }
     }
 }
 
 impl PixelBuffer {
     pub fn new (
-        image: vulkan_ffi::VkImage,
-        image_view: vulkan_ffi::VkImageView,
-        allocation: vma_ffi::VmaAllocation,
-        allocation_info: vma_ffi::VmaAllocationInfo,
+        image: vulkan::VkImage,
+        image_view: vulkan::VkImageView,
+        allocation: vma::VmaAllocation,
+        allocation_info: vma::VmaAllocationInfo,
         allocator: Arc<vma::Allocator>,
     ) -> Self {
         Self {
@@ -44,21 +44,21 @@ impl PixelBuffer {
         }
     }
 
-    pub fn device_memory(&self) -> vulkan_ffi::VkDeviceMemory {
+    pub fn device_memory(&self) -> vulkan::VkDeviceMemory {
         self.allocation_info.deviceMemory
     }
 
-    pub fn image(&self) -> vulkan_ffi::VkImage {
+    pub fn image(&self) -> vulkan::VkImage {
         self.image
     }
 
-    pub fn image_view(&self) -> vulkan_ffi::VkImageView {
+    pub fn image_view(&self) -> vulkan::VkImageView {
         self.image_view
     }
 }
 
 pub struct MemoryBuffer {
-    pub handle: vma_ffi::VmaAllocation,
+    pub handle: vma::VmaAllocation,
     pub allocator: std::sync::Arc<vma::Allocator>,
 }
 
@@ -66,7 +66,7 @@ impl Drop for MemoryBuffer {
     fn drop(&mut self) {
         warning!("MemoryBuffer::drop");
         unsafe {
-            vma_ffi::vmaDestroyBuffer(self.allocator.handle, std::ptr::null_mut(), self.handle);
+            vma::vmaDestroyBuffer(self.allocator.handle, std::ptr::null_mut(), self.handle);
         }
     }
 }

@@ -38,6 +38,12 @@ fn install_signal_handlers() {
 fn install_signal_handlers() {}
 
 fn main() {
+    let platform = if cfg!(target_os = "linux") {
+        gfx::Platform::Wayland
+    } else {
+        panic!("Unsupported platform");
+    };
+
     let log = Log::global();
     log.set_current_thread_name("main");
     log.add_listener(ConsoleListener::new(true));
@@ -47,18 +53,9 @@ fn main() {
     info!("STARTUP");
 
     {
-        let host_platform = if cfg!(target_os = "windows") {
-            gfx::Platform::Windows
-        } else if cfg!(target_os = "linux") {
-            // For Linux, we default to Wayland; adjust as necessary.
-            gfx::Platform::Wayland
-        } else {
-            panic!("Unsupported platform");
-        };
-
         let params = gfx::StartupParameters {
             enable_debugging: true,
-            host_platform: host_platform,
+            host_platform: platform,
             host_version: Version::new(0, 1, 0),
             host_name: "rustine-app".to_string(),
         };
@@ -77,7 +74,7 @@ fn main() {
         let gfx = Arc::new(Mutex::new(gfx_core));
 
         let gui_params = gui::StartupParameters {
-            platform: host_platform,
+            platform,
             window_title: "Rustine".to_string(),
             window_width: Some(1920),
             window_height: Some(1080),

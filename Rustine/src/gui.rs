@@ -41,11 +41,11 @@ impl Drop for Gui {
 
 impl Gui {
     pub fn new(gfx: Arc<Mutex<gfx::Core>>, parameters: StartupParameters) -> Arc<Self> {
-        let rwl_window = unsafe {
-            if parameters.platform != gfx::Platform::Wayland {
-                panic!("Unsupported platform");
-            }
+        if parameters.platform != gfx::Platform::Wayland {
+            panic!("Unsupported platform");
+        }
 
+        let rwl_window = unsafe {
             ffi::rwlSetLogCallback(ffi::RwlLogSeverity::Error, Self::rwl_log_callback);
             ffi::panic_if_error(ffi::rwlStartup());
 

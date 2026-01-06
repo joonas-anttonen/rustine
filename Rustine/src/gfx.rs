@@ -2,7 +2,6 @@
 
 mod core;
 mod vma;
-mod vma_ffi;
 pub mod vulkan;
 pub mod vulkan_ffi;
 pub use core::Core;
