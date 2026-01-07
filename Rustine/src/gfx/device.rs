@@ -5,8 +5,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{vk_call, vk_next, warning};
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
+use crate::{vk_call, vk_next, warning};
 
 /// Represents the type of a physical graphics device.
 #[derive(Debug)]
@@ -240,40 +240,64 @@ impl Device {
             .map(|cs| cs.as_ptr())
             .collect();
 
-        let physical_device_features = unsafe {
-            let mut physical_device_synchronization2 =
-                vk::VkPhysicalDeviceSynchronization2Features {
-                    sType: vk::VkStructureType::PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES as u32,
-                    ..std::mem::zeroed()
-                };
-            let mut physical_device_dynamic_rendering =
-                vk::VkPhysicalDeviceDynamicRenderingFeatures {
-                    sType: vk::VkStructureType::PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES as u32,
-                    pNext: vk_next!(mut physical_device_synchronization2),
-                    ..std::mem::zeroed()
-                };
-            let mut physical_device_features = vk::VkPhysicalDeviceFeatures2 {
-                sType: vk::VkStructureType::PHYSICAL_DEVICE_FEATURES_2 as u32,
+        let mut physical_device_vk14_features = unsafe {
+            vk::VkPhysicalDeviceVulkan14Features {
+                sType: vk::VkStructureType::VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+                ..std::mem::zeroed()
+            }
+        };
+
+        let mut physical_device_synchronization2 = unsafe {
+            vk::VkPhysicalDeviceSynchronization2Features {
+                sType: vk::VkStructureType::PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+                pNext: vk_next!(mut physical_device_vk14_features),
+                ..std::mem::zeroed()
+            }
+        };
+        let mut physical_device_dynamic_rendering = unsafe {
+            vk::VkPhysicalDeviceDynamicRenderingFeatures {
+                sType: vk::VkStructureType::PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+                pNext: vk_next!(mut physical_device_synchronization2),
+                ..std::mem::zeroed()
+            }
+        };
+        let mut physical_device_features = unsafe {
+            vk::VkPhysicalDeviceFeatures2 {
+                sType: vk::VkStructureType::PHYSICAL_DEVICE_FEATURES_2,
                 pNext: vk_next!(mut physical_device_dynamic_rendering),
                 ..std::mem::zeroed()
-            };
+            }
+        };
 
+        unsafe {
             vk::vkGetPhysicalDeviceFeatures2(
                 physical_device.handle(),
                 &mut physical_device_features,
             );
+        }
 
-            // Ensure synchronization2 support
-            if physical_device_synchronization2.synchronization2 == vk::VK_FALSE {
-                return Err(Status::NotSupported(-1));
-            }
-            // Ensure dynamic rendering support
-            if physical_device_dynamic_rendering.dynamicRendering == vk::VK_FALSE {
-                return Err(Status::NotSupported(-1));
-            }
-
-            physical_device_features
-        };
+        // Ensure push descriptor support
+        if physical_device_vk14_features.pushDescriptor == vk::VK_FALSE {
+            return Err(Status::NotSupported(-1));
+        } else {
+            // Avoid enabling features we don't use
+            physical_device_vk14_features = unsafe {
+                vk::VkPhysicalDeviceVulkan14Features {
+                    sType:
+                        vk::VkStructureType::VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+                    ..std::mem::zeroed()
+                }
+            };
+            physical_device_vk14_features.pushDescriptor = vk::VK_TRUE;
+        }
+        // Ensure synchronization2 support
+        if physical_device_synchronization2.synchronization2 == vk::VK_FALSE {
+            return Err(Status::NotSupported(-1));
+        }
+        // Ensure dynamic rendering support
+        if physical_device_dynamic_rendering.dynamicRendering == vk::VK_FALSE {
+            return Err(Status::NotSupported(-1));
+        }
 
         let queue_family_properties = physical_device.get_queue_families();
         let general_queue_family_index = queue_family_properties
@@ -295,7 +319,7 @@ impl Device {
             let mut infos: Vec<vk::VkDeviceQueueCreateInfo> = Vec::new();
 
             let general_queue_info = vk::VkDeviceQueueCreateInfo {
-                sType: vk::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
+                sType: vk::VkStructureType::DEVICE_QUEUE_CREATE_INFO,
                 pNext: ptr::null(),
                 flags: 0,
                 queueFamilyIndex: general_queue_family_index,
@@ -306,7 +330,7 @@ impl Device {
 
             if transfer_queue_family_index != general_queue_family_index {
                 let transfer_queue_info = vk::VkDeviceQueueCreateInfo {
-                    sType: vk::VkStructureType::DEVICE_QUEUE_CREATE_INFO as u32,
+                    sType: vk::VkStructureType::DEVICE_QUEUE_CREATE_INFO,
                     pNext: ptr::null(),
                     flags: 0,
                     queueFamilyIndex: transfer_queue_family_index,

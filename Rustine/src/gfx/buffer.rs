@@ -6,6 +6,8 @@ use crate::{gfx::vma, gfx::vulkan};
 use std::sync::Arc;
 
 pub struct PixelBuffer {
+    width: u32,
+    height: u32,
     image: vulkan::VkImage,
     image_view: vulkan::VkImageView,
     allocation: vma::VmaAllocation,
@@ -29,6 +31,8 @@ impl Drop for PixelBuffer {
 
 impl PixelBuffer {
     pub fn new (
+        width: u32,
+        height: u32,
         image: vulkan::VkImage,
         image_view: vulkan::VkImageView,
         allocation: vma::VmaAllocation,
@@ -41,6 +45,8 @@ impl PixelBuffer {
             allocation,
             allocation_info,
             allocator,
+            width,
+            height,
         }
     }
 
@@ -54,6 +60,14 @@ impl PixelBuffer {
 
     pub fn image_view(&self) -> vulkan::VkImageView {
         self.image_view
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
     }
 }
 

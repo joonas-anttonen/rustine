@@ -22,6 +22,10 @@ macro_rules! vk_call {
 /// Converts a reference to a Vulkan `pNext` pointer.
 #[macro_export]
 macro_rules! vk_next {
+    // Guard against accidentally passing a reference like `&thing` or `&mut thing`.
+    (& $ptr:expr) => {
+        compile_error!("vk_next!: do not pass a reference. Use vk_next!(value) or vk_next!(mut value) without &.")
+    };
     ($ptr:expr) => {
         &$ptr as *const _ as *const _
     };
@@ -427,6 +431,16 @@ unsafe extern "C" {
         descriptorWriteCount: u32,
         pDescriptorWrites: *const VkWriteDescriptorSet,
     );
+    pub fn vkCmdBlitImage(
+        commandBuffer: VkCommandBuffer,
+        srcImage: VkImage,
+        srcImageLayout: VkImageLayout,
+        dstImage: VkImage,
+        dstImageLayout: VkImageLayout,
+        regionCount: u32,
+        pRegions: *const VkImageBlit,
+        filter: VkFilter,
+    );
 }
 
 pub type VkInstance = *mut std::ffi::c_void;
@@ -466,6 +480,36 @@ pub const VK_UUID_SIZE: usize = 16;
 pub const VK_MAX_EXTENSION_NAME_SIZE: usize = 256;
 pub const VK_MAX_DESCRIPTION_SIZE: usize = 256;
 pub const VK_MAX_MEMORY_HEAPS: u32 = 16;
+
+/// For debugging Vulkan structure chains
+#[repr(C)]
+struct VkNext {
+    pub structure_type: VkStructureType,
+    pub p_next: *const std::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct VkOffset3D {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+}
+
+#[repr(C)]
+pub struct VkImageSubresourceLayers {
+    pub aspectMask: VkImageAspectFlags,
+    pub mipLevel: u32,
+    pub baseArrayLayer: u32,
+    pub layerCount: u32,
+}
+
+#[repr(C)]
+pub struct VkImageBlit {
+    pub srcSubresource: VkImageSubresourceLayers,
+    pub srcOffsets: [VkOffset3D; 2],
+    pub dstSubresource: VkImageSubresourceLayers,
+    pub dstOffsets: [VkOffset3D; 2],
+}
 
 #[repr(C)]
 pub struct VkWriteDescriptorSet {
@@ -760,20 +804,20 @@ pub struct VkSamplerCreateInfo {
     pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
-    pub magFilter: u32,
-    pub minFilter: u32,
-    pub mipmapMode: u32,
-    pub addressModeU: u32,
-    pub addressModeV: u32,
-    pub addressModeW: u32,
+    pub magFilter: VkFilter,
+    pub minFilter: VkFilter,
+    pub mipmapMode: VkSamplerMipmapMode,
+    pub addressModeU: VkSamplerAddressMode,
+    pub addressModeV: VkSamplerAddressMode,
+    pub addressModeW: VkSamplerAddressMode,
     pub mipLodBias: f32,
     pub anisotropyEnable: u32,
     pub maxAnisotropy: f32,
     pub compareEnable: u32,
-    pub compareOp: u32,
+    pub compareOp: VkCompareOp,
     pub minLod: f32,
     pub maxLod: f32,
-    pub borderColor: u32,
+    pub borderColor: VkBorderColor,
     pub unnormalizedCoordinates: u32,
 }
 
@@ -849,6 +893,7 @@ pub struct VkDescriptorSetLayoutBinding {
     pub descriptorType: VkDescriptorType,
     pub descriptorCount: u32,
     pub stageFlags: VkShaderStageFlags,
+    pub pImmutableSamplers: *const VkSampler,
 }
 
 #[repr(C)]
@@ -1475,7 +1520,7 @@ pub struct VkTimelineSemaphoreSubmitInfo {
 
 #[repr(C)]
 pub struct VkPhysicalDeviceVulkan13Features {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub robustImageAccess: u32,
     pub inlineUniformBlock: u32,
@@ -1496,7 +1541,7 @@ pub struct VkPhysicalDeviceVulkan13Features {
 
 #[repr(C)]
 pub struct VkPhysicalDeviceVulkan14Features {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub globalPriorityQuery: u32,
     pub shaderSubgroupRotate: u32,
@@ -2562,21 +2607,21 @@ pub struct VkPhysicalDeviceShaderFloat16Int8Features {
 
 #[repr(C)]
 pub struct VkPhysicalDeviceDynamicRenderingFeatures {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub dynamicRendering: u32,
 }
 
 #[repr(C)]
 pub struct VkPhysicalDeviceSynchronization2Features {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub synchronization2: u32,
 }
 
 #[repr(C)]
 pub struct VkPhysicalDeviceRobustness2FeaturesEXT {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub robustBufferAccess2: u32,
     pub robustImageAccess2: u32,
@@ -2585,7 +2630,7 @@ pub struct VkPhysicalDeviceRobustness2FeaturesEXT {
 
 #[repr(C)]
 pub struct VkDeviceQueueCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub queueFamilyIndex: u32,
@@ -2662,7 +2707,7 @@ pub struct VkQueueFamilyProperties {
 
 #[repr(C)]
 pub struct VkPhysicalDeviceFeatures2 {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub features: VkPhysicalDeviceFeatures,
 }
@@ -2773,6 +2818,7 @@ impl VkResult {
 }
 
 #[repr(u32)]
+#[derive(Debug, Clone, Copy)]
 pub enum VkStructureType {
     APPLICATION_INFO = 0,
     INSTANCE_CREATE_INFO = 1,
@@ -2805,11 +2851,11 @@ pub enum VkStructureType {
     GRAPHICS_PIPELINE_CREATE_INFO = 28,
     VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO = 29,
     PIPELINE_LAYOUT_CREATE_INFO = 30,
-    VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO = 31,
+    SAMPLER_CREATE_INFO = 31,
     DESCRIPTOR_SET_LAYOUT_CREATE_INFO = 32,
     VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO = 33,
     VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO = 34,
-    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET = 35,
+    WRITE_DESCRIPTOR_SET = 35,
     VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET = 36,
     VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO = 37,
     VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO = 38,
@@ -2977,8 +3023,8 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK = 1000138002,
     VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO = 1000138003,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES = 1000066000,
-    VK_STRUCTURE_TYPE_RENDERING_INFO = 1000044000,
-    VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO = 1000044001,
+    RENDERING_INFO = 1000044000,
+    RENDERING_ATTACHMENT_INFO = 1000044001,
     PIPELINE_RENDERING_CREATE_INFO = 1000044002,
     PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES = 1000044003,
     VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO = 1000044004,

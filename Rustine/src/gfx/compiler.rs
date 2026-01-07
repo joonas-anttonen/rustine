@@ -37,7 +37,26 @@ pub struct Shader {
 }
 
 pub struct ShaderProgram {
+    pub name: String,
     pub stages: Vec<Shader>,
+}
+
+impl ShaderProgram {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            stages: Vec::new(),
+        }
+    }
+
+    pub fn add_stage(&mut self, stage: Shader) {
+        if self.stages.iter().any(|s| s.stage == stage.stage) {
+            debug_assert!(false, "Duplicate shader stage added");
+            return;
+        }
+
+        self.stages.push(stage);
+    }
 }
 
 #[repr(C)]
@@ -69,12 +88,6 @@ unsafe extern "C" {
     fn rdxcCompilerDestroy(compiler: *mut rdxc_compiler);
 }
 
-#[derive(Debug)]
-pub struct ShaderCompileResult {
-    pub bytecode: Vec<u8>,
-    pub error_message: Option<String>,
-}
-
 pub struct Compiler {
     handle: *mut rdxc_compiler,
 }
@@ -103,20 +116,19 @@ impl Compiler {
     }
 
     /// Compiles the given shader source code to SPIR-V bytecode.
-    pub fn compile(
-        &self,
-        source: &str,
-        entry_point: &str,
-        stage: Stage,
-        defines: &[&str],
-    ) -> Result<ShaderCompileResult, Status> {
-        let entry_point_c = CString::new(entry_point).map_err(|_| Status::InvalidArgument)?;
+    pub fn compile(&self, stage: Stage, source: &str) -> Result<Shader, String> {
+        let entry_point = match stage {
+            Stage::Vertex => "vertex",
+            Stage::Fragment => "fragment",
+            Stage::Compute => "compute",
+        };
+        let entry_point_c = CString::new(entry_point).map_err(|_| "Invalid entry point string")?;
 
-        let define_cstrings: Vec<CString> = defines
+        let define_cstrings: Vec<CString> = ["RUSTINE"]
             .iter()
             .map(|s| CString::new(*s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Status::InvalidArgument)?;
+            .map_err(|_| "Invalid define string")?;
 
         let define_ptrs: Vec<*const i8> = define_cstrings.iter().map(|s| s.as_ptr()).collect();
 
@@ -163,12 +175,13 @@ impl Compiler {
         };
 
         if status != Status::Ok {
-            return Err(status);
+            return Err(error_message.unwrap_or_else(|| "Unknown error".to_string()));
         }
 
-        Ok(ShaderCompileResult {
+        Ok(Shader {
+            stage,
+            entry_point: entry_point.to_string(),
             bytecode,
-            error_message,
         })
     }
 }

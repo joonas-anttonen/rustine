@@ -2,8 +2,8 @@
 
 use std::{collections, ptr};
 
+use crate::{vk_call, vk_next, warning};
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
-use crate::{vk_call,vk_next,error, warning};
 
 unsafe extern "C" fn vulkan_debug_callback(
     _message_severity: u32,
@@ -15,9 +15,10 @@ unsafe extern "C" fn vulkan_debug_callback(
         if !callback_data.is_null() {
             let data = &*callback_data;
             if !data.pMessage.is_null() {
-                error!(
-                    "{}",
-                    std::ffi::CStr::from_ptr(data.pMessage).to_string_lossy()
+                crate::log::Log::global().append(
+                    crate::log::Severity::Error,
+                    std::ffi::CStr::from_ptr(data.pMessage).to_str().unwrap_or("Invalid UTF-8"),
+                    "Vulkan",
                 );
             }
         }

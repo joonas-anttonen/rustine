@@ -159,6 +159,8 @@ impl Allocator {
         })?;
 
         Ok(PixelBuffer::new(
+            image_create_info.extent.width,
+            image_create_info.extent.height,
             image,
             image_view,
             allocation,
@@ -235,6 +237,8 @@ impl Allocator {
         })?;
 
         Ok(PixelBuffer::new(
+            image_create_info.extent.width,
+            image_create_info.extent.height,
             image,
             image_view,
             allocation,

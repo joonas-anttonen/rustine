@@ -2,13 +2,20 @@ use crate::{gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*, 
 
 use std::sync::Arc;
 
+struct TestData {
+    test_pixel_buffer: PixelBuffer,
+    test_pixel_buffer_2: PixelBuffer,
+    test_sampler: Sampler,
+    test_pipeline: Pipeline,
+}
+
 /// The core graphics subsystem, managing Vulkan initialization and device selection.
 ///
 /// `Core` encapsulates a Vulkan instance and a selected physical device.
 /// It is responsible for creating and maintaining the graphics pipeline.
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
-    test_pixel_buffer: PixelBuffer,
+    test_data: TestData,
     queue: Option<Queue>,
     allocator: Arc<vma::Allocator>,
     device: Arc<Device>,
@@ -28,17 +35,102 @@ impl Drop for Core {
 }
 
 impl Core {
-    pub fn new(
-        instance: Instance,
-        device: Arc<Device>,
-        allocator: Arc<vma::Allocator>,
-        test_pixel_buffer: PixelBuffer,
-    ) -> Self {
+    pub fn new(instance: Instance, device: Arc<Device>, allocator: Arc<vma::Allocator>) -> Self {
+        // Load data from /home/jant/pictures/hmm/0yzhnmy0.webp
+        let webp_raw_data = std::fs::read("/home/jant/pictures/hmm/0yzhnmy0.webp")
+            .expect("Failed to load WebP file");
+        let mut webp_decoder =
+            crate::io::webp::WebPDecoder::new(&webp_raw_data).expect("Failed to decode WebP file");
+        let webp_width = webp_decoder.width();
+        let webp_height = webp_decoder.height();
+        let mut webp_frame_data = vec![0u8; (webp_width * webp_height * 4) as usize];
+        let _ = webp_decoder
+            .next_frame(&mut webp_frame_data)
+            .expect("Failed to decode WebP frame");
+
+        let test_pixel_buffer = allocator
+            .create_pixel_buffer(
+                Format::B8G8R8A8_UNORM,
+                webp_width,
+                webp_height,
+                ImageUsage::SAMPLED
+                    | ImageUsage::COLOR_ATTACHMENT
+                    | ImageUsage::TRANSFER_DST
+                    | ImageUsage::TRANSFER_SRC,
+                ImageAspect::COLOR,
+                Samples::X1,
+            )
+            .unwrap();
+
+        let test_pixel_buffer_2 = allocator
+            .create_pixel_buffer(
+                Format::B8G8R8A8_UNORM,
+                256,
+                256,
+                ImageUsage::SAMPLED
+                    | ImageUsage::COLOR_ATTACHMENT
+                    | ImageUsage::TRANSFER_DST
+                    | ImageUsage::TRANSFER_SRC,
+                ImageAspect::COLOR,
+                Samples::X1,
+            )
+            .unwrap();
+
+        let test_sampler = Sampler::new(
+            device.clone(),
+            Filter::Linear,
+            SamplerAddressMode::Repeat,
+            SamplerBorderColor::FloatOpaqueBlack,
+        )
+        .unwrap();
+
+        let mut test_shader_program: ShaderProgram = ShaderProgram::new("test_shader_program");
+        let test_shader_compiler = Compiler::new().unwrap();
+        let test_shader_stage = test_shader_compiler
+            .compile(Stage::Vertex, COMPOSITION_SHADER)
+            .unwrap();
+        test_shader_program.add_stage(test_shader_stage);
+        let test_shader_stage = test_shader_compiler
+            .compile(Stage::Fragment, COMPOSITION_SHADER)
+            .unwrap();
+        test_shader_program.add_stage(test_shader_stage);
+
+        let test_pipeline_params = pipeline::Parameters {
+            shader: test_shader_program,
+            topology: Topology::Triangles,
+            winding: Winding::CounterClockwise,
+            culling: Culling::None,
+            raster: Raster::Fill,
+            samples: Samples::X1,
+            depth_comparison: Comparison::Always,
+            depth_write: false,
+            depth_test: false,
+            bindings: vec![],
+            attributes: vec![],
+            push_constants: vec![],
+            descriptors: vec![
+                Descriptor::new(0, DescriptorType::SampledImage, Stage::Fragment),
+                Descriptor::new(1, DescriptorType::Sampler, Stage::Fragment),
+            ],
+            attachments: vec![Attachment::new(
+                Format::B8G8R8A8_UNORM,
+                AttachmentBlend::straight_alpha_blend(),
+            )],
+        };
+        let test_pipeline = Pipeline::new(device.clone(), &test_pipeline_params).unwrap();
+
+        let test_data = TestData {
+            test_pixel_buffer,
+            test_pixel_buffer_2,
+            test_sampler,
+            test_pipeline,
+        };
+
         Core {
             instance,
-            device,
+            device: device,
             allocator,
-            test_pixel_buffer,
+            test_data,
             frame_n: 0,
             queue: None,
         }
@@ -100,23 +192,71 @@ impl Core {
     }
 
     pub fn create_pipeline(&self, parameters: pipeline::Parameters) -> Pipeline {
-        Pipeline::new(self.device.handle(), &parameters).unwrap()
+        Pipeline::new(self.device.clone(), &parameters).unwrap()
     }
 
     pub fn initialize_queue(&mut self, presentation_provider: impl PresentationProvider + 'static) {
         self.queue = Some(Queue::new(&self.device, presentation_provider));
     }
 
-    pub fn render(&mut self, t: f64, _dt: f32) {
+    pub fn render(&mut self, _t: f64, _dt: f32) {
         self.next_frame();
 
         if let Some(queue) = &mut self.queue {
-            queue.enqueue_present(|cmd, present_image| {
-                cmd.present_image_barrier(
-                    present_image,
-                    ImageLayout::UNDEFINED,
-                    ImageLayout::GENERAL,
+            queue.enqueue(|cmd| {
+                cmd.layout_barrier(
+                    &self.test_data.test_pixel_buffer,
+                    Layout::UNDEFINED,
+                    Layout::SHADER_READ_ONLY,
                 );
+                cmd.layout_barrier(
+                    &self.test_data.test_pixel_buffer_2,
+                    Layout::UNDEFINED,
+                    Layout::COLOR_ATTACHMENT,
+                );
+
+                let render_area = Rectangle {
+                    x: 0.0,
+                    y: 0.0,
+                    w: self.test_data.test_pixel_buffer_2.width() as f32,
+                    h: self.test_data.test_pixel_buffer_2.height() as f32,
+                };
+                cmd.begin_rendering(&render_area, &[&self.test_data.test_pixel_buffer_2]);
+                cmd.bind_pipeline(&self.test_data.test_pipeline);
+                cmd.set_viewport(&render_area);
+                cmd.set_scissor(&render_area);
+                cmd.push_pixel_descriptor(
+                    &self.test_data.test_pipeline,
+                    0,
+                    &self.test_data.test_pixel_buffer,
+                    1,
+                    &self.test_data.test_sampler,
+                );
+                cmd.draw(3, 1, 0, 0);
+                cmd.end_rendering();
+
+                cmd.layout_barrier(
+                    &self.test_data.test_pixel_buffer_2,
+                    Layout::COLOR_ATTACHMENT,
+                    Layout::TRANSFER_SRC,
+                );
+            });
+
+            queue.enqueue_present(|cmd, present_image| {
+                cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
+                cmd.blit_raw(
+                    self.test_data.test_pixel_buffer_2.image(),
+                    self.test_data.test_pixel_buffer_2.width() as i32,
+                    self.test_data.test_pixel_buffer_2.height() as i32,
+                    present_image.image,
+                    present_image.width as i32,
+                    present_image.height as i32,
+                    Filter::Linear,
+                );
+                cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
+
+                /*cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::GENERAL);
+                
                 cmd.clear_present_image(
                     present_image,
                     [
@@ -126,11 +266,7 @@ impl Core {
                         1.0,
                     ],
                 );
-                cmd.present_image_barrier(
-                    present_image,
-                    ImageLayout::GENERAL,
-                    ImageLayout::PRESENT_SRC_KHR,
-                );
+                cmd.present_image_barrier(present_image, Layout::GENERAL, Layout::PRESENT_SRC_KHR);*/
             });
         }
     }
@@ -243,20 +379,33 @@ impl CoreBuilder {
         // 4. Create VMA
         let allocator = vma::Allocator::new(&vk_instance, Arc::clone(&vk_device))?;
 
-        let test_pixel_buffer = allocator.create_pixel_buffer(
-            Format::R8G8B8A8_UNORM,
-            256,
-            256,
-            ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
-            ImageAspect::COLOR,
-            Samples::X1,
-        )?;
-
-        Ok(Core::new(
-            vk_instance,
-            vk_device,
-            allocator,
-            test_pixel_buffer,
-        ))
+        Ok(Core::new(vk_instance, vk_device, allocator))
     }
 }
+
+static COMPOSITION_SHADER: &str = r#"
+struct fragment_input
+{
+	float4 Position : SV_POSITION;
+	float2 UV : TEXCOORD0;
+};
+
+[[vk::binding(0, 0)]] Texture2D commandTexture;
+[[vk::binding(1, 0)]] SamplerState commandSampler;
+
+[shader("vertex")]
+fragment_input vertex(in uint vertexIndex : SV_VertexID)
+{
+    fragment_input output = (fragment_input)0;
+    output.UV = float2((vertexIndex << 1) & 2, vertexIndex & 2);
+    output.Position = float4(output.UV * 2.0f - 1.0f, 0.0f, 1.0f);
+	return output;
+}
+
+[shader("pixel")]
+float4 fragment(fragment_input input) : SV_TARGET
+{
+	//return commandTexture.Sample(commandSampler, input.UV);
+    return float4(input.UV.x, 0.0, input.UV.y, 1.0);
+}
+"#;

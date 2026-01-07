@@ -109,18 +109,9 @@ impl Drop for CommandBuffer {
     fn drop(&mut self) {
         warning!("CommandBuffer::drop");
         unsafe {
-            vk::vkDestroySemaphore(
-                self.pool.device.handle(),
-                self.semaphore,
-                std::ptr::null(),
-            );
+            vk::vkDestroySemaphore(self.pool.device.handle(), self.semaphore, std::ptr::null());
             vk::vkDestroyFence(self.pool.device.handle(), self.fence, std::ptr::null());
-            vk::vkFreeCommandBuffers(
-                self.pool.device.handle(),
-                self.pool.handle,
-                1,
-                &self.handle,
-            );
+            vk::vkFreeCommandBuffers(self.pool.device.handle(), self.pool.handle, 1, &self.handle);
         }
     }
 }
@@ -186,20 +177,18 @@ impl CommandBuffer {
     }
 
     pub fn reset(&self) {
-        vk_call!(vk::vkResetFences(
-            self.pool.device.handle(),
-            1,
-            &self.fence
-        ))
-        .unwrap_or_else(|r| {
-            error!("Failed to reset fence: {:?}", r);
-        });
+        vk_call!(vk::vkResetFences(self.pool.device.handle(), 1, &self.fence)).unwrap_or_else(
+            |r| {
+                error!("Failed to reset fence: {:?}", r);
+            },
+        );
         vk_call!(vk::vkResetCommandBuffer(self.handle, 0)).unwrap_or_else(|r| {
             error!("Failed to reset command buffer: {:?}", r);
         });
     }
 
     /// Begins recording commands into the command buffer.
+    /// `vkCmdBeginCommandBuffer`
     pub fn begin(&self) {
         let begin_info = vk::VkCommandBufferBeginInfo {
             sType: vk::VkStructureType::COMMAND_BUFFER_BEGIN_INFO as u32,
@@ -213,23 +202,257 @@ impl CommandBuffer {
     }
 
     /// Ends recording commands into the command buffer.
+    /// `vkCmdEndCommandBuffer`
     pub fn end(&self) {
         vk_call!(vk::vkEndCommandBuffer(self.handle)).unwrap_or_else(|r| {
             error!("Failed to end command buffer: {:?}", r);
         });
     }
 
+    /// Binds a graphics pipeline to the command buffer
+    /// `vkCmdBindPipeline`
+    pub fn bind_pipeline(&self, pipeline: &Pipeline) {
+        unsafe {
+            vk::vkCmdBindPipeline(
+                self.handle,
+                vk::VkPipelineBindPoint::GRAPHICS,
+                pipeline.handle(),
+            );
+        }
+    }
+
+    pub fn begin_rendering(&self, render_area: &Rectangle, color_attachments: &[&PixelBuffer]) {
+        unsafe {
+            const MAX_COLOR_ATTACHMENTS: usize = 2;
+
+            let mut vk_color_attachments: [vk::VkRenderingAttachmentInfo; MAX_COLOR_ATTACHMENTS] =
+                std::mem::zeroed();
+
+            for i in 0..MAX_COLOR_ATTACHMENTS - 1 {
+                vk_color_attachments[i] = vk::VkRenderingAttachmentInfo {
+                    sType: vk::VkStructureType::RENDERING_ATTACHMENT_INFO,
+                    pNext: std::ptr::null(),
+                    imageView: color_attachments[i].image_view(),
+                    imageLayout: Layout::COLOR_ATTACHMENT.to_vk(),
+                    resolveMode: vk::VkResolveModeFlags::NONE,
+                    resolveImageView: std::ptr::null_mut(),
+                    resolveImageLayout: vk::VkImageLayout::UNDEFINED,
+                    loadOp: vk::VkAttachmentLoadOp::LOAD,
+                    storeOp: vk::VkAttachmentStoreOp::STORE,
+                    clearValue: std::mem::zeroed(),
+                }
+            }
+
+            let rendering_info = vk::VkRenderingInfo {
+                sType: vk::VkStructureType::RENDERING_INFO,
+                pNext: std::ptr::null(),
+                flags: 0,
+                renderArea: vk::VkRect2D {
+                    offset: vk::VkOffset2D {
+                        x: render_area.x as i32,
+                        y: render_area.y as i32,
+                    },
+                    extent: vk::VkExtent2D {
+                        width: render_area.w as u32,
+                        height: render_area.h as u32,
+                    },
+                },
+                layerCount: 1,
+                viewMask: 0,
+                colorAttachmentCount: color_attachments.len() as u32,
+                pColorAttachments: vk_color_attachments.as_ptr(),
+                pDepthAttachment: std::ptr::null(),
+                pStencilAttachment: std::ptr::null(),
+            };
+
+            vk::vkCmdBeginRendering(self.handle, &rendering_info);
+        }
+    }
+
+    pub fn set_viewport(&self, viewport: &Rectangle) {
+        unsafe {
+            let vk_viewport = vk::VkViewport {
+                x: viewport.x as f32,
+                y: viewport.y as f32,
+                width: viewport.w as f32,
+                height: viewport.h as f32,
+                minDepth: 0.0,
+                maxDepth: 1.0,
+            };
+            vk::vkCmdSetViewport(self.handle, 0, 1, &vk_viewport);
+        }
+    }
+
+    pub fn set_scissor(&self, scissor: &Rectangle) {
+        unsafe {
+            let vk_scissor = vk::VkRect2D {
+                offset: vk::VkOffset2D {
+                    x: scissor.x as i32,
+                    y: scissor.y as i32,
+                },
+                extent: vk::VkExtent2D {
+                    width: scissor.w as u32,
+                    height: scissor.h as u32,
+                },
+            };
+            vk::vkCmdSetScissor(self.handle, 0, 1, &vk_scissor);
+        }
+    }
+
+    pub fn push_pixel_descriptor(
+        &self,
+        pipeline: &Pipeline,
+        pixel_buffer_binding: u32,
+        pixel_buffer: &PixelBuffer,
+        sampler_binding: u32,
+        sampler: &Sampler,
+    ) {
+        let descriptor_image_info = vk::VkDescriptorImageInfo {
+            sampler: std::ptr::null_mut(),
+            imageView: pixel_buffer.image_view(),
+            imageLayout: Layout::SHADER_READ_ONLY.to_vk(),
+        };
+        let descriptor_sampler_info = vk::VkDescriptorImageInfo {
+            sampler: sampler.handle(),
+            imageView: std::ptr::null_mut(),
+            imageLayout: vk::VkImageLayout::UNDEFINED,
+        };
+        let descriptor_writes: [vk::VkWriteDescriptorSet; 2] = [
+            vk::VkWriteDescriptorSet {
+                sType: vk::VkStructureType::WRITE_DESCRIPTOR_SET,
+                pNext: std::ptr::null(),
+                dstSet: std::ptr::null_mut(),
+                dstBinding: pixel_buffer_binding,
+                dstArrayElement: 0,
+                descriptorCount: 1,
+                descriptorType: vk::VkDescriptorType::SAMPLED_IMAGE,
+                pImageInfo: &descriptor_image_info,
+                pBufferInfo: std::ptr::null(),
+                pTexelBufferView: std::ptr::null(),
+            },
+            vk::VkWriteDescriptorSet {
+                sType: vk::VkStructureType::WRITE_DESCRIPTOR_SET,
+                pNext: std::ptr::null(),
+                dstSet: std::ptr::null_mut(),
+                dstBinding: sampler_binding,
+                dstArrayElement: 0,
+                descriptorCount: 1,
+                descriptorType: vk::VkDescriptorType::SAMPLER,
+                pImageInfo: &descriptor_sampler_info,
+                pBufferInfo: std::ptr::null(),
+                pTexelBufferView: std::ptr::null(),
+            },
+        ];
+
+        unsafe {
+            vk::vkCmdPushDescriptorSet(
+                self.handle,
+                vk::VkPipelineBindPoint::GRAPHICS,
+                pipeline.pipeline_layout(),
+                0,
+                2,
+                descriptor_writes.as_ptr() as *const vk::VkWriteDescriptorSet,
+            );
+        }
+    }
+
+    pub fn end_rendering(&self) {
+        unsafe {
+            vk::vkCmdEndRendering(self.handle);
+        }
+    }
+
+    /// `vkCmdDraw`
+    pub fn draw(
+        &self,
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    ) {
+        unsafe {
+            vk::vkCmdDraw(
+                self.handle,
+                vertex_count,
+                instance_count,
+                first_vertex,
+                first_instance,
+            );
+        }
+    }
+
+    pub fn blit(&self, src: &PixelBuffer, dst: &PixelBuffer, filter: Filter) {
+        self.blit_raw(
+            src.image(),
+            src.width() as i32,
+            src.height() as i32,
+            dst.image(),
+            dst.width() as i32,
+            dst.height() as i32,
+            filter,
+        );
+    }
+
+    pub fn blit_raw(
+        &self,
+        src: vk::VkImage,
+        src_width: i32,
+        src_height: i32,
+        dst: vk::VkImage,
+        dst_width: i32,
+        dst_height: i32,
+        filter: Filter,
+    ) {
+        let blit_region = vk::VkImageBlit {
+            srcSubresource: vk::VkImageSubresourceLayers {
+                aspectMask: vk::VkImageAspectFlags::COLOR_BIT,
+                mipLevel: 0,
+                baseArrayLayer: 0,
+                layerCount: 1,
+            },
+            srcOffsets: [
+                vk::VkOffset3D { x: 0, y: 0, z: 0 },
+                vk::VkOffset3D {
+                    x: src_width,
+                    y: src_height,
+                    z: 1,
+                },
+            ],
+            dstSubresource: vk::VkImageSubresourceLayers {
+                aspectMask: vk::VkImageAspectFlags::COLOR_BIT,
+                mipLevel: 0,
+                baseArrayLayer: 0,
+                layerCount: 1,
+            },
+            dstOffsets: [
+                vk::VkOffset3D { x: 0, y: 0, z: 0 },
+                vk::VkOffset3D {
+                    x: dst_width,
+                    y: dst_height,
+                    z: 1,
+                },
+            ],
+        };
+
+        unsafe {
+            vk::vkCmdBlitImage(
+                self.handle,
+                src,
+                Layout::TRANSFER_SRC.to_vk(),
+                dst,
+                Layout::TRANSFER_DST.to_vk(),
+                1,
+                &blit_region,
+                filter.to_vk(),
+            )
+        };
+    }
+
     fn barrier_stage_mask(layout: vk::VkImageLayout) -> vk::VkPipelineStageFlags2 {
         match layout {
-            vk::VkImageLayout::UNDEFINED => {
-                vk::VkPipelineStageFlags2::TOP_OF_PIPE_BIT
-            }
-            vk::VkImageLayout::TRANSFER_DST_OPTIMAL => {
-                vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT
-            }
-            vk::VkImageLayout::TRANSFER_SRC_OPTIMAL => {
-                vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT
-            }
+            vk::VkImageLayout::UNDEFINED => vk::VkPipelineStageFlags2::TOP_OF_PIPE_BIT,
+            vk::VkImageLayout::TRANSFER_DST_OPTIMAL => vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT,
+            vk::VkImageLayout::TRANSFER_SRC_OPTIMAL => vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT,
             vk::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL => {
                 vk::VkPipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT_BIT
             }
@@ -240,9 +463,7 @@ impl CommandBuffer {
             vk::VkImageLayout::SHADER_READ_ONLY_OPTIMAL => {
                 vk::VkPipelineStageFlags2::FRAGMENT_SHADER_BIT
             }
-            vk::VkImageLayout::PRESENT_SRC_KHR => {
-                vk::VkPipelineStageFlags2::BOTTOM_OF_PIPE_BIT
-            }
+            vk::VkImageLayout::PRESENT_SRC_KHR => vk::VkPipelineStageFlags2::BOTTOM_OF_PIPE_BIT,
             // Something else: you get everything
             _ => vk::VkPipelineStageFlags2::ALL_COMMANDS_BIT,
         }
@@ -252,21 +473,15 @@ impl CommandBuffer {
         match layout {
             vk::VkImageLayout::UNDEFINED => vk::VkAccessFlags2::NONE,
             vk::VkImageLayout::PRESENT_SRC_KHR => vk::VkAccessFlags2::NONE,
-            vk::VkImageLayout::TRANSFER_DST_OPTIMAL => {
-                vk::VkAccessFlags2::TRANSFER_WRITE_BIT
-            }
-            vk::VkImageLayout::TRANSFER_SRC_OPTIMAL => {
-                vk::VkAccessFlags2::TRANSFER_READ_BIT
-            }
+            vk::VkImageLayout::TRANSFER_DST_OPTIMAL => vk::VkAccessFlags2::TRANSFER_WRITE_BIT,
+            vk::VkImageLayout::TRANSFER_SRC_OPTIMAL => vk::VkAccessFlags2::TRANSFER_READ_BIT,
             vk::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL => {
                 vk::VkAccessFlags2::COLOR_ATTACHMENT_WRITE_BIT
             }
             vk::VkImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => {
                 vk::VkAccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
             }
-            vk::VkImageLayout::SHADER_READ_ONLY_OPTIMAL => {
-                vk::VkAccessFlags2::SHADER_READ_BIT
-            }
+            vk::VkImageLayout::SHADER_READ_ONLY_OPTIMAL => vk::VkAccessFlags2::SHADER_READ_BIT,
             // Something else: you get everything
             _ => {
                 vk::VkAccessFlags2::MEMORY_READ_BIT
@@ -336,27 +551,17 @@ impl CommandBuffer {
     pub fn present_image_barrier(
         &self,
         image: &presentation::PresentationImage,
-        old_layout: ImageLayout,
-        new_layout: ImageLayout,
+        old_layout: Layout,
+        new_layout: Layout,
     ) {
         self.raw_image_barrier(image.image, old_layout, new_layout);
     }
 
-    pub fn image_barrier(
-        &self,
-        buffer: &PixelBuffer,
-        old_layout: ImageLayout,
-        new_layout: ImageLayout,
-    ) {
+    pub fn layout_barrier(&self, buffer: &PixelBuffer, old_layout: Layout, new_layout: Layout) {
         self.raw_image_barrier(buffer.image(), old_layout, new_layout);
     }
 
-    fn raw_image_barrier(
-        &self,
-        image: vk::VkImage,
-        old_layout: ImageLayout,
-        new_layout: ImageLayout,
-    ) {
+    fn raw_image_barrier(&self, image: vk::VkImage, old_layout: Layout, new_layout: Layout) {
         let image_memory_barrier = vk::VkImageMemoryBarrier2 {
             sType: vk::VkStructureType::IMAGE_MEMORY_BARRIER_2 as u32,
             pNext: std::ptr::null(),

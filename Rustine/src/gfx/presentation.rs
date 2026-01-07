@@ -1,5 +1,5 @@
 use crate::{error, vk_call, warning};
-use crate::{gfx::PixelBuffer, gfx::*, gfx::vulkan as vk};
+use crate::{gfx::PixelBuffer, gfx::vulkan as vk, gfx::*};
 
 use std::sync::Arc;
 
@@ -29,6 +29,8 @@ pub struct Parameters {
 
 #[derive(Copy, Clone)]
 pub struct PresentationImage {
+    pub width: u32,
+    pub height: u32,
     pub memory: vk::VkDeviceMemory,
     pub image: vk::VkImage,
     pub image_view: vk::VkImageView,
@@ -74,6 +76,8 @@ impl PresentationProvider for SharedImageProvider {
 
     fn acquire(&mut self) -> AcquireStatus {
         let presentation_image = PresentationImage {
+            width: self.output_frame.width(),
+            height: self.output_frame.height(),
             memory: self.output_frame.device_memory(),
             image: self.output_frame.image(),
             image_view: self.output_frame.image_view(),
@@ -337,6 +341,8 @@ impl SwapchainProvider {
                 acquire_semaphores.push(acquire_semaphore);
 
                 PresentationImage {
+                    width: chosen_extent.width,
+                    height: chosen_extent.height,
                     memory: std::ptr::null_mut(),
                     image: img_handle,
                     image_view: image_view_handle,

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{error, gfx::*, gfx::vulkan as vk, warning};
+use crate::{error, gfx::vulkan as vk, gfx::*, warning};
 use crate::{
     gfx::CommandBuffer, gfx::CommandPool, gfx::presentation::AcquireStatus,
     gfx::presentation::Method, gfx::presentation::PresentationImage,
@@ -16,7 +16,7 @@ pub enum SubmitStatus {
     Success,
     Timeout,
     OutOfDate,
-    Error(Status),
+    Error(crate::gfx::Status),
 }
 
 /*/// Represents a transfer operation type.
@@ -130,10 +130,7 @@ impl Queue {
         let result = unsafe { vk::vkQueueWaitIdle(*locked_queue) };
         match result {
             vk::VkResult::SUCCESS => {}
-            _ => error!(
-                "Queue::wait_for_idle: {:?}",
-                Status::from_code(result.0)
-            ),
+            _ => error!("Queue::wait_for_idle: {:?}", Status::from_code(result.0)),
         }
     }
 
@@ -185,6 +182,38 @@ impl Queue {
         true
     }
 
+    pub fn enqueue(&mut self, command_recorder: impl FnOnce(&CommandBuffer)) {
+        self.collect_completed_commands();
+        if !self.ensure_available_command() {
+            warning!("Queue::enqueue: No available command buffers");
+            return;
+        }
+
+        let command_buffer = self.available_commands.pop_front();
+        if command_buffer.is_none() {
+            error!("Queue::enqueue: No available command buffer!");
+            return;
+        }
+
+        let command_buffer = command_buffer.unwrap();
+        command_buffer.begin();
+        command_recorder(&command_buffer);
+        command_buffer.end();
+
+        let submit_status = self.submit(&command_buffer, None);
+        match submit_status {
+            SubmitStatus::Success => {
+                self.queued_commands.push_back(command_buffer);
+            }
+            _ => {
+                warning!("Queue::enqueue: Submit failed");
+                self.drain();
+                command_buffer.reset();
+                self.available_commands.push_back(command_buffer);
+            }
+        }
+    }
+
     pub fn enqueue_present(
         &mut self,
         command_recorder: impl FnOnce(&CommandBuffer, &PresentationImage),
@@ -228,9 +257,7 @@ impl Queue {
                 );
                 return;
             }
-            Method::SharedImage => {
-                self.submit_with_keyed_mutex(&command_buffer, &output_frame, 1, 0)
-            }
+            Method::SharedImage => self.submit(&command_buffer, None),
             Method::Swapchain => self.submit_present(&command_buffer, None, &output_frame),
         };
         match submit_status {
@@ -331,48 +358,6 @@ impl Queue {
             vk::VkResult::OUT_OF_DATE_KHR => SubmitStatus::OutOfDate,
             vk::VkResult::TIMEOUT => SubmitStatus::Timeout,
             _ => SubmitStatus::Error(crate::gfx::Status::from_code(result.0)),
-        }
-    }
-
-    fn submit_with_keyed_mutex(
-        &self,
-        command_buffer: &CommandBuffer,
-        shared_pixel_buffer: &PresentationImage,
-        acquire_key: u64,
-        release_key: u64,
-    ) -> SubmitStatus {
-        let timeout = 10u32;
-
-        let keyed_mutex_acquire_release_info = vk::VkWin32KeyedMutexAcquireReleaseInfoKHR {
-            sType: vk::VkStructureType::WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR as u32,
-            pNext: std::ptr::null(),
-            acquireCount: 1,
-            pAcquireSyncs: &shared_pixel_buffer.memory,
-            pAcquireKeys: &acquire_key,
-            pAcquireTimeouts: &timeout,
-            releaseCount: 1,
-            pReleaseSyncs: &shared_pixel_buffer.memory,
-            pReleaseKeys: &release_key,
-        };
-        let submit_info = vk::VkSubmitInfo {
-            sType: vk::VkStructureType::SUBMIT_INFO as u32,
-            pNext: &keyed_mutex_acquire_release_info as *const _ as *const _,
-            waitSemaphoreCount: 0,
-            pWaitSemaphores: std::ptr::null(),
-            pWaitDstStageMask: std::ptr::null(),
-            commandBufferCount: 1,
-            pCommandBuffers: &command_buffer.handle(),
-            signalSemaphoreCount: 0,
-            pSignalSemaphores: std::ptr::null(),
-        };
-        let result = unsafe {
-            let locked_queue = self.queue_handle.lock().unwrap();
-            vk::vkQueueSubmit(*locked_queue, 1, &submit_info, command_buffer.fence())
-        };
-        match result {
-            vk::VkResult::SUCCESS => SubmitStatus::Success,
-            vk::VkResult::TIMEOUT => SubmitStatus::Timeout,
-            _ => SubmitStatus::Error(Status::from_code(result.0)),
         }
     }
 }

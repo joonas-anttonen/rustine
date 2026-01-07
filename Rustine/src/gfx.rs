@@ -29,6 +29,14 @@ use crate::version::Version;
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
 
 #[derive(Debug)]
+pub struct Rectangle {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+#[derive(Debug)]
 pub struct Extent2D {
     pub width: u32,
     pub height: u32,
@@ -66,8 +74,8 @@ impl Format {
     }
 }
 
-pub struct ImageLayout(vk::VkImageLayout);
-impl ImageLayout {
+pub struct Layout(vk::VkImageLayout);
+impl Layout {
     pub const UNDEFINED: Self = Self(vk::VkImageLayout::UNDEFINED);
     pub const GENERAL: Self = Self(vk::VkImageLayout::GENERAL);
     pub const COLOR_ATTACHMENT: Self = Self(vk::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL);

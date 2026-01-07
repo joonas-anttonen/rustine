@@ -1,38 +1,74 @@
 #![allow(dead_code)]
 
-use crate::{gfx::vulkan as vk, gfx::*, vk_call, vk_next};
+use crate::{gfx::vulkan as vk, gfx::*, vk_call, vk_next, warning};
+use std::sync::Arc;
 
 pub struct Parameters {
-    shader: ShaderProgram,
-    topology: Topology,
-    winding: Winding,
-    culling: Culling,
-    raster: Raster,
-    samples: Samples,
-    depth_comparison: Comparison,
-    depth_write: bool,
-    depth_test: bool,
-    bindings: Vec<Binding>,
-    attributes: Vec<Attribute>,
-    attachments: Vec<Attachment>,
-    descriptors: Vec<Descriptor>,
-    push_constants: Vec<PushConstantRange>,
+    pub shader: ShaderProgram,
+    pub topology: Topology,
+    pub winding: Winding,
+    pub culling: Culling,
+    pub raster: Raster,
+    pub samples: Samples,
+    pub depth_comparison: Comparison,
+    pub depth_write: bool,
+    pub depth_test: bool,
+    pub bindings: Vec<Binding>,
+    pub attributes: Vec<Attribute>,
+    pub descriptors: Vec<Descriptor>,
+    pub push_constants: Vec<PushConstantRange>,
+    pub attachments: Vec<Attachment>,
 }
 
 pub struct Pipeline {
     pipeline: vk::VkPipeline,
     pipeline_layout: vk::VkPipelineLayout,
     descriptor_layout: vk::VkDescriptorSetLayout,
+    device: Arc<Device>,
+}
+
+impl Drop for Pipeline {
+    fn drop(&mut self) {
+        warning!("Pipeline::drop");
+        unsafe {
+            vk::vkDestroyPipeline(self.device.handle(), self.pipeline, std::ptr::null());
+            vk::vkDestroyPipelineLayout(
+                self.device.handle(),
+                self.pipeline_layout,
+                std::ptr::null(),
+            );
+            vk::vkDestroyDescriptorSetLayout(
+                self.device.handle(),
+                self.descriptor_layout,
+                std::ptr::null(),
+            );
+        }
+    }
 }
 
 impl Pipeline {
-    pub fn new(vk_device: vk::VkDevice, params: &Parameters) -> Result<Self> {
+    pub fn handle(&self) -> vk::VkPipeline {
+        self.pipeline
+    }
+
+    pub fn descriptor_layout(&self) -> vk::VkDescriptorSetLayout {
+        self.descriptor_layout
+    }
+
+    pub fn pipeline_layout(&self) -> vk::VkPipelineLayout {
+        self.pipeline_layout
+    }
+
+    pub fn new(device: Arc<Device>, params: &Parameters) -> Result<Self> {
         // 1. Descriptor Set Layout and Pipeline Layout
         let descriptor_layout =
-            Self::create_descriptor_layout(vk_device, &params.descriptors).unwrap();
-        let pipeline_layout =
-            Self::create_pipeline_layout(vk_device, descriptor_layout, &params.push_constants)
-                .unwrap();
+            Self::create_descriptor_layout(device.handle(), &params.descriptors).unwrap();
+        let pipeline_layout = Self::create_pipeline_layout(
+            device.handle(),
+            descriptor_layout,
+            &params.push_constants,
+        )
+        .unwrap();
 
         // 2. Input Assembly
         let input_assembly = vk::VkPipelineInputAssemblyStateCreateInfo {
@@ -188,6 +224,7 @@ impl Pipeline {
         let pipeline_rendering = vk::VkPipelineRenderingCreateInfo {
             sType: vk::VkStructureType::PIPELINE_RENDERING_CREATE_INFO,
             pNext: std::ptr::null(),
+            viewMask: 0,
             colorAttachmentCount: color_attachment_formats.len() as u32,
             pColorAttachmentFormats: color_attachment_formats.as_ptr(),
             depthAttachmentFormat: if params.depth_test || params.depth_write {
@@ -197,7 +234,6 @@ impl Pipeline {
                 vk::VkFormat::UNDEFINED
             },
             stencilAttachmentFormat: vk::VkFormat::UNDEFINED,
-            viewMask: 0,
         };
 
         let color_blend_state = vk::VkPipelineColorBlendStateCreateInfo {
@@ -229,7 +265,7 @@ impl Pipeline {
                 let mut shader_module: vk::VkShaderModule = std::ptr::null_mut();
                 unsafe {
                     vk::vkCreateShaderModule(
-                        vk_device,
+                        device.handle(),
                         &shader_module_create_info,
                         std::ptr::null(),
                         &mut shader_module,
@@ -252,7 +288,7 @@ impl Pipeline {
         // 11. Finally, the pipeline
         let pipeline_info = vk::VkGraphicsPipelineCreateInfo {
             sType: vk::VkStructureType::GRAPHICS_PIPELINE_CREATE_INFO,
-            pNext: vk_next!(&pipeline_rendering),
+            pNext: vk_next!(pipeline_rendering),
             flags: 0,
             stageCount: shader_stage_create_infos.len() as u32,
             pStages: shader_stage_create_infos.as_ptr(),
@@ -275,7 +311,7 @@ impl Pipeline {
         let mut pipeline: vk::VkPipeline = std::ptr::null_mut();
 
         vk_call!(vk::vkCreateGraphicsPipelines(
-            vk_device,
+            device.handle(),
             std::ptr::null_mut(),
             1,
             &pipeline_info,
@@ -286,7 +322,7 @@ impl Pipeline {
         // Clean up shader modules
         for shader_module in shader_modules {
             unsafe {
-                vk::vkDestroyShaderModule(vk_device, shader_module, std::ptr::null());
+                vk::vkDestroyShaderModule(device.handle(), shader_module, std::ptr::null());
             }
         }
 
@@ -294,6 +330,7 @@ impl Pipeline {
             pipeline,
             pipeline_layout,
             descriptor_layout,
+            device: device.clone(),
         })
     }
 
@@ -312,6 +349,7 @@ impl Pipeline {
                     descriptorType: descriptor.descriptor_type.to_vk(),
                     descriptorCount: descriptor.descriptor_count,
                     stageFlags: descriptor.stage.to_vk(),
+                    pImmutableSamplers: std::ptr::null(),
                 }
             })
             .collect();
@@ -379,11 +417,61 @@ impl Pipeline {
     }
 }
 
-pub struct Sampler {}
+pub struct Sampler {
+    handle: vk::VkSampler,
+    device: Arc<Device>,
+}
+
+impl Drop for Sampler {
+    fn drop(&mut self) {
+        unsafe {
+            vk::vkDestroySampler(self.device.handle(), self.handle, std::ptr::null());
+        }
+    }
+}
 
 impl Sampler {
-    pub fn new() -> Self {
-        Sampler {}
+    pub fn handle(&self) -> vk::VkSampler {
+        self.handle
+    }
+
+    pub fn new(
+        device: Arc<Device>,
+        filter: Filter,
+        address_mode: SamplerAddressMode,
+        border_color: SamplerBorderColor,
+    ) -> Result<Self> {
+        let sampler_create_info = vk::VkSamplerCreateInfo {
+            sType: vk::VkStructureType::SAMPLER_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            magFilter: filter.to_vk(),
+            minFilter: filter.to_vk(),
+            mipmapMode: vk::VkSamplerMipmapMode::LINEAR,
+            addressModeU: address_mode.to_vk(),
+            addressModeV: address_mode.to_vk(),
+            addressModeW: address_mode.to_vk(),
+            mipLodBias: 0.0,
+            anisotropyEnable: 0,
+            maxAnisotropy: 1.0,
+            compareEnable: 0,
+            compareOp: vk::VkCompareOp::ALWAYS,
+            minLod: 0.0,
+            maxLod: 0.0,
+            borderColor: border_color.to_vk(),
+            unnormalizedCoordinates: 0,
+        };
+
+        let mut handle: vk::VkSampler = std::ptr::null_mut();
+        vk_call!(vk::vkCreateSampler(
+            device.handle(),
+            &sampler_create_info,
+            std::ptr::null(),
+            &mut handle,
+        ))
+        .unwrap();
+
+        Ok(Sampler { handle, device })
     }
 }
 
@@ -422,7 +510,19 @@ pub enum SamplerAddressMode {
     MirrorClampToEdge,
 }
 
-pub enum BorderColor {
+impl SamplerAddressMode {
+    pub fn to_vk(&self) -> vk::VkSamplerAddressMode {
+        match self {
+            SamplerAddressMode::Repeat => vk::VkSamplerAddressMode::REPEAT,
+            SamplerAddressMode::MirroredRepeat => vk::VkSamplerAddressMode::MIRRORED_REPEAT,
+            SamplerAddressMode::ClampToEdge => vk::VkSamplerAddressMode::CLAMP_TO_EDGE,
+            SamplerAddressMode::ClampToBorder => vk::VkSamplerAddressMode::CLAMP_TO_BORDER,
+            SamplerAddressMode::MirrorClampToEdge => vk::VkSamplerAddressMode::MIRROR_CLAMP_TO_EDGE,
+        }
+    }
+}
+
+pub enum SamplerBorderColor {
     FloatTransparentBlack,
     IntTransparentBlack,
     FloatOpaqueBlack,
@@ -431,9 +531,40 @@ pub enum BorderColor {
     IntOpaqueWhite,
 }
 
+impl SamplerBorderColor {
+    pub fn to_vk(&self) -> vk::VkBorderColor {
+        match self {
+            SamplerBorderColor::FloatTransparentBlack => vk::VkBorderColor::FLOAT_TRANSPARENT_BLACK,
+            SamplerBorderColor::IntTransparentBlack => vk::VkBorderColor::INT_TRANSPARENT_BLACK,
+            SamplerBorderColor::FloatOpaqueBlack => vk::VkBorderColor::FLOAT_OPAQUE_BLACK,
+            SamplerBorderColor::IntOpaqueBlack => vk::VkBorderColor::INT_OPAQUE_BLACK,
+            SamplerBorderColor::FloatOpaqueWhite => vk::VkBorderColor::FLOAT_OPAQUE_WHITE,
+            SamplerBorderColor::IntOpaqueWhite => vk::VkBorderColor::INT_OPAQUE_WHITE,
+        }
+    }
+}
+
 pub enum Filter {
     Nearest,
     Linear,
+}
+
+impl Filter {
+    pub fn to_vk(&self) -> vk::VkFilter {
+        match self {
+            Filter::Nearest => vk::VkFilter::NEAREST,
+            Filter::Linear => vk::VkFilter::LINEAR,
+        }
+    }
+}
+
+impl SamplerMipmapMode {
+    pub fn to_vk(&self) -> vk::VkSamplerMipmapMode {
+        match self {
+            SamplerMipmapMode::Nearest => vk::VkSamplerMipmapMode::NEAREST,
+            SamplerMipmapMode::Linear => vk::VkSamplerMipmapMode::LINEAR,
+        }
+    }
 }
 
 pub enum SamplerMipmapMode {
@@ -457,6 +588,17 @@ pub struct Descriptor {
     stage: Stage,
 }
 
+impl Descriptor {
+    pub fn new(binding: u32, descriptor_type: DescriptorType, stage: Stage) -> Self {
+        Descriptor {
+            binding,
+            descriptor_type,
+            descriptor_count: 1,
+            stage,
+        }
+    }
+}
+
 impl DescriptorType {
     pub fn to_vk(&self) -> vk::VkDescriptorType {
         match self {
@@ -473,6 +615,12 @@ impl DescriptorType {
 pub struct Attachment {
     format: Format,
     blend: AttachmentBlend,
+}
+
+impl Attachment {
+    pub fn new(format: Format, blend: AttachmentBlend) -> Self {
+        Attachment { format, blend }
+    }
 }
 
 pub struct AttachmentBlend {
