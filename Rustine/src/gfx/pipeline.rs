@@ -27,6 +27,18 @@ pub struct Pipeline {
     device: Arc<Device>,
 }
 
+impl Eq for Pipeline {}
+impl PartialEq for Pipeline {
+    fn eq(&self, other: &Self) -> bool {
+        self.pipeline == other.pipeline
+    }
+}
+impl std::hash::Hash for Pipeline {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.pipeline.hash(state);
+    }
+}
+
 impl Drop for Pipeline {
     fn drop(&mut self) {
         warning!("Pipeline::drop");
@@ -420,6 +432,18 @@ impl Pipeline {
 pub struct Sampler {
     handle: vk::VkSampler,
     device: Arc<Device>,
+}
+
+impl Eq for Sampler {}
+impl PartialEq for Sampler {
+    fn eq(&self, other: &Self) -> bool {
+        self.handle == other.handle
+    }
+}
+impl std::hash::Hash for Sampler {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.handle.hash(state);
+    }
 }
 
 impl Drop for Sampler {

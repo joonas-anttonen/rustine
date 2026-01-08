@@ -1,12 +1,14 @@
-use crate::{gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*, warning};
+use crate::{gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*, io, warning};
 
+use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 struct TestData {
-    test_pixel_buffer: PixelBuffer,
-    test_pixel_buffer_2: PixelBuffer,
-    test_sampler: Sampler,
-    test_pipeline: Pipeline,
+    test_pixel_buffer: Arc<PixelBuffer>,
+    test_pixel_buffer_2: Arc<PixelBuffer>,
+    test_sampler: Arc<Sampler>,
+    test_pipeline: Arc<Pipeline>,
 }
 
 /// The core graphics subsystem, managing Vulkan initialization and device selection.
@@ -16,8 +18,11 @@ struct TestData {
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
     test_data: TestData,
+    pending_images: VecDeque<io::Image>,
+    next_image_id: u32,
+    pixel_buffers: HashMap<u32, Option<PixelBuffer>>,
     queue: Option<Queue>,
-    allocator: Arc<vma::Allocator>,
+    allocator: Arc<allocator::Allocator>,
     device: Arc<Device>,
     instance: Instance,
     frame_n: u64,
@@ -35,7 +40,7 @@ impl Drop for Core {
 }
 
 impl Core {
-    pub fn new(instance: Instance, device: Arc<Device>, allocator: Arc<vma::Allocator>) -> Self {
+    pub fn new(instance: Instance, device: Arc<Device>, allocator: Arc<allocator::Allocator>) -> Self {
         // Load data from /home/jant/pictures/hmm/0yzhnmy0.webp
         let webp_raw_data = std::fs::read("/home/jant/pictures/hmm/0yzhnmy0.webp")
             .expect("Failed to load WebP file");
@@ -120,10 +125,10 @@ impl Core {
         let test_pipeline = Pipeline::new(device.clone(), &test_pipeline_params).unwrap();
 
         let test_data = TestData {
-            test_pixel_buffer,
-            test_pixel_buffer_2,
-            test_sampler,
-            test_pipeline,
+            test_pixel_buffer: Arc::new(test_pixel_buffer),
+            test_pixel_buffer_2: Arc::new(test_pixel_buffer_2),
+            test_sampler: Arc::new(test_sampler),
+            test_pipeline: Arc::new(test_pipeline),
         };
 
         Core {
@@ -133,6 +138,9 @@ impl Core {
             test_data,
             frame_n: 0,
             queue: None,
+            pixel_buffers: HashMap::new(),
+            pending_images: VecDeque::new(),
+            next_image_id: 0,
         }
     }
 
@@ -164,7 +172,7 @@ impl Core {
         &self.device
     }
 
-    pub fn allocator(&self) -> &Arc<vma::Allocator> {
+    pub fn allocator(&self) -> &Arc<allocator::Allocator> {
         &self.allocator
     }
 
@@ -175,6 +183,18 @@ impl Core {
 
     pub fn drop_queue(&mut self) {
         self.queue = None;
+    }
+
+    pub fn create_image(&mut self, io_image: io::Image) -> Image {
+        let image = Image {
+            width: io_image.width,
+            height: io_image.height,
+            id: self.next_image_id,
+        };
+        self.next_image_id += 1;
+        self.pending_images.push_back(io_image);
+        self.pixel_buffers.insert(image.id, None);
+        image
     }
 
     pub fn initialize_swapchain_queue(
@@ -244,13 +264,9 @@ impl Core {
 
             queue.enqueue_present(|cmd, present_image| {
                 cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
-                cmd.blit_raw(
-                    self.test_data.test_pixel_buffer_2.image(),
-                    self.test_data.test_pixel_buffer_2.width() as i32,
-                    self.test_data.test_pixel_buffer_2.height() as i32,
-                    present_image.image,
-                    present_image.width as i32,
-                    present_image.height as i32,
+                cmd.blit_to_present(
+                    &self.test_data.test_pixel_buffer_2,
+                    present_image,
                     Filter::Linear,
                 );
                 cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
@@ -377,7 +393,7 @@ impl CoreBuilder {
         let vk_device = Arc::new(Device::new(&self.params, selected_device)?);
 
         // 4. Create VMA
-        let allocator = vma::Allocator::new(&vk_instance, Arc::clone(&vk_device))?;
+        let allocator = allocator::Allocator::new(&vk_instance, Arc::clone(&vk_device))?;
 
         Ok(Core::new(vk_instance, vk_device, allocator))
     }

@@ -2,7 +2,7 @@
 
 mod core;
 mod instance;
-mod vma;
+mod allocator;
 pub use instance::Instance;
 mod device;
 pub use device::*;
@@ -27,6 +27,12 @@ pub use pipeline::*;
 use crate::version::Version;
 
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
+
+pub struct Image {
+    width: u32,
+    height: u32,
+    id: u32,
+}
 
 #[derive(Debug)]
 pub struct Rectangle {

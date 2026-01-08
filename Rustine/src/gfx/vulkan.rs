@@ -1740,7 +1740,7 @@ impl VkPipelineStageFlags2 {
 
 #[repr(C)]
 pub struct VkMemoryBarrier2 {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub srcStageMask: VkPipelineStageFlags2,
     pub srcAccessMask: VkAccessFlags2,
@@ -1750,7 +1750,7 @@ pub struct VkMemoryBarrier2 {
 
 #[repr(C)]
 pub struct VkBufferMemoryBarrier2 {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub srcStageMask: VkPipelineStageFlags2,
     pub srcAccessMask: VkAccessFlags2,
@@ -1765,7 +1765,7 @@ pub struct VkBufferMemoryBarrier2 {
 
 #[repr(C)]
 pub struct VkImageMemoryBarrier2 {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub srcStageMask: VkPipelineStageFlags2,
     pub srcAccessMask: VkAccessFlags2,
@@ -1791,7 +1791,7 @@ pub enum VkDependencyFlags {
 
 #[repr(C)]
 pub struct VkDependencyInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub dependencyFlags: u32,
     pub memoryBarrierCount: u32,
@@ -2210,7 +2210,7 @@ pub struct VkImageViewCreateInfo {
 
 #[repr(C)]
 pub struct VkMemoryAllocateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub allocationSize: VkDeviceSize,
     pub memoryTypeIndex: u32,
@@ -2225,14 +2225,14 @@ pub struct VkMemoryRequirements {
 
 #[repr(C)]
 pub struct VkSemaphoreCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
 }
 
 #[repr(C)]
 pub struct VkFenceCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
 }
@@ -2245,7 +2245,7 @@ pub enum VkFenceCreateFlags {
 
 #[repr(C)]
 pub struct VkCommandBufferBeginInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub pInheritanceInfo: *const std::ffi::c_void,
@@ -2267,7 +2267,7 @@ pub enum VkCommandBufferResetFlags {
 
 #[repr(C)]
 pub struct VkCommandBufferAllocateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub commandPool: VkCommandPool,
     pub level: VkCommandBufferLevel,

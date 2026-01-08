@@ -31,7 +31,6 @@ pub struct Parameters {
 pub struct PresentationImage {
     pub width: u32,
     pub height: u32,
-    pub memory: vk::VkDeviceMemory,
     pub image: vk::VkImage,
     pub image_view: vk::VkImageView,
     pub format: vk::VkFormat,
@@ -50,7 +49,7 @@ pub struct SharedImageProvider {
     output_frame: PixelBuffer,
 }
 impl SharedImageProvider {
-    pub fn new(allocator: &Arc<vma::Allocator>, parameters: Parameters) -> Self {
+    pub fn new(allocator: &Arc<allocator::Allocator>, parameters: Parameters) -> Self {
         let output_frame = allocator
             .create_external_pixel_buffer(
                 Format::B8G8R8A8_UNORM,
@@ -78,7 +77,6 @@ impl PresentationProvider for SharedImageProvider {
         let presentation_image = PresentationImage {
             width: self.output_frame.width(),
             height: self.output_frame.height(),
-            memory: self.output_frame.device_memory(),
             image: self.output_frame.image(),
             image_view: self.output_frame.image_view(),
             format: vk::VkFormat::B8G8R8A8_UNORM,
@@ -326,7 +324,7 @@ impl SwapchainProvider {
 
                 let mut acquire_semaphore: vk::VkSemaphore = std::ptr::null_mut();
                 let semaphore_create_info = vk::VkSemaphoreCreateInfo {
-                    sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO as u32,
+                    sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO,
                     pNext: std::ptr::null(),
                     flags: 0,
                 };
@@ -343,7 +341,6 @@ impl SwapchainProvider {
                 PresentationImage {
                     width: chosen_extent.width,
                     height: chosen_extent.height,
-                    memory: std::ptr::null_mut(),
                     image: img_handle,
                     image_view: image_view_handle,
                     format: chosen_format.format,
@@ -355,7 +352,7 @@ impl SwapchainProvider {
             .collect();
 
         let fence_create_info = vk::VkFenceCreateInfo {
-            sType: vk::VkStructureType::FENCE_CREATE_INFO as u32,
+            sType: vk::VkStructureType::FENCE_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
         };

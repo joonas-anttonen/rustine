@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::warning;
-use crate::{gfx::vma, gfx::vulkan};
+use crate::{gfx::allocator, gfx::vulkan};
 
 use std::sync::Arc;
 
@@ -10,9 +10,20 @@ pub struct PixelBuffer {
     height: u32,
     image: vulkan::VkImage,
     image_view: vulkan::VkImageView,
-    allocation: vma::VmaAllocation,
-    allocation_info: vma::VmaAllocationInfo, // TODO: Don't store this, retrieve on demand
-    allocator: Arc<vma::Allocator>,
+    allocation: allocator::VmaAllocation,
+    allocator: Arc<allocator::Allocator>,
+}
+
+impl Eq for PixelBuffer {}
+impl PartialEq for PixelBuffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.image == other.image
+    }
+}
+impl std::hash::Hash for PixelBuffer {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.image.hash(state);
+    }
 }
 
 impl Drop for PixelBuffer {
@@ -20,38 +31,32 @@ impl Drop for PixelBuffer {
         warning!("PixelBuffer::drop");
         unsafe {
             vulkan::vkDestroyImageView(
-                self.allocator.device.handle(),
+                self.allocator.device().handle(),
                 self.image_view,
                 std::ptr::null(),
             );
-            vma::vmaDestroyImage(self.allocator.handle, self.image, self.allocation);
+            allocator::vmaDestroyImage(self.allocator.handle(), self.image, self.allocation);
         }
     }
 }
 
 impl PixelBuffer {
-    pub fn new (
+    pub fn new(
         width: u32,
         height: u32,
         image: vulkan::VkImage,
         image_view: vulkan::VkImageView,
-        allocation: vma::VmaAllocation,
-        allocation_info: vma::VmaAllocationInfo,
-        allocator: Arc<vma::Allocator>,
+        allocation: allocator::VmaAllocation,
+        allocator: Arc<allocator::Allocator>,
     ) -> Self {
         Self {
             image,
             image_view,
             allocation,
-            allocation_info,
             allocator,
             width,
             height,
         }
-    }
-
-    pub fn device_memory(&self) -> vulkan::VkDeviceMemory {
-        self.allocation_info.deviceMemory
     }
 
     pub fn image(&self) -> vulkan::VkImage {
@@ -72,15 +77,15 @@ impl PixelBuffer {
 }
 
 pub struct MemoryBuffer {
-    pub handle: vma::VmaAllocation,
-    pub allocator: std::sync::Arc<vma::Allocator>,
+    pub handle: allocator::VmaAllocation,
+    pub allocator: std::sync::Arc<allocator::Allocator>,
 }
 
 impl Drop for MemoryBuffer {
     fn drop(&mut self) {
         warning!("MemoryBuffer::drop");
         unsafe {
-            vma::vmaDestroyBuffer(self.allocator.handle, std::ptr::null_mut(), self.handle);
+            allocator::vmaDestroyBuffer(self.allocator.handle(), std::ptr::null_mut(), self.handle);
         }
     }
 }

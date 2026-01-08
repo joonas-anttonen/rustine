@@ -19,67 +19,6 @@ pub enum SubmitStatus {
     Error(crate::gfx::Status),
 }
 
-/*/// Represents a transfer operation type.
-/// General form is some input data or resources, some output data or resources,
-/// and an optional completion callback.
-pub enum TransferOp {
-    CreateBufferFromData {
-        data: Vec<u8>,
-        usage: vk::VkBufferUsageFlags,
-        output_buffer: Arc<Mutex<MemoryBuffer>>,
-        completion_callback: Option<Box<dyn FnOnce() + Send>>,
-    },
-}
-
-pub struct TransferQueue {
-    queue_handle: Arc<Mutex<vk::VkQueue>>,
-    command_pool: Arc<CommandPool>,
-    available_commands: VecDeque<CommandBuffer>,
-    recorded_commands: VecDeque<CommandBuffer>,
-    queued_commands: VecDeque<CommandBuffer>,
-}
-
-impl Drop for TransferQueue {
-    fn drop(&mut self) {
-        warning!("TransferQueue::drop");
-
-        //self.wait_for_idle();
-
-        while let Some(cmd) = self.recorded_commands.pop_front() {
-            cmd.reset();
-            self.available_commands.push_back(cmd);
-        }
-
-        while let Some(cmd) = self.queued_commands.pop_front() {
-            cmd.reset();
-            self.available_commands.push_back(cmd);
-        }
-    }
-}
-
-impl TransferQueue {
-    pub fn new(device: &Arc<vulkan::Device>) -> Self {
-        let family_index = device.transfer_queue_family_index();
-        let queue_handle = device.transfer_queue();
-
-        let command_pool = CommandPool::new(family_index, &device);
-
-        let mut available_commands = VecDeque::new();
-
-        for _ in 0..3 {
-            available_commands.push_back(command_pool.allocate_command_buffer().unwrap());
-        }
-
-        TransferQueue {
-            queue_handle,
-            command_pool,
-            available_commands,
-            recorded_commands: VecDeque::new(),
-            queued_commands: VecDeque::new(),
-        }
-    }
-}*/
-
 pub struct Queue {
     queue_handle: Arc<Mutex<vk::VkQueue>>,
     command_pool: Arc<CommandPool>,
@@ -137,12 +76,12 @@ impl Queue {
     pub fn drain(&mut self) {
         self.wait_for_idle();
 
-        while let Some(cmd) = self.recorded_commands.pop_front() {
+        while let Some(mut cmd) = self.recorded_commands.pop_front() {
             cmd.reset();
             self.available_commands.push_back(cmd);
         }
 
-        while let Some(cmd) = self.queued_commands.pop_front() {
+        while let Some(mut cmd) = self.queued_commands.pop_front() {
             cmd.reset();
             self.available_commands.push_back(cmd);
         }
@@ -151,7 +90,7 @@ impl Queue {
     fn collect_completed_commands(&mut self) {
         while let Some(front) = self.queued_commands.front() {
             if front.is_complete() {
-                let completed = self.queued_commands.pop_front().unwrap();
+                let mut completed = self.queued_commands.pop_front().unwrap();
                 completed.reset();
                 self.available_commands.push_back(completed);
             } else {
@@ -170,7 +109,7 @@ impl Queue {
                 let first_queued = self.queued_commands.front().unwrap();
                 let completed = first_queued.wait_for_completion(1_000_000);
                 if completed {
-                    let completed = self.queued_commands.pop_front().unwrap();
+                    let mut completed = self.queued_commands.pop_front().unwrap();
                     completed.reset();
                     self.available_commands.push_back(completed);
                 } else {
@@ -182,7 +121,7 @@ impl Queue {
         true
     }
 
-    pub fn enqueue(&mut self, command_recorder: impl FnOnce(&CommandBuffer)) {
+    pub fn enqueue(&mut self, command_recorder: impl FnOnce(&mut CommandBuffer)) {
         self.collect_completed_commands();
         if !self.ensure_available_command() {
             warning!("Queue::enqueue: No available command buffers");
@@ -195,9 +134,9 @@ impl Queue {
             return;
         }
 
-        let command_buffer = command_buffer.unwrap();
+        let mut command_buffer = command_buffer.unwrap();
         command_buffer.begin();
-        command_recorder(&command_buffer);
+        command_recorder(&mut command_buffer);
         command_buffer.end();
 
         let submit_status = self.submit(&command_buffer, None);
@@ -216,7 +155,7 @@ impl Queue {
 
     pub fn enqueue_present(
         &mut self,
-        command_recorder: impl FnOnce(&CommandBuffer, &PresentationImage),
+        command_recorder: impl FnOnce(&mut CommandBuffer, &PresentationImage),
     ) {
         self.collect_completed_commands();
         if !self.ensure_available_command() {
@@ -245,9 +184,9 @@ impl Queue {
             error!("Queue::enqueue_present: No available command buffer!");
             return;
         }
-        let command_buffer = command_buffer.unwrap();
+        let mut command_buffer = command_buffer.unwrap();
         command_buffer.begin();
-        command_recorder(&command_buffer, &output_frame);
+        command_recorder(&mut command_buffer, &output_frame);
         command_buffer.end();
 
         let submit_status = match self.presentation_provider.method() {

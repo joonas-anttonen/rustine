@@ -3,6 +3,7 @@
 use crate::{error, vk_call, warning};
 use crate::{gfx::vulkan as vk, gfx::*};
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub struct CommandPool {
@@ -47,7 +48,7 @@ impl CommandPool {
 
     pub fn allocate_command_buffer(self: &Arc<Self>) -> Result<CommandBuffer> {
         let allocate_info = vk::VkCommandBufferAllocateInfo {
-            sType: vk::VkStructureType::COMMAND_BUFFER_ALLOCATE_INFO as u32,
+            sType: vk::VkStructureType::COMMAND_BUFFER_ALLOCATE_INFO,
             pNext: std::ptr::null(),
             commandPool: self.handle,
             level: vk::VkCommandBufferLevel::PRIMARY,
@@ -63,7 +64,7 @@ impl CommandPool {
 
         // Create fence
         let fence_info = vk::VkFenceCreateInfo {
-            sType: vk::VkStructureType::FENCE_CREATE_INFO as u32,
+            sType: vk::VkStructureType::FENCE_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
         };
@@ -76,7 +77,7 @@ impl CommandPool {
         ))?;
 
         let semaphore_info = vk::VkSemaphoreCreateInfo {
-            sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO as u32,
+            sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
         };
@@ -99,6 +100,11 @@ impl CommandPool {
 
 /// Represents a command buffer used for recording graphics commands.
 pub struct CommandBuffer {
+    pixel_buffers_in_use: HashSet<Arc<PixelBuffer>>,
+    samplers_in_use: HashSet<Arc<Sampler>>,
+    memory_buffers_in_use: HashSet<Arc<MemoryBuffer>>,
+    pipelines_in_use: HashSet<Arc<Pipeline>>,
+
     handle: vk::VkCommandBuffer,
     fence: vk::VkFence,
     semaphore: vk::VkSemaphore,
@@ -125,6 +131,10 @@ impl CommandBuffer {
         pool: Arc<CommandPool>,
     ) -> Self {
         CommandBuffer {
+            pixel_buffers_in_use: HashSet::with_capacity(16),
+            samplers_in_use: HashSet::with_capacity(16),
+            memory_buffers_in_use: HashSet::with_capacity(16),
+            pipelines_in_use: HashSet::with_capacity(16),
             handle,
             fence,
             semaphore,
@@ -176,7 +186,12 @@ impl CommandBuffer {
         }
     }
 
-    pub fn reset(&self) {
+    pub fn reset(&mut self) {
+        self.pipelines_in_use.clear();
+        self.pixel_buffers_in_use.clear();
+        self.samplers_in_use.clear();
+        self.memory_buffers_in_use.clear();
+
         vk_call!(vk::vkResetFences(self.pool.device.handle(), 1, &self.fence)).unwrap_or_else(
             |r| {
                 error!("Failed to reset fence: {:?}", r);
@@ -191,7 +206,7 @@ impl CommandBuffer {
     /// `vkCmdBeginCommandBuffer`
     pub fn begin(&self) {
         let begin_info = vk::VkCommandBufferBeginInfo {
-            sType: vk::VkStructureType::COMMAND_BUFFER_BEGIN_INFO as u32,
+            sType: vk::VkStructureType::COMMAND_BUFFER_BEGIN_INFO,
             pNext: std::ptr::null(),
             flags: 0,
             pInheritanceInfo: std::ptr::null(),
@@ -211,7 +226,9 @@ impl CommandBuffer {
 
     /// Binds a graphics pipeline to the command buffer
     /// `vkCmdBindPipeline`
-    pub fn bind_pipeline(&self, pipeline: &Pipeline) {
+    pub fn bind_pipeline(&mut self, pipeline: &Arc<Pipeline>) {
+        self.pipelines_in_use.insert(pipeline.clone());
+
         unsafe {
             vk::vkCmdBindPipeline(
                 self.handle,
@@ -221,7 +238,11 @@ impl CommandBuffer {
         }
     }
 
-    pub fn begin_rendering(&self, render_area: &Rectangle, color_attachments: &[&PixelBuffer]) {
+    pub fn begin_rendering(
+        &mut self,
+        render_area: &Rectangle,
+        color_attachments: &[&Arc<PixelBuffer>],
+    ) {
         unsafe {
             const MAX_COLOR_ATTACHMENTS: usize = 2;
 
@@ -229,6 +250,9 @@ impl CommandBuffer {
                 std::mem::zeroed();
 
             for i in 0..MAX_COLOR_ATTACHMENTS - 1 {
+                self.pixel_buffers_in_use
+                    .insert(color_attachments[i].clone());
+
                 vk_color_attachments[i] = vk::VkRenderingAttachmentInfo {
                     sType: vk::VkStructureType::RENDERING_ATTACHMENT_INFO,
                     pNext: std::ptr::null(),
@@ -300,13 +324,17 @@ impl CommandBuffer {
     }
 
     pub fn push_pixel_descriptor(
-        &self,
-        pipeline: &Pipeline,
+        &mut self,
+        pipeline: &Arc<Pipeline>,
         pixel_buffer_binding: u32,
-        pixel_buffer: &PixelBuffer,
+        pixel_buffer: &Arc<PixelBuffer>,
         sampler_binding: u32,
-        sampler: &Sampler,
+        sampler: &Arc<Sampler>,
     ) {
+        // We trust that the pipeline is already tracked via bind_pipeline
+        self.pixel_buffers_in_use.insert(pixel_buffer.clone());
+        self.samplers_in_use.insert(sampler.clone());
+
         let descriptor_image_info = vk::VkDescriptorImageInfo {
             sampler: std::ptr::null_mut(),
             imageView: pixel_buffer.image_view(),
@@ -381,7 +409,15 @@ impl CommandBuffer {
         }
     }
 
-    pub fn blit(&self, src: &PixelBuffer, dst: &PixelBuffer, filter: Filter) {
+    /// Blits an image from a source to a destination with the specified filter.
+    ///
+    /// Always uses full image extents.
+    ///
+    /// Requires that the source image is in `TRANSFER_SRC_OPTIMAL` layout and the destination image is in `TRANSFER_DST_OPTIMAL` layout.
+    pub fn blit(&mut self, src: &Arc<PixelBuffer>, dst: &Arc<PixelBuffer>, filter: Filter) {
+        self.pixel_buffers_in_use.insert(src.clone());
+        self.pixel_buffers_in_use.insert(dst.clone());
+
         self.blit_raw(
             src.image(),
             src.width() as i32,
@@ -393,7 +429,36 @@ impl CommandBuffer {
         );
     }
 
-    pub fn blit_raw(
+    /// Blits an image from a source to a destination with the specified filter.
+    ///
+    /// Always uses full image extents.
+    ///
+    /// Requires that the source image is in `TRANSFER_SRC_OPTIMAL` layout and the destination image is in `TRANSFER_DST_OPTIMAL` layout.
+    pub fn blit_to_present(
+        &mut self,
+        src: &Arc<PixelBuffer>,
+        dst: &presentation::PresentationImage,
+        filter: Filter,
+    ) {
+        self.pixel_buffers_in_use.insert(src.clone());
+
+        self.blit_raw(
+            src.image(),
+            src.width() as i32,
+            src.height() as i32,
+            dst.image,
+            dst.width as i32,
+            dst.height as i32,
+            filter,
+        );
+    }
+
+    /// Blits an image from a source to a destination with the specified filter.
+    ///
+    /// Always uses full image extents.
+    ///
+    /// Requires that the source image is in `TRANSFER_SRC_OPTIMAL` layout and the destination image is in `TRANSFER_DST_OPTIMAL` layout.
+    fn blit_raw(
         &self,
         src: vk::VkImage,
         src_width: i32,
@@ -438,9 +503,9 @@ impl CommandBuffer {
             vk::vkCmdBlitImage(
                 self.handle,
                 src,
-                Layout::TRANSFER_SRC.to_vk(),
+                vk::VkImageLayout::TRANSFER_SRC_OPTIMAL,
                 dst,
-                Layout::TRANSFER_DST.to_vk(),
+                vk::VkImageLayout::TRANSFER_DST_OPTIMAL,
                 1,
                 &blit_region,
                 filter.to_vk(),
@@ -500,7 +565,7 @@ impl CommandBuffer {
 
     pub fn full_barrier(&self) {
         let memory_barrier = vk::VkMemoryBarrier2 {
-            sType: vk::VkStructureType::MEMORY_BARRIER_2 as u32,
+            sType: vk::VkStructureType::MEMORY_BARRIER_2,
             pNext: std::ptr::null(),
             srcStageMask: vk::VkPipelineStageFlags2::ALL_COMMANDS_BIT,
             srcAccessMask: vk::VkAccessFlags2::NONE,
@@ -508,7 +573,7 @@ impl CommandBuffer {
             dstAccessMask: vk::VkAccessFlags2::NONE,
         };
         let dependency_info = vk::VkDependencyInfo {
-            sType: vk::VkStructureType::DEPENDENCY_INFO as u32,
+            sType: vk::VkStructureType::DEPENDENCY_INFO,
             pNext: std::ptr::null(),
             dependencyFlags: 0,
             memoryBarrierCount: 1,
@@ -525,7 +590,7 @@ impl CommandBuffer {
 
     pub fn transfer_barrier(&self) {
         let memory_barrier = vk::VkMemoryBarrier2 {
-            sType: vk::VkStructureType::MEMORY_BARRIER_2 as u32,
+            sType: vk::VkStructureType::MEMORY_BARRIER_2,
             pNext: std::ptr::null(),
             srcStageMask: vk::VkPipelineStageFlags2::ALL_TRANSFER_BIT,
             srcAccessMask: vk::VkAccessFlags2::TRANSFER_WRITE_BIT,
@@ -533,7 +598,7 @@ impl CommandBuffer {
             dstAccessMask: vk::VkAccessFlags2::TRANSFER_READ_BIT,
         };
         let dependency_info = vk::VkDependencyInfo {
-            sType: vk::VkStructureType::DEPENDENCY_INFO as u32,
+            sType: vk::VkStructureType::DEPENDENCY_INFO,
             pNext: std::ptr::null(),
             dependencyFlags: 0,
             memoryBarrierCount: 1,
@@ -563,7 +628,7 @@ impl CommandBuffer {
 
     fn raw_image_barrier(&self, image: vk::VkImage, old_layout: Layout, new_layout: Layout) {
         let image_memory_barrier = vk::VkImageMemoryBarrier2 {
-            sType: vk::VkStructureType::IMAGE_MEMORY_BARRIER_2 as u32,
+            sType: vk::VkStructureType::IMAGE_MEMORY_BARRIER_2,
             pNext: std::ptr::null(),
             srcStageMask: Self::barrier_stage_mask(old_layout.to_vk()),
             srcAccessMask: Self::barrier_access_mask(old_layout.to_vk()),
@@ -584,7 +649,7 @@ impl CommandBuffer {
             },
         };
         let dependency_info = vk::VkDependencyInfo {
-            sType: vk::VkStructureType::DEPENDENCY_INFO as u32,
+            sType: vk::VkStructureType::DEPENDENCY_INFO,
             pNext: std::ptr::null(),
             dependencyFlags: 0,
             memoryBarrierCount: 0,
