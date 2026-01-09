@@ -190,7 +190,7 @@ impl Gui {
                 let presentation_parameters = presentation::Parameters {
                     width: width as u32,
                     height: height as u32,
-                    surface_handle: gui.gfx_surface as *const _,
+                    surface_handle: gui.gfx_surface.to_ptr(),
                     vertical_sync: 0,
                 };
                 let presentation_provider =

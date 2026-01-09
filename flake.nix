@@ -20,6 +20,8 @@
           cargo
           rust-analyzer
 
+          renderdoc
+
           vulkan-headers
           vulkan-loader
           vulkan-validation-layers

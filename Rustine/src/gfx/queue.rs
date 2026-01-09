@@ -23,7 +23,6 @@ pub struct Queue {
     queue_handle: Arc<Mutex<vk::VkQueue>>,
     command_pool: Arc<CommandPool>,
     available_commands: VecDeque<CommandBuffer>,
-    recorded_commands: VecDeque<CommandBuffer>,
     queued_commands: VecDeque<CommandBuffer>,
 
     presentation_provider: Box<dyn PresentationProvider>,
@@ -58,7 +57,6 @@ impl Queue {
             queue_handle,
             command_pool,
             available_commands,
-            recorded_commands: VecDeque::new(),
             queued_commands: VecDeque::new(),
             presentation_provider: Box::new(presentation_provider),
         }
@@ -75,11 +73,6 @@ impl Queue {
 
     pub fn drain(&mut self) {
         self.wait_for_idle();
-
-        while let Some(mut cmd) = self.recorded_commands.pop_front() {
-            cmd.reset();
-            self.available_commands.push_back(cmd);
-        }
 
         while let Some(mut cmd) = self.queued_commands.pop_front() {
             cmd.reset();

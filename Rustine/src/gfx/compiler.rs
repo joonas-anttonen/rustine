@@ -14,19 +14,35 @@ pub enum Status {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stage {
-    Vertex,
-    Fragment,
-    Compute,
+pub struct Stage(pub u32);
+impl std::ops::BitAnd for Stage {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Stage(self.0 & rhs.0)
+    }
 }
-
+impl std::ops::BitOr for Stage {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Stage(self.0 | rhs.0)
+    }
+}
 impl Stage {
+    pub const VERTEX: Stage = Stage(1);
+    pub const FRAGMENT: Stage = Stage(2);
+    pub const COMPUTE: Stage = Stage(4);
     pub fn to_vk(&self) -> vk::VkShaderStageFlags {
-        match self {
-            Stage::Vertex => vk::VkShaderStageFlags::VERTEX_BIT,
-            Stage::Fragment => vk::VkShaderStageFlags::FRAGMENT_BIT,
-            Stage::Compute => vk::VkShaderStageFlags::COMPUTE_BIT,
+        let mut vk = 0u32;
+        if *self & Self::VERTEX == Self::VERTEX {
+            vk = vk | vk::VkShaderStageFlags::VERTEX_BIT.0;
         }
+        if *self & Self::FRAGMENT == Self::FRAGMENT {
+            vk = vk | vk::VkShaderStageFlags::FRAGMENT_BIT.0;
+        }
+        if *self & Self::COMPUTE == Self::COMPUTE {
+            vk = vk | vk::VkShaderStageFlags::COMPUTE_BIT.0;
+        }
+        vk::VkShaderStageFlags(vk)
     }
 }
 
@@ -118,9 +134,10 @@ impl Compiler {
     /// Compiles the given shader source code to SPIR-V bytecode.
     pub fn compile(&self, stage: Stage, source: &str) -> Result<Shader, String> {
         let entry_point = match stage {
-            Stage::Vertex => "vertex",
-            Stage::Fragment => "fragment",
-            Stage::Compute => "compute",
+            Stage::VERTEX => "vertex",
+            Stage::FRAGMENT => "fragment",
+            Stage::COMPUTE => "compute",
+            _ => "main",
         };
         let entry_point_c = CString::new(entry_point).map_err(|_| "Invalid entry point string")?;
 
@@ -175,6 +192,7 @@ impl Compiler {
         };
 
         if status != Status::Ok {
+            crate::error!("{}", error_message.as_deref().unwrap_or("Unknown error"));
             return Err(error_message.unwrap_or_else(|| "Unknown error".to_string()));
         }
 

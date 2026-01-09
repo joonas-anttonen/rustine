@@ -81,8 +81,8 @@ impl PresentationProvider for SharedImageProvider {
             image_view: self.output_frame.image_view(),
             format: vk::VkFormat::B8G8R8A8_UNORM,
             index: 0,
-            swapchain_handle: std::ptr::null_mut(),
-            acquire_semaphore: std::ptr::null_mut(),
+            swapchain_handle: vk::VkSwapchainKHR::default(),
+            acquire_semaphore: vk::VkSemaphore::default(),
         };
         AcquireStatus::Success(presentation_image)
     }
@@ -149,7 +149,7 @@ impl PresentationProvider for SwapchainProvider {
                 self.swapchain_handle,
                 std::u64::MAX,
                 acquire_semaphore,
-                std::ptr::null_mut(),
+                vk::VkFence::default(),
                 &mut image_index,
             )
         };
@@ -187,7 +187,7 @@ impl PresentationProvider for SwapchainProvider {
 impl SwapchainProvider {
     pub fn new(device: &Arc<Device>, params: Parameters) -> Self {
         let physical_device = device.physical_device();
-        let surface_handle = params.surface_handle as vk::VkSurfaceKHR;
+        let surface_handle = vk::VkSurfaceKHR(params.surface_handle);
 
         let surface_capabilities = physical_device
             .get_surface_capabilities(surface_handle)
@@ -267,10 +267,10 @@ impl SwapchainProvider {
             compositeAlpha: vk::VkCompositeAlphaFlagsKHR::OPAQUE_BIT_KHR,
             presentMode: chosen_present_mode,
             clipped: 1,
-            oldSwapchain: std::ptr::null_mut(),
+            oldSwapchain: vk::VkSwapchainKHR::default(),
         };
 
-        let mut swapchain_handle: vk::VkSwapchainKHR = std::ptr::null_mut();
+        let mut swapchain_handle: vk::VkSwapchainKHR = vk::VkSwapchainKHR::default();
         vk_call!(vk::vkCreateSwapchainKHR(
             device.handle(),
             &swapchain_create_info,
@@ -313,7 +313,7 @@ impl SwapchainProvider {
                     },
                 };
 
-                let mut image_view_handle: vk::VkImageView = std::ptr::null_mut();
+                let mut image_view_handle: vk::VkImageView = vk::VkImageView::default();
                 vk_call!(vk::vkCreateImageView(
                     device.handle(),
                     &image_view_create_info,
@@ -322,7 +322,7 @@ impl SwapchainProvider {
                 ))
                 .unwrap();
 
-                let mut acquire_semaphore: vk::VkSemaphore = std::ptr::null_mut();
+                let mut acquire_semaphore: vk::VkSemaphore = vk::VkSemaphore::default();
                 let semaphore_create_info = vk::VkSemaphoreCreateInfo {
                     sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO,
                     pNext: std::ptr::null(),
@@ -346,7 +346,7 @@ impl SwapchainProvider {
                     format: chosen_format.format,
                     index: index as u32,
                     swapchain_handle,
-                    acquire_semaphore: std::ptr::null_mut(),
+                    acquire_semaphore: vk::VkSemaphore::default(),
                 }
             })
             .collect();
@@ -356,7 +356,7 @@ impl SwapchainProvider {
             pNext: std::ptr::null(),
             flags: 0,
         };
-        let mut acquire_fence: vk::VkFence = std::ptr::null_mut();
+        let mut acquire_fence: vk::VkFence = vk::VkFence::default();
         vk_call!(vk::vkCreateFence(
             device.handle(),
             &fence_create_info,

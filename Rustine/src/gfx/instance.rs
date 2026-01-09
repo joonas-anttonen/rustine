@@ -2,8 +2,8 @@
 
 use std::{collections, ptr};
 
-use crate::{vk_call, vk_next, warning};
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
+use crate::{vk_call, vk_next, warning};
 
 unsafe extern "C" fn vulkan_debug_callback(
     _message_severity: u32,
@@ -17,7 +17,9 @@ unsafe extern "C" fn vulkan_debug_callback(
             if !data.pMessage.is_null() {
                 crate::log::Log::global().append(
                     crate::log::Severity::Error,
-                    std::ffi::CStr::from_ptr(data.pMessage).to_str().unwrap_or("Invalid UTF-8"),
+                    std::ffi::CStr::from_ptr(data.pMessage)
+                        .to_str()
+                        .unwrap_or("Invalid UTF-8"),
                     "Vulkan",
                 );
             }
@@ -74,7 +76,7 @@ impl Instance {
             surface: wl_surface,
         };
 
-        let mut surface_handle: vk::VkSurfaceKHR = std::ptr::null_mut();
+        let mut surface_handle = vk::VkSurfaceKHR::default();
         vk_call!(vk::vkCreateWaylandSurfaceKHR(
             self.handle,
             &create_info,
@@ -180,7 +182,7 @@ impl Instance {
             },
         };
 
-        let mut instance_handle: vk::VkInstance = ptr::null_mut();
+        let mut instance_handle = vk::VkInstance::default();
         vk_call!(vk::vkCreateInstance(
             &create_info,
             ptr::null(),
@@ -214,7 +216,7 @@ impl Instance {
                 pUserData: ptr::null_mut(),
             };
 
-            let mut debug_messenger_ptr: vk::VkDebugUtilsMessengerEXT = ptr::null_mut();
+            let mut debug_messenger_ptr = vk::VkDebugUtilsMessengerEXT::default();
             vk_call!(create_debug_fn.unwrap()(
                 instance_handle,
                 &debug_create_info,

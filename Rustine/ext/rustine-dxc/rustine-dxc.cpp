@@ -9,6 +9,12 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <limits.h>
+#include <unistd.h>
+#include <cstdlib>
+#include <string>
+#include <filesystem>
+namespace fs = std::filesystem;
 #endif
 
 // Internal compiler state
@@ -52,14 +58,47 @@ rdxc_status rdxcCompilerCreate(rdxc_compiler** out_compiler) {
     DxcCreateInstanceProc create_instance = 
         (DxcCreateInstanceProc)GetProcAddress(compiler->library_handle, "DxcCreateInstance");
 #else
-    // Load libdxcompiler.so from same directory as executable (via RPATH=$ORIGIN)
-    compiler->library_handle = dlopen("libdxcompiler.so", RTLD_LAZY);
+    // Try multiple strategies to locate libdxcompiler.so on Linux
+    auto try_open_dxc = []() -> void* {
+        // 1) Direct name (resolves via LD_LIBRARY_PATH / RPATH)
+        void* handle = dlopen("libdxcompiler.so", RTLD_LAZY);
+        if (handle) return handle;
+
+        // 2) Respect DXC_LIB_DIR environment variable
+        if (const char* env_dir = std::getenv("DXC_LIB_DIR")) {
+            std::string candidate = std::string(env_dir) + "/libdxcompiler.so";
+            handle = dlopen(candidate.c_str(), RTLD_LAZY);
+            if (handle) return handle;
+        }
+
+        // 3) Same directory as the executable (/proc/self/exe)
+        char exe_path[PATH_MAX] = {0};
+        ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+        if (len > 0) {
+            exe_path[len] = '\0';
+            try {
+                fs::path exe(exe_path);
+                fs::path candidate = exe.parent_path() / "libdxcompiler.so";
+                handle = dlopen(candidate.c_str(), RTLD_LAZY);
+                if (handle) return handle;
+            } catch (...) {
+                // ignore filesystem errors and continue
+            }
+        }
+
+        return nullptr;
+    };
+
+    compiler->library_handle = try_open_dxc();
     if (!compiler->library_handle) {
+        // Surface a helpful diagnostic in logs for easier debugging under tools like RenderDoc
+        const char* err = dlerror();
+        (void)err; // suppress unused warning in release
         delete compiler;
         return RDXC_STATUS_LIBRARY_ERROR;
     }
-    
-    DxcCreateInstanceProc create_instance = 
+
+    DxcCreateInstanceProc create_instance =
         (DxcCreateInstanceProc)dlsym(compiler->library_handle, "DxcCreateInstance");
 #endif
 

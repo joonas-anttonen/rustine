@@ -7,8 +7,11 @@ use crate::gfx::*;
 use crate::{vk_call, warning};
 
 pub use ffi::VmaAllocation;
+pub use ffi::VmaAllocationInfo;
+pub use ffi::vmaCopyMemoryToAllocation;
 pub use ffi::vmaDestroyBuffer;
 pub use ffi::vmaDestroyImage;
+pub use ffi::vmaGetAllocationInfo;
 
 pub struct Allocator {
     handle: ffi::VmaAllocator,
@@ -44,7 +47,7 @@ impl Allocator {
             flags: flags,
             physicalDevice: device.physical_device().handle(),
             device: device.handle(),
-            preferredLargeHeapBlockSize: 0,
+            preferredLargeHeapBlockSize: vk::VkDeviceSize(0),
             pAllocationCallbacks: std::ptr::null(),
             pDeviceMemoryCallbacks: std::ptr::null(),
             pHeapSizeLimit: std::ptr::null(),
@@ -62,6 +65,67 @@ impl Allocator {
             handle: allocator_handle,
             device: Arc::clone(&device),
         }))
+    }
+
+    pub fn create_memory_buffer(
+        self: &Arc<Self>,
+        size: usize,
+        usage: buffer::MemoryUsage,
+        access: buffer::MemoryAccess,
+    ) -> Result<MemoryBuffer> {
+        let buffer_create_info = vk::VkBufferCreateInfo {
+            sType: vk::VkStructureType::BUFFER_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: vk::VkBufferCreateFlags::NONE,
+            size: vk::VkDeviceSize(size as u64),
+            usage: usage.to_vk(),
+            sharingMode: vk::VkSharingMode::EXCLUSIVE,
+            queueFamilyIndexCount: 0,
+            pQueueFamilyIndices: std::ptr::null(),
+        };
+
+        let allocation_create_info = ffi::VmaAllocationCreateInfo {
+            flags: match access {
+                buffer::MemoryAccess::NONE => 0,
+                buffer::MemoryAccess::READ => {
+                    ffi::VmaAllocationCreateFlags::HOST_ACCESS_RANDOM_BIT as u32
+                }
+                buffer::MemoryAccess::WRITE => {
+                    ffi::VmaAllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE_BIT as u32
+                }
+                buffer::MemoryAccess::READ_WRITE => {
+                    ffi::VmaAllocationCreateFlags::HOST_ACCESS_RANDOM_BIT as u32
+                }
+            },
+            usage: ffi::VmaMemoryUsage::AUTO,
+            requiredFlags: 0,
+            preferredFlags: 0,
+            memoryTypeBits: 0,
+            pool: std::ptr::null_mut(),
+            pUserData: std::ptr::null_mut(),
+            priority: 0.0,
+        };
+
+        let mut buffer: vk::VkBuffer = vk::VkBuffer(std::ptr::null_mut());
+        let mut allocation: ffi::VmaAllocation = std::ptr::null_mut();
+        let mut allocation_info: ffi::VmaAllocationInfo = unsafe { std::mem::zeroed() };
+
+        vk_call!(ffi::vmaCreateBuffer(
+            self.handle,
+            &buffer_create_info,
+            &allocation_create_info,
+            &mut buffer,
+            &mut allocation,
+            &mut allocation_info,
+        ))?;
+
+        Ok(MemoryBuffer::new(
+            usage,
+            access,
+            buffer,
+            allocation,
+            Arc::clone(self),
+        ))
     }
 
     pub fn create_pixel_buffer(
@@ -98,7 +162,7 @@ impl Allocator {
             sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
-            image: std::ptr::null_mut(), // NOTE: image not available yet, will be set in allocate_image
+            image: vk::VkImage::default(), // NOTE: image not available yet, will be set in allocate_image
             viewType: vk::VkImageViewType::X2D,
             format: format.to_vk(),
             components: vk::VkComponentMapping {
@@ -124,8 +188,8 @@ impl Allocator {
         image_create_info: &vk::VkImageCreateInfo,
         image_view_create_info: &mut vk::VkImageViewCreateInfo,
     ) -> Result<PixelBuffer> {
-        let mut image: vk::VkImage = std::ptr::null_mut();
-        let mut image_view: vk::VkImageView = std::ptr::null_mut();
+        let mut image: vk::VkImage = vk::VkImage::default();
+        let mut image_view: vk::VkImageView = vk::VkImageView::default();
         let mut allocation: ffi::VmaAllocation = std::ptr::null_mut();
         let mut allocation_info: ffi::VmaAllocationInfo = unsafe { std::mem::zeroed() };
 
@@ -199,8 +263,8 @@ impl Allocator {
             name: std::ptr::null(),
         };
 
-        let mut image: vk::VkImage = std::ptr::null_mut();
-        let mut image_view: vk::VkImageView = std::ptr::null_mut();
+        let mut image: vk::VkImage = vk::VkImage::default();
+        let mut image_view: vk::VkImageView = vk::VkImageView::default();
         let mut allocation: ffi::VmaAllocation = std::ptr::null_mut();
         let mut allocation_info: ffi::VmaAllocationInfo = unsafe { std::mem::zeroed() };
 
@@ -287,7 +351,7 @@ impl Allocator {
             sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
             pNext: std::ptr::null(),
             flags: 0,
-            image: std::ptr::null_mut(), // NOTE: image not available yet, will be set in allocate_image
+            image: vk::VkImage::default(), // NOTE: image not available yet, will be set in allocate_image
             viewType: vk::VkImageViewType::X2D,
             format: format.to_vk(),
             components: vk::VkComponentMapping {
@@ -372,6 +436,157 @@ mod ffi {
             pAllocationInfo: *mut VmaAllocationInfo,
         ) -> i32;
         pub fn vmaDestroyImage(allocator: VmaAllocator, image: VkImage, allocation: VmaAllocation);
+
+        /// Maps memory represented by given allocation and returns pointer to it.
+        ///
+        /// Maps memory represented by given allocation to make it accessible to CPU code.
+        /// When succeeded, `ppData` contains pointer to first byte of this memory.
+        ///
+        /// ## Warning
+        ///
+        /// If the allocation is part of a bigger `VkDeviceMemory` block, returned pointer is
+        /// correctly offsetted to the beginning of region assigned to this particular allocation.
+        /// Unlike the result of `vkMapMemory`, it points to the allocation, not to the beginning of the whole block.
+        /// You should not add VmaAllocationInfo::offset to it!
+        ///
+        /// Mapping is internally reference-counted and synchronized, so despite raw Vulkan
+        /// function `vkMapMemory()` cannot be used to map same block of `VkDeviceMemory`
+        /// multiple times simultaneously, it is safe to call this function on allocations
+        /// assigned to the same memory block. Actual Vulkan memory will be mapped on first
+        /// mapping and unmapped on last unmapping.
+        ///
+        /// If the function succeeded, you must call vmaUnmapMemory() to unmap the
+        /// allocation when mapping is no longer needed or before freeing the allocation, at
+        /// the latest.
+        ///
+        /// It also safe to call this function multiple times on the same allocation. You
+        /// must call vmaUnmapMemory() same number of times as you called vmaMapMemory().
+        ///
+        /// It is also safe to call this function on allocation created with
+        /// `VMA_ALLOCATION_CREATE_MAPPED_BIT` flag. Its memory stays mapped all the time.
+        /// You must still call vmaUnmapMemory() same number of times as you called
+        /// vmaMapMemory(). You must not call vmaUnmapMemory() additional time to free the
+        /// "0-th" mapping made automatically due to `VMA_ALLOCATION_CREATE_MAPPED_BIT` flag.
+        ///
+        /// This function fails when used on allocation made in memory type that is not
+        /// `HOST_VISIBLE`.
+        ///
+        /// This function doesn't automatically flush or invalidate caches.
+        /// If the allocation is made from a memory types that is not `HOST_COHERENT`,
+        /// you also need to use vmaInvalidateAllocation() / vmaFlushAllocation(), as required by Vulkan specification.
+        pub fn vmaMapMemory(
+            allocator: VmaAllocator,
+            allocation: VmaAllocation,
+            ppData: *mut *mut std::ffi::c_void,
+        ) -> i32;
+
+        /// Unmaps memory represented by given allocation, mapped previously using `vmaMapMemory`.
+        ///
+        /// For details, see description of vmaMapMemory().
+        ///
+        /// This function doesn't automatically flush or invalidate caches.
+        /// If the allocation is made from a memory types that is not `HOST_COHERENT`,
+        /// you also need to use `vmaInvalidateAllocation() / vmaFlushAllocation()`, as required by Vulkan specification.
+        pub fn vmaUnmapMemory(allocator: VmaAllocator, allocation: VmaAllocation);
+
+        /// Calls `vkFlushMappedMemoryRanges()` for memory associated with given range of given allocation.
+        ///
+        /// It needs to be called after writing to a mapped memory for memory types that are not `HOST_COHERENT`.
+        /// Unmap operation doesn't do that automatically.
+        ///
+        /// - `offset` must be relative to the beginning of allocation.
+        /// - `size` can be `VK_WHOLE_SIZE`. It means all memory from `offset` the the end of given allocation.
+        /// - `offset` and `size` don't have to be aligned.
+        ///   They are internally rounded down/up to multiply of `nonCoherentAtomSize`.
+        /// - If `size` is 0, this call is ignored.
+        /// - If memory type that the `allocation` belongs to is not `HOST_VISIBLE` or it is `HOST_COHERENT`,
+        ///   this call is ignored.
+        ///
+        /// Warning! `offset` and `size` are relative to the contents of given `allocation`.
+        /// If you mean whole allocation, you can pass 0 and `VK_WHOLE_SIZE`, respectively.
+        /// Do not pass allocation's offset as `offset`!
+        ///
+        /// This function returns the `VkResult` from `vkFlushMappedMemoryRanges` if it is
+        /// called, otherwise `VK_SUCCESS`.
+        pub fn vmaFlushAllocation(
+            allocator: VmaAllocator,
+            allocation: VmaAllocation,
+            offset: VkDeviceSize,
+            size: VkDeviceSize,
+        ) -> i32;
+
+        /// Copies data from specified host pointer to allocation, mapping temporarily if needed and flushing host caches if needed.
+        ///
+        /// - `allocator`: The allocator instance.
+        /// - `pSrcHostPointer`: Pointer to the host data that becomes source of the copy.
+        /// - `dstAllocation`: Handle to the allocation that becomes destination of the copy.
+        /// - `dstAllocationLocalOffset`: Offset within `dstAllocation` where to write copied data, in bytes.
+        /// - `size`: Number of bytes to copy.
+        ///
+        /// This is a convenience function that allows to copy data from a host pointer to an allocation easily.
+        /// Same behavior can be achieved by calling vmaMapMemory(), `memcpy()`, vmaUnmapMemory(), vmaFlushAllocation().
+        ///
+        /// This function can be called only for allocations created in a memory type that has `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT` flag.
+        /// It can be ensured e.g. by using `VMA_MEMORY_USAGE_AUTO` and `VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT` or
+        /// `VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT`.
+        /// Otherwise, the function will fail and generate a Validation Layers error.
+        ///
+        /// `dstAllocationLocalOffset` is relative to the contents of given `dstAllocation`.
+        /// If you mean whole allocation, you should pass 0.
+        /// Do not pass allocation's offset within device memory block this parameter!
+        pub fn vmaCopyMemoryToAllocation(
+            allocator: VmaAllocator,
+            pSrcHostPointer: *const std::ffi::c_void,
+            dstAllocation: VmaAllocation,
+            dstAllocationLocalOffset: VkDeviceSize,
+            size: VkDeviceSize,
+        ) -> i32;
+
+        /// Invalidates host caches if needed, maps allocation temporarily if needed, and copies data from it to specified host pointer.
+        ///
+        /// - `allocator`: The allocator instance.
+        /// - `srcAllocation`: Handle to the allocation that becomes source of the copy.
+        /// - `srcAllocationLocalOffset`: Offset within `srcAllocation` where to read copied data, in bytes.
+        /// - `pDstHostPointer`: Pointer to the host memory that becomes destination of the copy.
+        /// - `size`: Number of bytes to copy.
+        ///
+        /// This is a convenience function that allows to copy data from an allocation to a host pointer easily.
+        /// Same behavior can be achieved by calling vmaInvalidateAllocation(), vmaMapMemory(), `memcpy()`, vmaUnmapMemory().
+        ///
+        /// This function should be called only for allocations created in a memory type that has `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT`
+        /// and `VK_MEMORY_PROPERTY_HOST_CACHED_BIT` flag.
+        /// It can be ensured e.g. by using `VMA_MEMORY_USAGE_AUTO` and `VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT`.
+        /// Otherwise, the function may fail and generate a Validation Layers error.
+        /// It may also work very slowly when reading from an uncached memory.
+        ///
+        /// `srcAllocationLocalOffset` is relative to the contents of given `srcAllocation`.
+        /// If you mean whole allocation, you should pass 0.
+        /// Do not pass allocation's offset within device memory block as this parameter!
+        pub fn vmaCopyAllocationToMemory(
+            allocator: VmaAllocator,
+            srcAllocation: VmaAllocation,
+            srcAllocationLocalOffset: VkDeviceSize,
+            pDstHostPointer: *mut std::ffi::c_void,
+            size: VkDeviceSize,
+        ) -> i32;
+
+        /// Returns current information about specified allocation.
+        ///
+        /// Current parameters of given allocation are returned in `pAllocationInfo`.
+        ///
+        /// Although this function doesn't lock any mutex, so it should be quite efficient,
+        /// you should avoid calling it too often.
+        /// You can retrieve same VmaAllocationInfo structure while creating your resource, from function
+        /// `vmaCreateBuffer`, `vmaCreateImage`. You can remember it if you are sure parameters don't change
+        /// (e.g. due to defragmentation).
+        ///
+        /// There is also a new function `vmaGetAllocationInfo2` that offers extended information
+        /// about the allocation, returned using new structure #VmaAllocationInfo2.
+        pub fn vmaGetAllocationInfo(
+            allocator: VmaAllocator,
+            allocation: VmaAllocation,
+            pAllocationInfo: *mut VmaAllocationInfo,
+        );
     }
 
     pub type PFN_vmaAllocateDeviceMemoryFunction = unsafe extern "C" fn(

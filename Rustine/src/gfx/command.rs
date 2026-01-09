@@ -30,7 +30,7 @@ impl CommandPool {
             queueFamilyIndex: family_index,
         };
 
-        let mut command_pool_handle: vk::VkCommandPool = std::ptr::null_mut();
+        let mut command_pool_handle = vk::VkCommandPool::default();
         vk_call!(vk::vkCreateCommandPool(
             device.handle(),
             &command_pool_create_info,
@@ -100,9 +100,9 @@ impl CommandPool {
 
 /// Represents a command buffer used for recording graphics commands.
 pub struct CommandBuffer {
+    memory_buffers_in_use: HashSet<Arc<MemoryBuffer>>,
     pixel_buffers_in_use: HashSet<Arc<PixelBuffer>>,
     samplers_in_use: HashSet<Arc<Sampler>>,
-    memory_buffers_in_use: HashSet<Arc<MemoryBuffer>>,
     pipelines_in_use: HashSet<Arc<Pipeline>>,
 
     handle: vk::VkCommandBuffer,
@@ -238,6 +238,34 @@ impl CommandBuffer {
         }
     }
 
+    pub fn bind_vertex_buffer(&mut self, memory_buffer: &Arc<MemoryBuffer>) {
+        self.memory_buffers_in_use.insert(memory_buffer.clone());
+
+        unsafe {
+            let offset = vk::VkDeviceSize(0);
+            vk::vkCmdBindVertexBuffers(
+                self.handle,
+                0,
+                1,
+                &memory_buffer.handle(),
+                &[offset] as *const vk::VkDeviceSize,
+            );
+        }
+    }
+
+    pub fn bind_index_buffer(&mut self, memory_buffer: &Arc<MemoryBuffer>) {
+        self.memory_buffers_in_use.insert(memory_buffer.clone());
+
+        unsafe {
+            vk::vkCmdBindIndexBuffer(
+                self.handle,
+                memory_buffer.handle(),
+                vk::VkDeviceSize(0),
+                vk::VkIndexType::UINT32,
+            );
+        }
+    }
+
     pub fn begin_rendering(
         &mut self,
         render_area: &Rectangle,
@@ -259,7 +287,7 @@ impl CommandBuffer {
                     imageView: color_attachments[i].image_view(),
                     imageLayout: Layout::COLOR_ATTACHMENT.to_vk(),
                     resolveMode: vk::VkResolveModeFlags::NONE,
-                    resolveImageView: std::ptr::null_mut(),
+                    resolveImageView: vk::VkImageView::default(),
                     resolveImageLayout: vk::VkImageLayout::UNDEFINED,
                     loadOp: vk::VkAttachmentLoadOp::LOAD,
                     storeOp: vk::VkAttachmentStoreOp::STORE,
@@ -336,13 +364,13 @@ impl CommandBuffer {
         self.samplers_in_use.insert(sampler.clone());
 
         let descriptor_image_info = vk::VkDescriptorImageInfo {
-            sampler: std::ptr::null_mut(),
+            sampler: vk::VkSampler::default(),
             imageView: pixel_buffer.image_view(),
             imageLayout: Layout::SHADER_READ_ONLY.to_vk(),
         };
         let descriptor_sampler_info = vk::VkDescriptorImageInfo {
             sampler: sampler.handle(),
-            imageView: std::ptr::null_mut(),
+            imageView: vk::VkImageView::default(),
             imageLayout: vk::VkImageLayout::UNDEFINED,
         };
         let descriptor_writes: [vk::VkWriteDescriptorSet; 2] = [
@@ -405,6 +433,76 @@ impl CommandBuffer {
                 instance_count,
                 first_vertex,
                 first_instance,
+            );
+        }
+    }
+
+    pub fn draw_indexed(
+        &self,
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+    ) {
+        unsafe {
+            vk::vkCmdDrawIndexed(
+                self.handle,
+                index_count,
+                instance_count,
+                first_index,
+                vertex_offset,
+                first_instance,
+            );
+        }
+    }
+
+    pub fn push_constants<T>(&self, pipeline: &Arc<Pipeline>, stage: Stage, data: &T) {
+        unsafe {
+            vk::vkCmdPushConstants(
+                self.handle,
+                pipeline.pipeline_layout(),
+                stage.to_vk(),
+                0,
+                std::mem::size_of::<T>() as u32,
+                data as *const T as *const std::ffi::c_void,
+            );
+        }
+    }
+
+    /// Copies data from a memory buffer to a pixel buffer image.
+    ///
+    /// Always uses full image extents.
+    ///
+    /// Requires that the destination image is in `TRANSFER_DST_OPTIMAL` layout.
+    pub fn copy_buffer_to_image(&mut self, src: &Arc<MemoryBuffer>, dst: &Arc<PixelBuffer>) {
+        self.memory_buffers_in_use.insert(src.clone());
+        self.pixel_buffers_in_use.insert(dst.clone());
+
+        unsafe {
+            vk::vkCmdCopyBufferToImage(
+                self.handle,
+                src.handle(),
+                dst.image(),
+                vk::VkImageLayout::TRANSFER_DST_OPTIMAL,
+                1,
+                &vk::VkBufferImageCopy {
+                    bufferOffset: vk::VkDeviceSize(0),
+                    bufferRowLength: 0,
+                    bufferImageHeight: 0,
+                    imageSubresource: vk::VkImageSubresourceLayers {
+                        aspectMask: vk::VkImageAspectFlags::COLOR_BIT,
+                        mipLevel: 0,
+                        baseArrayLayer: 0,
+                        layerCount: 1,
+                    },
+                    imageOffset: vk::VkOffset3D { x: 0, y: 0, z: 0 },
+                    imageExtent: vk::VkExtent3D {
+                        width: dst.width(),
+                        height: dst.height(),
+                        depth: 1,
+                    },
+                },
             );
         }
     }
@@ -622,7 +720,13 @@ impl CommandBuffer {
         self.raw_image_barrier(image.image, old_layout, new_layout);
     }
 
-    pub fn layout_barrier(&self, buffer: &PixelBuffer, old_layout: Layout, new_layout: Layout) {
+    pub fn layout_barrier(
+        &mut self,
+        buffer: &Arc<PixelBuffer>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) {
+        self.pixel_buffers_in_use.insert(buffer.clone());
         self.raw_image_barrier(buffer.image(), old_layout, new_layout);
     }
 
@@ -665,18 +769,19 @@ impl CommandBuffer {
         }
     }
 
-    pub fn clear_present_image(&self, image: &presentation::PresentationImage, color: [f32; 4]) {
+    pub fn clear_present_image(&self, image: &presentation::PresentationImage, color: &[f32; 4]) {
         self.raw_clear_pixel_buffer(image.image, color);
     }
 
     /// Clears the given pixel buffer to the specified color.
     /// Current layout of `buffer` must be `SHARED_PRESENT_KHR`, `GENERAL` or `TRANSFER_DST_OPTIMAL`.
-    pub fn clear_pixel_buffer(&self, buffer: &PixelBuffer, color: [f32; 4]) {
+    pub fn clear_pixel_buffer(&mut self, buffer: &Arc<PixelBuffer>, color: &[f32; 4]) {
+        self.pixel_buffers_in_use.insert(buffer.clone());
         self.raw_clear_pixel_buffer(buffer.image(), color);
     }
 
-    pub fn raw_clear_pixel_buffer(&self, image: vk::VkImage, color: [f32; 4]) {
-        let clear_color = vk::VkClearColorValue { float32: color };
+    pub fn raw_clear_pixel_buffer(&self, image: vk::VkImage, color: &[f32; 4]) {
+        let clear_color = vk::VkClearColorValue { float32: *color };
         let image_subresource_range = vk::VkImageSubresourceRange {
             aspectMask: vk::VkImageAspectFlags::COLOR_BIT as u32,
             baseMipLevel: 0,
@@ -688,7 +793,7 @@ impl CommandBuffer {
             vk::vkCmdClearColorImage(
                 self.handle,
                 image,
-                vk::VkImageLayout::GENERAL,
+                vk::VkImageLayout::TRANSFER_DST_OPTIMAL,
                 &clear_color,
                 1,
                 &image_subresource_range,

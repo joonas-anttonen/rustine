@@ -274,7 +274,7 @@ impl Pipeline {
                     pCode: stage.bytecode.as_ptr() as *const u32,
                 };
 
-                let mut shader_module: vk::VkShaderModule = std::ptr::null_mut();
+                let mut shader_module = vk::VkShaderModule::default();
                 unsafe {
                     vk::vkCreateShaderModule(
                         device.handle(),
@@ -320,7 +320,7 @@ impl Pipeline {
             basePipelineIndex: -1,
         };
 
-        let mut pipeline: vk::VkPipeline = std::ptr::null_mut();
+        let mut pipeline = vk::VkPipeline::default();
 
         vk_call!(vk::vkCreateGraphicsPipelines(
             device.handle(),
@@ -374,7 +374,7 @@ impl Pipeline {
             pBindings: vk_descriptor_bindings.as_ptr(),
         };
 
-        let mut descriptor_set_layout: vk::VkDescriptorSetLayout = std::ptr::null_mut();
+        let mut descriptor_set_layout = vk::VkDescriptorSetLayout::default();
         vk_call!(vk::vkCreateDescriptorSetLayout(
             vk_device,
             &layout_info,
@@ -417,7 +417,7 @@ impl Pipeline {
             pPushConstantRanges: vk_push_constant_ranges.as_ptr(),
         };
 
-        let mut pipeline_layout: vk::VkPipelineLayout = std::ptr::null_mut();
+        let mut pipeline_layout = vk::VkPipelineLayout::default();
         vk_call!(vk::vkCreatePipelineLayout(
             vk_device,
             &pipeline_layout_info,
@@ -486,7 +486,7 @@ impl Sampler {
             unnormalizedCoordinates: 0,
         };
 
-        let mut handle: vk::VkSampler = std::ptr::null_mut();
+        let mut handle: vk::VkSampler = vk::VkSampler::default();
         vk_call!(vk::vkCreateSampler(
             device.handle(),
             &sampler_create_info,
@@ -500,30 +500,22 @@ impl Sampler {
 }
 
 pub struct PushConstantRange {
-    stage_flags: Stage,
-    offset: u32,
-    size: u32,
+    pub stage_flags: Stage,
+    pub offset: u32,
+    pub size: u32,
 }
 
 pub struct Binding {
-    binding: u32,
-    stride: u32,
-    rate: Rate,
+    pub binding: u32,
+    pub stride: u32,
+    pub rate: Rate,
 }
 
 pub struct Attribute {
-    location: u32,
-    binding: u32,
-    format: Format,
-    offset: u32,
-}
-
-pub enum ImageFit {
-    None,
-    Stretch,
-    Center,
-    Fill,
-    FillAspect,
+    pub location: u32,
+    pub binding: u32,
+    pub format: Format,
+    pub offset: u32,
 }
 
 pub enum SamplerAddressMode {
@@ -781,15 +773,15 @@ impl BlendOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rate {
-    Vertex,
-    Instance,
+    VERTEX,
+    INSTANCE,
 }
 
 impl Rate {
     pub fn to_vk(&self) -> vk::VkVertexInputRate {
         match self {
-            Rate::Vertex => vk::VkVertexInputRate::VERTEX,
-            Rate::Instance => vk::VkVertexInputRate::INSTANCE,
+            Rate::VERTEX => vk::VkVertexInputRate::VERTEX,
+            Rate::INSTANCE => vk::VkVertexInputRate::INSTANCE,
         }
     }
 }

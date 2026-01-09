@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
+mod allocator;
 mod core;
 mod instance;
-mod allocator;
 pub use instance::Instance;
 mod device;
 pub use device::*;
@@ -28,10 +28,22 @@ use crate::version::Version;
 
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
 
+pub type Vector2f = nalgebra::Vector2<f32>;
+
 pub struct Image {
     width: u32,
     height: u32,
     id: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum Fit {
+    NONE,
+    STRETCH,
+    FILL,
+    FILL_KEEP_ASPECT_RATIO,
+    CENTER,
 }
 
 #[derive(Debug)]
@@ -40,6 +52,16 @@ pub struct Rectangle {
     pub y: f32,
     pub w: f32,
     pub h: f32,
+}
+
+impl Rectangle {
+    pub fn position(&self) -> Vector2f {
+        Vector2f::new(self.x, self.y)
+    }
+
+    pub fn extent(&self) -> Vector2f {
+        Vector2f::new(self.w, self.h)
+    }
 }
 
 #[derive(Debug)]
@@ -62,6 +84,9 @@ use vulkan as vk;
 #[allow(non_snake_case, non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
+    U32,
+    R32G32_SFLOAT,
+    R32G32B32_SFLOAT,
     R8G8B8A8_UNORM,
     B8G8R8A8_UNORM,
     D32_SFLOAT,
@@ -71,6 +96,9 @@ pub enum Format {
 impl Format {
     pub fn to_vk(&self) -> vk::VkFormat {
         match self {
+            Format::U32 => vk::VkFormat::R32_UINT,
+            Format::R32G32_SFLOAT => vk::VkFormat::R32G32_SFLOAT,
+            Format::R32G32B32_SFLOAT => vk::VkFormat::R32G32B32_SFLOAT,
             Format::R8G8B8A8_UNORM => vk::VkFormat::R8G8B8A8_UNORM,
             Format::B8G8R8A8_UNORM => vk::VkFormat::B8G8R8A8_UNORM,
             Format::D32_SFLOAT => vk::VkFormat::D32_SFLOAT,
@@ -82,6 +110,7 @@ impl Format {
 
 pub struct Layout(vk::VkImageLayout);
 impl Layout {
+    /// Careful with this layout: when transitioning from UNDEFINED, the contents of the image are not guaranteed to be preserved.
     pub const UNDEFINED: Self = Self(vk::VkImageLayout::UNDEFINED);
     pub const GENERAL: Self = Self(vk::VkImageLayout::GENERAL);
     pub const COLOR_ATTACHMENT: Self = Self(vk::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL);
@@ -150,29 +179,6 @@ impl ImageUsage {
         Self(vulkan::VkImageUsageFlags::DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 impl std::ops::BitOr for ImageUsage {
-    type Output = Self;
-    fn bitor(self, rhs: Self) -> Self {
-        Self(self.0 | rhs.0)
-    }
-}
-
-/// Represents the usage flags for a memory buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BufferUsage(u32);
-impl BufferUsage {
-    pub const TRANSFER_SRC: Self = Self(vulkan::VkBufferUsageFlags::TRANSFER_SRC_BIT as u32);
-    pub const TRANSFER_DST: Self = Self(vulkan::VkBufferUsageFlags::TRANSFER_DST_BIT as u32);
-    pub const UNIFORM: Self = Self(vulkan::VkBufferUsageFlags::UNIFORM_BUFFER_BIT as u32);
-    pub const STORAGE: Self = Self(vulkan::VkBufferUsageFlags::STORAGE_BUFFER_BIT as u32);
-    pub const INDEX: Self = Self(vulkan::VkBufferUsageFlags::INDEX_BUFFER_BIT as u32);
-    pub const VERTEX: Self = Self(vulkan::VkBufferUsageFlags::VERTEX_BUFFER_BIT as u32);
-    pub const INDIRECT: Self = Self(vulkan::VkBufferUsageFlags::INDIRECT_BUFFER_BIT as u32);
-
-    pub fn contains(&self, other: Self) -> bool {
-        (self.0 & other.0) == other.0
-    }
-}
-impl std::ops::BitOr for BufferUsage {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self {
         Self(self.0 | rhs.0)

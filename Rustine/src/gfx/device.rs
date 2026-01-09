@@ -356,7 +356,7 @@ impl Device {
             pEnabledFeatures: ptr::null(),
         };
 
-        let mut device_handle: vk::VkDevice = ptr::null_mut();
+        let mut device_handle = vk::VkDevice::default();
         vk_call!(vk::vkCreateDevice(
             physical_device.handle(),
             &device_create_info,
@@ -365,7 +365,7 @@ impl Device {
         ))?;
 
         let general_queue_handle = unsafe {
-            let mut queue_handle: vk::VkQueue = ptr::null_mut();
+            let mut queue_handle = vk::VkQueue::default();
             vk::vkGetDeviceQueue(
                 device_handle,
                 general_queue_family_index,
@@ -376,7 +376,7 @@ impl Device {
         };
         let transfer_queue_handle = if transfer_queue_family_index != general_queue_family_index {
             unsafe {
-                let mut queue_handle: vk::VkQueue = ptr::null_mut();
+                let mut queue_handle = vk::VkQueue::default();
                 vk::vkGetDeviceQueue(
                     device_handle,
                     transfer_queue_family_index,

@@ -441,29 +441,303 @@ unsafe extern "C" {
         pRegions: *const VkImageBlit,
         filter: VkFilter,
     );
+    pub fn vkCmdCopyBufferToImage(
+        commandBuffer: VkCommandBuffer,
+        srcBuffer: VkBuffer,
+        dstImage: VkImage,
+        dstImageLayout: VkImageLayout,
+        regionCount: u32,
+        pRegions: *const VkBufferImageCopy,
+    );
+    pub fn vkCmdCopyImageToBuffer(
+        commandBuffer: VkCommandBuffer,
+        srcImage: VkImage,
+        srcImageLayout: VkImageLayout,
+        dstBuffer: VkBuffer,
+        regionCount: u32,
+        pRegions: *const VkBufferImageCopy,
+    );
 }
 
-pub type VkInstance = *mut std::ffi::c_void;
-pub type VkPhysicalDevice = *mut std::ffi::c_void;
-pub type VkDevice = *mut std::ffi::c_void;
-pub type VkDeviceMemory = *mut std::ffi::c_void;
-pub type VkDeviceSize = u64;
-pub type VkQueue = *mut std::ffi::c_void;
-pub type VkFence = *mut std::ffi::c_void;
-pub type VkSemaphore = *mut std::ffi::c_void;
-pub type VkCommandPool = *mut std::ffi::c_void;
-pub type VkCommandBuffer = *mut std::ffi::c_void;
-pub type VkImage = *mut std::ffi::c_void;
-pub type VkImageView = *mut std::ffi::c_void;
-pub type VkBuffer = *mut std::ffi::c_void;
-pub type VkSurfaceKHR = *mut std::ffi::c_void;
-pub type VkSwapchainKHR = *mut std::ffi::c_void;
-pub type VkDebugUtilsMessengerEXT = *mut std::ffi::c_void;
-pub type VkDescriptorSetLayout = *mut std::ffi::c_void;
-pub type VkPipelineLayout = *mut std::ffi::c_void;
-pub type VkPipeline = *mut std::ffi::c_void;
-pub type VkShaderModule = *mut std::ffi::c_void;
-pub type VkSampler = *mut std::ffi::c_void;
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkInstance(pub *mut std::ffi::c_void);
+impl VkInstance {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkInstance {
+    fn default() -> Self {
+        VkInstance(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkPhysicalDevice(pub *mut std::ffi::c_void);
+impl VkPhysicalDevice {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkPhysicalDevice {
+    fn default() -> Self {
+        VkPhysicalDevice(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkDevice(pub *mut std::ffi::c_void);
+impl VkDevice {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkDevice {
+    fn default() -> Self {
+        VkDevice(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkDeviceMemory(pub *mut std::ffi::c_void);
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkDeviceSize(pub u64);
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkQueue(pub *mut std::ffi::c_void);
+impl VkQueue {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkQueue {
+    fn default() -> Self {
+        VkQueue(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkFence(pub *mut std::ffi::c_void);
+impl VkFence {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkFence {
+    fn default() -> Self {
+        VkFence(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkSemaphore(pub *mut std::ffi::c_void);
+impl VkSemaphore {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkSemaphore {
+    fn default() -> Self {
+        VkSemaphore(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkCommandPool(pub *mut std::ffi::c_void);
+impl VkCommandPool {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkCommandPool {
+    fn default() -> Self {
+        VkCommandPool(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkCommandBuffer(pub *mut std::ffi::c_void);
+impl VkCommandBuffer {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkCommandBuffer {
+    fn default() -> Self {
+        VkCommandBuffer(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkImage(pub *mut std::ffi::c_void);
+impl VkImage {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkImage {
+    fn default() -> Self {
+        VkImage(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkImageView(pub *mut std::ffi::c_void);
+impl VkImageView {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkImageView {
+    fn default() -> Self {
+        VkImageView(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkBuffer(pub *mut std::ffi::c_void);
+impl VkBuffer {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkBuffer {
+    fn default() -> Self {
+        VkBuffer(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkSurfaceKHR(pub *const std::ffi::c_void);
+impl VkSurfaceKHR {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+    pub fn to_ptr(&self) -> *const std::ffi::c_void {
+        self.0
+    }
+}
+impl Default for VkSurfaceKHR {
+    fn default() -> Self {
+        VkSurfaceKHR(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkSwapchainKHR(pub *mut std::ffi::c_void);
+impl VkSwapchainKHR {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+    pub fn to_ptr(&self) -> *mut std::ffi::c_void {
+        self.0
+    }
+}
+impl Default for VkSwapchainKHR {
+    fn default() -> Self {
+        VkSwapchainKHR(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkDebugUtilsMessengerEXT(pub *mut std::ffi::c_void);
+impl VkDebugUtilsMessengerEXT {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkDebugUtilsMessengerEXT {
+    fn default() -> Self {
+        VkDebugUtilsMessengerEXT(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkDescriptorSetLayout(pub *mut std::ffi::c_void);
+impl VkDescriptorSetLayout {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkDescriptorSetLayout {
+    fn default() -> Self {
+        VkDescriptorSetLayout(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkPipelineLayout(pub *mut std::ffi::c_void);
+impl VkPipelineLayout {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkPipelineLayout {
+    fn default() -> Self {
+        VkPipelineLayout(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkPipeline(pub *mut std::ffi::c_void);
+impl VkPipeline {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkPipeline {
+    fn default() -> Self {
+        VkPipeline(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkShaderModule(pub *mut std::ffi::c_void);
+impl VkShaderModule {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkShaderModule {
+    fn default() -> Self {
+        VkShaderModule(std::ptr::null_mut())
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VkSampler(pub *mut std::ffi::c_void);
+impl VkSampler {
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+impl Default for VkSampler {
+    fn default() -> Self {
+        VkSampler(std::ptr::null_mut())
+    }
+}
 
 pub const VK_ATTACHMENT_UNUSED: u32 = u32::MAX;
 pub const VK_FALSE: u32 = 0;
@@ -486,6 +760,16 @@ pub const VK_MAX_MEMORY_HEAPS: u32 = 16;
 struct VkNext {
     pub structure_type: VkStructureType,
     pub p_next: *const std::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct VkBufferImageCopy {
+    pub bufferOffset: VkDeviceSize,
+    pub bufferRowLength: u32,
+    pub bufferImageHeight: u32,
+    pub imageSubresource: VkImageSubresourceLayers,
+    pub imageOffset: VkOffset3D,
+    pub imageExtent: VkExtent3D,
 }
 
 #[repr(C)]
@@ -841,7 +1125,7 @@ pub struct VkPipelineLayoutCreateInfo {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VkShaderStageFlags(u32);
+pub struct VkShaderStageFlags(pub u32);
 impl VkShaderStageFlags {
     pub const VERTEX_BIT: Self = Self(0x00000001);
     pub const TESSELLATION_CONTROL_BIT: Self = Self(0x00000002);
@@ -1931,47 +2215,67 @@ pub type PFN_vkCreateDebugUtilsMessengerEXT = Option<
 pub type PFN_vkDestroyDebugUtilsMessengerEXT =
     Option<unsafe extern "C" fn(VkInstance, VkDebugUtilsMessengerEXT, *const std::ffi::c_void)>;
 
-#[repr(u32)]
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VkBufferCreateFlags {
-    SPARSE_BINDING_BIT = 0x00000001,
-    SPARSE_RESIDENCY_BIT = 0x00000002,
-    SPARSE_ALIASED_BIT = 0x00000004,
-    PROTECTED_BIT = 0x00000008,
-    DEVICE_ADDRESS_CAPTURE_REPLAY_BIT = 0x00000010,
-    DESCRIPTOR_BUFFER_CAPTURE_REPLAY_BIT_EXT = 0x00000020,
-    VIDEO_PROFILE_INDEPENDENT_BIT_KHR = 0x00000040,
+pub struct VkBufferCreateFlags(u32);
+
+impl std::ops::BitOr for VkBufferCreateFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
 }
 
-#[repr(u32)]
+impl VkBufferCreateFlags {
+    pub const NONE: Self = Self(0);
+    pub const SPARSE_BINDING_BIT: Self = Self(0x00000001);
+    pub const SPARSE_RESIDENCY_BIT: Self = Self(0x00000002);
+    pub const SPARSE_ALIASED_BIT: Self = Self(0x00000004);
+    pub const PROTECTED_BIT: Self = Self(0x00000008);
+    pub const DEVICE_ADDRESS_CAPTURE_REPLAY_BIT: Self = Self(0x00000010);
+    pub const DESCRIPTOR_BUFFER_CAPTURE_REPLAY_BIT_EXT: Self = Self(0x00000020);
+    pub const VIDEO_PROFILE_INDEPENDENT_BIT_KHR: Self = Self(0x00000040);
+}
+
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VkBufferUsageFlags {
-    TRANSFER_SRC_BIT = 0x00000001,
-    TRANSFER_DST_BIT = 0x00000002,
-    UNIFORM_TEXEL_BUFFER_BIT = 0x00000004,
-    STORAGE_TEXEL_BUFFER_BIT = 0x00000008,
-    UNIFORM_BUFFER_BIT = 0x00000010,
-    STORAGE_BUFFER_BIT = 0x00000020,
-    INDEX_BUFFER_BIT = 0x00000040,
-    VERTEX_BUFFER_BIT = 0x00000080,
-    INDIRECT_BUFFER_BIT = 0x00000100,
-    SHADER_DEVICE_ADDRESS_BIT = 0x00020000,
-    VIDEO_DECODE_SRC_BIT_KHR = 0x00002000,
-    VIDEO_DECODE_DST_BIT_KHR = 0x00004000,
-    TRANSFORM_FEEDBACK_BUFFER_BIT_EXT = 0x00000800,
-    TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT = 0x00001000,
-    CONDITIONAL_RENDERING_BIT_EXT = 0x00000200,
-    ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR = 0x00080000,
-    ACCELERATION_STRUCTURE_STORAGE_BIT_KHR = 0x00100000,
-    SHADER_BINDING_TABLE_BIT_KHR = 0x00000400,
-    VIDEO_ENCODE_DST_BIT_KHR = 0x00008000,
-    VIDEO_ENCODE_SRC_BIT_KHR = 0x00010000,
-    SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT = 0x00200000,
-    RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT = 0x00400000,
-    PUSH_DESCRIPTORS_DESCRIPTOR_BUFFER_BIT_EXT = 0x04000000,
-    MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT = 0x00800000,
-    MICROMAP_STORAGE_BIT_EXT = 0x01000000,
-    TILE_MEMORY_QCOM = 0x08000000,
+pub struct VkBufferUsageFlags(u32);
+
+impl std::ops::BitOr for VkBufferUsageFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl VkBufferUsageFlags {
+    pub const NONE: Self = Self(0);
+    pub const TRANSFER_SRC_BIT: Self = Self(0x00000001);
+    pub const TRANSFER_DST_BIT: Self = Self(0x00000002);
+    pub const UNIFORM_TEXEL_BUFFER_BIT: Self = Self(0x00000004);
+    pub const STORAGE_TEXEL_BUFFER_BIT: Self = Self(0x00000008);
+    pub const UNIFORM_BUFFER_BIT: Self = Self(0x00000010);
+    pub const STORAGE_BUFFER_BIT: Self = Self(0x00000020);
+    pub const INDEX_BUFFER_BIT: Self = Self(0x00000040);
+    pub const VERTEX_BUFFER_BIT: Self = Self(0x00000080);
+    pub const INDIRECT_BUFFER_BIT: Self = Self(0x00000100);
+    pub const SHADER_DEVICE_ADDRESS_BIT: Self = Self(0x00020000);
+    pub const VIDEO_DECODE_SRC_BIT_KHR: Self = Self(0x00002000);
+    pub const VIDEO_DECODE_DST_BIT_KHR: Self = Self(0x00004000);
+    pub const TRANSFORM_FEEDBACK_BUFFER_BIT_EXT: Self = Self(0x00000800);
+    pub const TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT: Self = Self(0x00001000);
+    pub const CONDITIONAL_RENDERING_BIT_EXT: Self = Self(0x00000200);
+    pub const ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR: Self = Self(0x00080000);
+    pub const ACCELERATION_STRUCTURE_STORAGE_BIT_KHR: Self = Self(0x00100000);
+    pub const SHADER_BINDING_TABLE_BIT_KHR: Self = Self(0x00000400);
+    pub const VIDEO_ENCODE_DST_BIT_KHR: Self = Self(0x00008000);
+    pub const VIDEO_ENCODE_SRC_BIT_KHR: Self = Self(0x00010000);
+    pub const SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT: Self = Self(0x00200000);
+    pub const RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT: Self = Self(0x00400000);
+    pub const PUSH_DESCRIPTORS_DESCRIPTOR_BUFFER_BIT_EXT: Self = Self(0x04000000);
+    pub const MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT: Self = Self(0x00800000);
+    pub const MICROMAP_STORAGE_BIT_EXT: Self = Self(0x01000000);
+    pub const TILE_MEMORY_QCOM: Self = Self(0x08000000);
 }
 
 #[repr(u32)]
@@ -1983,7 +2287,7 @@ pub enum VkSharingMode {
 
 #[repr(C)]
 pub struct VkBufferCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: VkBufferCreateFlags,
     pub size: VkDeviceSize,
@@ -2832,7 +3136,7 @@ pub enum VkStructureType {
     SEMAPHORE_CREATE_INFO = 9,
     VK_STRUCTURE_TYPE_EVENT_CREATE_INFO = 10,
     VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO = 11,
-    VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO = 12,
+    BUFFER_CREATE_INFO = 12,
     VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO = 13,
     IMAGE_CREATE_INFO = 14,
     IMAGE_VIEW_CREATE_INFO = 15,

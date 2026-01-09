@@ -7,8 +7,27 @@ use std::sync::Arc;
 struct TestData {
     test_pixel_buffer: Arc<PixelBuffer>,
     test_pixel_buffer_2: Arc<PixelBuffer>,
+    test_vertex_buffer: Arc<MemoryBuffer>,
+    test_index_buffer: Arc<MemoryBuffer>,
+    test_image_transfer_buffer: Option<Arc<MemoryBuffer>>,
     test_sampler: Arc<Sampler>,
     test_pipeline: Arc<Pipeline>,
+    test_vertex_data: Vec<GpuVertex>,
+    test_index_data: Vec<u32>,
+}
+
+#[repr(C)]
+struct GpuVertex {
+    position: Vector2f,
+    texture: Vector2f,
+    color: u32,
+}
+
+#[repr(C)]
+struct PerCommand {
+    scale: Vector2f,
+    is_sdf: bool,
+    sdf_range: f32,
 }
 
 /// The core graphics subsystem, managing Vulkan initialization and device selection.
@@ -40,7 +59,11 @@ impl Drop for Core {
 }
 
 impl Core {
-    pub fn new(instance: Instance, device: Arc<Device>, allocator: Arc<allocator::Allocator>) -> Self {
+    pub fn new(
+        instance: Instance,
+        device: Arc<Device>,
+        allocator: Arc<allocator::Allocator>,
+    ) -> Self {
         // Load data from /home/jant/pictures/hmm/0yzhnmy0.webp
         let webp_raw_data = std::fs::read("/home/jant/pictures/hmm/0yzhnmy0.webp")
             .expect("Failed to load WebP file");
@@ -53,9 +76,18 @@ impl Core {
             .next_frame(&mut webp_frame_data)
             .expect("Failed to decode WebP frame");
 
+        let test_image_transfer_buffer = allocator
+            .create_memory_buffer(
+                webp_frame_data.len(),
+                buffer::MemoryUsage::TRANSFER_SRC,
+                buffer::MemoryAccess::WRITE,
+            )
+            .unwrap();
+        test_image_transfer_buffer.write(&webp_frame_data);
+
         let test_pixel_buffer = allocator
             .create_pixel_buffer(
-                Format::B8G8R8A8_UNORM,
+                Format::R8G8B8A8_UNORM,
                 webp_width,
                 webp_height,
                 ImageUsage::SAMPLED
@@ -70,8 +102,8 @@ impl Core {
         let test_pixel_buffer_2 = allocator
             .create_pixel_buffer(
                 Format::B8G8R8A8_UNORM,
-                256,
-                256,
+                webp_width,
+                webp_height,
                 ImageUsage::SAMPLED
                     | ImageUsage::COLOR_ATTACHMENT
                     | ImageUsage::TRANSFER_DST
@@ -92,15 +124,15 @@ impl Core {
         let mut test_shader_program: ShaderProgram = ShaderProgram::new("test_shader_program");
         let test_shader_compiler = Compiler::new().unwrap();
         let test_shader_stage = test_shader_compiler
-            .compile(Stage::Vertex, COMPOSITION_SHADER)
+            .compile(Stage::VERTEX, OVERLAY_SHADER)
             .unwrap();
         test_shader_program.add_stage(test_shader_stage);
         let test_shader_stage = test_shader_compiler
-            .compile(Stage::Fragment, COMPOSITION_SHADER)
+            .compile(Stage::FRAGMENT, OVERLAY_SHADER)
             .unwrap();
         test_shader_program.add_stage(test_shader_stage);
 
-        let test_pipeline_params = pipeline::Parameters {
+        /*let test_pipeline_params = pipeline::Parameters {
             shader: test_shader_program,
             topology: Topology::Triangles,
             winding: Winding::CounterClockwise,
@@ -121,14 +153,84 @@ impl Core {
                 Format::B8G8R8A8_UNORM,
                 AttachmentBlend::straight_alpha_blend(),
             )],
+        };*/
+        let test_pipeline_params = pipeline::Parameters {
+            shader: test_shader_program,
+            topology: Topology::Triangles,
+            winding: Winding::CounterClockwise,
+            culling: Culling::None,
+            raster: Raster::Fill,
+            samples: Samples::X1,
+            depth_comparison: Comparison::Always,
+            depth_write: false,
+            depth_test: false,
+            bindings: vec![Binding {
+                binding: 0,
+                stride: std::mem::size_of::<GpuVertex>() as u32,
+                rate: Rate::VERTEX,
+            }],
+            attributes: vec![
+                Attribute {
+                    binding: 0,
+                    location: 0,
+                    format: Format::R32G32_SFLOAT,
+                    offset: std::mem::offset_of!(GpuVertex, position) as u32,
+                },
+                Attribute {
+                    binding: 0,
+                    location: 1,
+                    format: Format::R32G32_SFLOAT,
+                    offset: std::mem::offset_of!(GpuVertex, texture) as u32,
+                },
+                Attribute {
+                    binding: 0,
+                    location: 2,
+                    format: Format::U32,
+                    offset: std::mem::offset_of!(GpuVertex, color) as u32,
+                },
+            ],
+            push_constants: vec![PushConstantRange {
+                stage_flags: Stage::VERTEX | Stage::FRAGMENT,
+                offset: 0,
+                size: std::mem::size_of::<PerCommand>() as u32,
+            }],
+            descriptors: vec![
+                Descriptor::new(0, DescriptorType::SampledImage, Stage::FRAGMENT),
+                Descriptor::new(1, DescriptorType::Sampler, Stage::FRAGMENT),
+            ],
+            attachments: vec![Attachment::new(
+                Format::B8G8R8A8_UNORM,
+                AttachmentBlend::straight_alpha_blend(),
+            )],
         };
         let test_pipeline = Pipeline::new(device.clone(), &test_pipeline_params).unwrap();
+
+        let test_vertex_buffer = allocator
+            .create_memory_buffer(
+                1024,
+                buffer::MemoryUsage::VERTEX_BUFFER,
+                buffer::MemoryAccess::READ_WRITE,
+            )
+            .unwrap();
+
+        let test_index_buffer = allocator
+            .create_memory_buffer(
+                1024,
+                buffer::MemoryUsage::INDEX_BUFFER,
+                buffer::MemoryAccess::READ_WRITE,
+            )
+            .unwrap();
 
         let test_data = TestData {
             test_pixel_buffer: Arc::new(test_pixel_buffer),
             test_pixel_buffer_2: Arc::new(test_pixel_buffer_2),
             test_sampler: Arc::new(test_sampler),
             test_pipeline: Arc::new(test_pipeline),
+            test_vertex_buffer: Arc::new(test_vertex_buffer),
+            test_index_buffer: Arc::new(test_index_buffer),
+            test_image_transfer_buffer: Some(Arc::new(test_image_transfer_buffer)),
+            test_vertex_data: Vec::with_capacity(4096),
+            test_index_data: Vec::with_capacity(4096),
         };
 
         Core {
@@ -219,19 +321,169 @@ impl Core {
         self.queue = Some(Queue::new(&self.device, presentation_provider));
     }
 
+    fn push_image(&mut self, image: Image, rect: Rectangle, fit: Fit, color: u32) {
+        let image_extent = Vector2f::new(image.width as f32, image.height as f32);
+        let mut uv0 = Vector2f::new(0.0, 0.0);
+        let mut uv1 = Vector2f::new(1.0, 1.0);
+
+        let final_image_position;
+        let final_image_extent;
+
+        match fit {
+            Fit::NONE => {
+                final_image_position = rect.position();
+                final_image_extent = rect.extent();
+
+                uv0.x = rect.x / image_extent.x;
+                uv0.y = rect.y / image_extent.y;
+                uv1.x = (rect.x + rect.w) / image_extent.x;
+                uv1.y = (rect.y + rect.h) / image_extent.y;
+            }
+            Fit::STRETCH => {
+                final_image_position = rect.position();
+                final_image_extent = rect.extent();
+            }
+            Fit::FILL => {
+                final_image_position = rect.position();
+                final_image_extent = rect.extent();
+            }
+            Fit::FILL_KEEP_ASPECT_RATIO => {
+                let horizontal = image_extent.x > image_extent.y;
+                let scale = if horizontal {
+                    rect.w / image_extent.x
+                } else {
+                    rect.h / image_extent.y
+                };
+                final_image_extent = image_extent * scale;
+                let offset = (rect.extent() - final_image_extent) * 0.5;
+                final_image_position = rect.position() + offset;
+            }
+            Fit::CENTER => {
+                let offset = (rect.extent() - image_extent) * 0.5;
+                final_image_position = rect.position() + offset;
+                final_image_extent = image_extent;
+            }
+        }
+
+        self.push_quad(
+            final_image_position,
+            final_image_position + final_image_extent,
+            uv0,
+            uv1,
+            color,
+        );
+    }
+
+    fn push_quad(&mut self, a: Vector2f, c: Vector2f, a_uv: Vector2f, c_uv: Vector2f, color: u32) {
+        let vertices = &mut self.test_data.test_vertex_data;
+        let indices = &mut self.test_data.test_index_data;
+
+        let start_index = vertices.len() as u32;
+        indices.push(start_index + 0);
+        indices.push(start_index + 1);
+        indices.push(start_index + 2);
+        indices.push(start_index + 0);
+        indices.push(start_index + 2);
+        indices.push(start_index + 3);
+
+        let b = Vector2f::new(c.x, a.y);
+        let d = Vector2f::new(a.x, c.y);
+        let b_uv = Vector2f::new(c_uv.x, a_uv.y);
+        let d_uv = Vector2f::new(a_uv.x, c_uv.y);
+
+        vertices.push(GpuVertex {
+            position: a,
+            texture: a_uv,
+            color,
+        });
+        vertices.push(GpuVertex {
+            position: b,
+            texture: b_uv,
+            color,
+        });
+        vertices.push(GpuVertex {
+            position: c,
+            texture: c_uv,
+            color,
+        });
+        vertices.push(GpuVertex {
+            position: d,
+            texture: d_uv,
+            color,
+        });
+    }
+
     pub fn render(&mut self, _t: f64, _dt: f32) {
         self.next_frame();
+        self.test_data.test_vertex_data.clear();
+        self.test_data.test_index_data.clear();
+
+        self.push_image(
+            Image {
+                width: self.test_data.test_pixel_buffer.width(),
+                height: self.test_data.test_pixel_buffer.height(),
+                id: 0,
+            },
+            Rectangle {
+                x: 0.0,
+                y: 0.0,
+                w: self.test_data.test_pixel_buffer_2.width() as f32,
+                h: self.test_data.test_pixel_buffer_2.height() as f32,
+            },
+            Fit::FILL_KEEP_ASPECT_RATIO,
+            0xFFFFFFFFu32,
+        );
+
+        self.test_data
+            .test_vertex_buffer
+            .write(&self.test_data.test_vertex_data);
+        self.test_data
+            .test_index_buffer
+            .write(&self.test_data.test_index_data);
 
         if let Some(queue) = &mut self.queue {
             queue.enqueue(|cmd| {
-                cmd.layout_barrier(
-                    &self.test_data.test_pixel_buffer,
-                    Layout::UNDEFINED,
-                    Layout::SHADER_READ_ONLY,
-                );
+                if let Some(test_image_transfer_buffer) = &self.test_data.test_image_transfer_buffer
+                {
+                    cmd.layout_barrier(
+                        &self.test_data.test_pixel_buffer,
+                        Layout::UNDEFINED,
+                        Layout::TRANSFER_DST,
+                    );
+                    cmd.copy_buffer_to_image(
+                        test_image_transfer_buffer,
+                        &self.test_data.test_pixel_buffer,
+                    );
+
+                    self.test_data.test_image_transfer_buffer = None;
+
+                    cmd.layout_barrier(
+                        &self.test_data.test_pixel_buffer,
+                        Layout::TRANSFER_DST,
+                        Layout::SHADER_READ_ONLY,
+                    );
+                } else {
+                    cmd.layout_barrier(
+                        &self.test_data.test_pixel_buffer,
+                        Layout::SHADER_READ_ONLY,
+                        Layout::SHADER_READ_ONLY,
+                    );
+                }
+
                 cmd.layout_barrier(
                     &self.test_data.test_pixel_buffer_2,
                     Layout::UNDEFINED,
+                    Layout::TRANSFER_DST,
+                );
+
+                cmd.clear_pixel_buffer(
+                    &self.test_data.test_pixel_buffer_2,
+                    &[0f32, 0f32, 1f32, 1f32],
+                );
+
+                cmd.layout_barrier(
+                    &self.test_data.test_pixel_buffer_2,
+                    Layout::TRANSFER_DST,
                     Layout::COLOR_ATTACHMENT,
                 );
 
@@ -241,10 +493,27 @@ impl Core {
                     w: self.test_data.test_pixel_buffer_2.width() as f32,
                     h: self.test_data.test_pixel_buffer_2.height() as f32,
                 };
+
                 cmd.begin_rendering(&render_area, &[&self.test_data.test_pixel_buffer_2]);
                 cmd.bind_pipeline(&self.test_data.test_pipeline);
+                cmd.bind_vertex_buffer(&self.test_data.test_vertex_buffer);
+                cmd.bind_index_buffer(&self.test_data.test_index_buffer);
                 cmd.set_viewport(&render_area);
                 cmd.set_scissor(&render_area);
+
+                let push_constants = PerCommand {
+                    scale: Vector2f::new(
+                        2f32 / self.test_data.test_pixel_buffer_2.width() as f32,
+                        2f32 / self.test_data.test_pixel_buffer_2.height() as f32,
+                    ),
+                    sdf_range: 1f32,
+                    is_sdf: false,
+                };
+                cmd.push_constants(
+                    &self.test_data.test_pipeline,
+                    Stage::VERTEX | Stage::FRAGMENT,
+                    &push_constants,
+                );
                 cmd.push_pixel_descriptor(
                     &self.test_data.test_pipeline,
                     0,
@@ -252,7 +521,7 @@ impl Core {
                     1,
                     &self.test_data.test_sampler,
                 );
-                cmd.draw(3, 1, 0, 0);
+                cmd.draw_indexed(self.test_data.test_index_data.len() as u32, 1, 0, 0, 0);
                 cmd.end_rendering();
 
                 cmd.layout_barrier(
@@ -421,7 +690,71 @@ fragment_input vertex(in uint vertexIndex : SV_VertexID)
 [shader("pixel")]
 float4 fragment(fragment_input input) : SV_TARGET
 {
-	//return commandTexture.Sample(commandSampler, input.UV);
-    return float4(input.UV.x, 0.0, input.UV.y, 1.0);
+	return commandTexture.Sample(commandSampler, input.UV);
+    //return float4(input.UV.x, 0.0, input.UV.y, 1.0);
+}
+"#;
+
+static OVERLAY_SHADER: &str = r#"
+struct PerCommand
+{
+	float2 Scale;
+    float sdfRange;
+    bool isSdf;
+};
+
+[[vk::push_constant]] PerCommand command;
+
+[[vk::binding(0, 0)]] Texture2D commandTexture;
+[[vk::binding(1, 0)]] SamplerState commandSampler;
+
+struct vertex_input
+{
+	float2 Position : POSITION0;
+	float2 UV : TEXCOORD0;
+	uint Color : COLOR0;
+};
+
+struct fragment_input
+{
+	float4 Position : SV_POSITION;
+	float2 UV : TEXCOORD0;
+	float4 Color : COLOR0;
+};
+
+float4 UnpackColor(uint packed)
+{
+    float r = (float)(packed & 0xFF) / 255.0f;
+    float g = (float)((packed >> 8) & 0xFF) / 255.0f;
+    float b = (float)((packed >> 16) & 0xFF) / 255.0f;
+    float a = (float)((packed >> 24) & 0xFF) / 255.0f;
+    return float4(r, g, b, a);
+}
+
+[shader("vertex")]
+fragment_input vertex(vertex_input input, in uint vertexIndex : SV_VertexID)
+{
+    fragment_input output = (fragment_input)0;
+    output.Position = float4(input.Position * command.Scale + float2(-1, -1), 0.0, 1.0);
+	output.UV = input.UV;
+	output.Color = UnpackColor(input.Color);
+	return output;
+}
+
+[shader("pixel")]
+float4 fragment(fragment_input input) : SV_TARGET
+{ 
+	float4 geometryColor = input.Color;
+	float4 textureColor = commandTexture.Sample(commandSampler, input.UV);
+    return textureColor;
+    float alpha = textureColor.a;
+
+	//if (command.isSdf)
+	//{ 
+	//	float sdf = textureColor.a - 0.5;
+	//	alpha = smoothstep(-command.sdfRange, +command.sdfRange, sdf);
+	//}
+
+	return float4(geometryColor.rgb * textureColor.rgb, alpha * geometryColor.a);
 }
 "#;
