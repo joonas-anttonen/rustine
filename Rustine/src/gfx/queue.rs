@@ -294,7 +294,7 @@ impl Queue {
         };
 
         let present_info = vk::VkPresentInfoKHR {
-            sType: vk::VkStructureType::PRESENT_INFO_KHR as u32,
+            sType: vk::VkStructureType::PRESENT_INFO_KHR,
             pNext: std::ptr::null(),
             waitSemaphoreCount: 1,
             pWaitSemaphores: &image.acquire_semaphore,

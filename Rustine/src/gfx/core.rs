@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 struct TestData {
     test_pixel_buffer: Arc<PixelBuffer>,
-    test_pixel_buffer_2: Arc<PixelBuffer>,
+    target_frame: Option<Arc<PixelBuffer>>,
     test_vertex_buffer: Arc<MemoryBuffer>,
     test_index_buffer: Arc<MemoryBuffer>,
     test_image_transfer_buffer: Option<Arc<MemoryBuffer>>,
@@ -88,20 +88,6 @@ impl Core {
         let test_pixel_buffer = allocator
             .create_pixel_buffer(
                 Format::R8G8B8A8_UNORM,
-                webp_width,
-                webp_height,
-                ImageUsage::SAMPLED
-                    | ImageUsage::COLOR_ATTACHMENT
-                    | ImageUsage::TRANSFER_DST
-                    | ImageUsage::TRANSFER_SRC,
-                ImageAspect::COLOR,
-                Samples::X1,
-            )
-            .unwrap();
-
-        let test_pixel_buffer_2 = allocator
-            .create_pixel_buffer(
-                Format::B8G8R8A8_UNORM,
                 webp_width,
                 webp_height,
                 ImageUsage::SAMPLED
@@ -223,7 +209,7 @@ impl Core {
 
         let test_data = TestData {
             test_pixel_buffer: Arc::new(test_pixel_buffer),
-            test_pixel_buffer_2: Arc::new(test_pixel_buffer_2),
+            target_frame: None,
             test_sampler: Arc::new(test_sampler),
             test_pipeline: Arc::new(test_pipeline),
             test_vertex_buffer: Arc::new(test_vertex_buffer),
@@ -302,7 +288,25 @@ impl Core {
     }
 
     pub fn initialize_swapchain(&mut self, parameters: presentation::Parameters) {
+        let swapchain_size = Vector2u::new(parameters.width, parameters.height);
+
         self.queue.swap_presenter(parameters);
+
+        let target_frame = self
+            .allocator
+            .create_pixel_buffer(
+                Format::B8G8R8A8_UNORM,
+                swapchain_size.x,
+                swapchain_size.y,
+                ImageUsage::SAMPLED
+                    | ImageUsage::COLOR_ATTACHMENT
+                    | ImageUsage::TRANSFER_DST
+                    | ImageUsage::TRANSFER_SRC,
+                ImageAspect::COLOR,
+                Samples::X1,
+            )
+            .unwrap();
+        self.test_data.target_frame = Some(Arc::new(target_frame));
     }
 
     pub fn create_pipeline(&self, parameters: pipeline::Parameters) -> Pipeline {
@@ -406,6 +410,11 @@ impl Core {
         self.test_data.test_vertex_data.clear();
         self.test_data.test_index_data.clear();
 
+        let target_frame = match self.test_data.target_frame.as_ref() {
+            Some(frame) => Arc::clone(frame),
+            None => return,
+        };
+
         self.push_image(
             Image {
                 width: self.test_data.test_pixel_buffer.width(),
@@ -415,8 +424,8 @@ impl Core {
             Rectangle {
                 x: 0.0,
                 y: 0.0,
-                w: self.test_data.test_pixel_buffer_2.width() as f32,
-                h: self.test_data.test_pixel_buffer_2.height() as f32,
+                w: target_frame.width() as f32,
+                h: target_frame.height() as f32,
             },
             Fit::FILL_KEEP_ASPECT_RATIO,
             0xFFFFFFFFu32,
@@ -429,46 +438,49 @@ impl Core {
             .test_index_buffer
             .write(&self.test_data.test_index_data);
 
+        let test_pixel_buffer = Arc::clone(&self.test_data.test_pixel_buffer);
+        let test_image_transfer_buffer = self.test_data.test_image_transfer_buffer.take();
+        let test_pipeline = Arc::clone(&self.test_data.test_pipeline);
+        let test_vertex_buffer = Arc::clone(&self.test_data.test_vertex_buffer);
+        let test_index_buffer = Arc::clone(&self.test_data.test_index_buffer);
+        let test_sampler = Arc::clone(&self.test_data.test_sampler);
+        let index_count = self.test_data.test_index_data.len() as u32;
+
         self.queue.enqueue(|cmd| {
-            if let Some(test_image_transfer_buffer) = &self.test_data.test_image_transfer_buffer {
+            if let Some(test_image_transfer_buffer) = &test_image_transfer_buffer {
                 cmd.layout_barrier(
-                    &self.test_data.test_pixel_buffer,
+                    &test_pixel_buffer,
                     Layout::UNDEFINED,
                     Layout::TRANSFER_DST,
                 );
-                cmd.copy_buffer_to_image(
-                    test_image_transfer_buffer,
-                    &self.test_data.test_pixel_buffer,
-                );
-
-                self.test_data.test_image_transfer_buffer = None;
+                cmd.copy_buffer_to_image(test_image_transfer_buffer, &test_pixel_buffer);
 
                 cmd.layout_barrier(
-                    &self.test_data.test_pixel_buffer,
+                    &test_pixel_buffer,
                     Layout::TRANSFER_DST,
                     Layout::SHADER_READ_ONLY,
                 );
             } else {
                 cmd.layout_barrier(
-                    &self.test_data.test_pixel_buffer,
+                    &test_pixel_buffer,
                     Layout::SHADER_READ_ONLY,
                     Layout::SHADER_READ_ONLY,
                 );
             }
 
             cmd.layout_barrier(
-                &self.test_data.test_pixel_buffer_2,
+                &target_frame,
                 Layout::UNDEFINED,
                 Layout::TRANSFER_DST,
             );
 
             cmd.clear_pixel_buffer(
-                &self.test_data.test_pixel_buffer_2,
-                &[0f32, 0f32, 1f32, 1f32],
+                &target_frame,
+                &[0f32, 0f32, 0f32, 0f32],
             );
 
             cmd.layout_barrier(
-                &self.test_data.test_pixel_buffer_2,
+                &target_frame,
                 Layout::TRANSFER_DST,
                 Layout::COLOR_ATTACHMENT,
             );
@@ -476,42 +488,42 @@ impl Core {
             let render_area = Rectangle {
                 x: 0.0,
                 y: 0.0,
-                w: self.test_data.test_pixel_buffer_2.width() as f32,
-                h: self.test_data.test_pixel_buffer_2.height() as f32,
+                w: target_frame.width() as f32,
+                h: target_frame.height() as f32,
             };
 
-            cmd.begin_rendering(&render_area, &[&self.test_data.test_pixel_buffer_2]);
-            cmd.bind_pipeline(&self.test_data.test_pipeline);
-            cmd.bind_vertex_buffer(&self.test_data.test_vertex_buffer);
-            cmd.bind_index_buffer(&self.test_data.test_index_buffer);
+            cmd.begin_rendering(&render_area, &[&target_frame]);
+            cmd.bind_pipeline(&test_pipeline);
+            cmd.bind_vertex_buffer(&test_vertex_buffer);
+            cmd.bind_index_buffer(&test_index_buffer);
             cmd.set_viewport(&render_area);
             cmd.set_scissor(&render_area);
 
             let push_constants = PerCommand {
                 scale: Vector2f::new(
-                    2f32 / self.test_data.test_pixel_buffer_2.width() as f32,
-                    2f32 / self.test_data.test_pixel_buffer_2.height() as f32,
+                    2f32 / target_frame.width() as f32,
+                    2f32 / target_frame.height() as f32,
                 ),
                 sdf_range: 1f32,
                 is_sdf: false,
             };
             cmd.push_constants(
-                &self.test_data.test_pipeline,
+                &test_pipeline,
                 Stage::VERTEX | Stage::FRAGMENT,
                 &push_constants,
             );
             cmd.push_pixel_descriptor(
-                &self.test_data.test_pipeline,
+                &test_pipeline,
                 0,
-                &self.test_data.test_pixel_buffer,
+                &test_pixel_buffer,
                 1,
-                &self.test_data.test_sampler,
+                &test_sampler,
             );
-            cmd.draw_indexed(self.test_data.test_index_data.len() as u32, 1, 0, 0, 0);
+            cmd.draw_indexed(index_count, 1, 0, 0, 0);
             cmd.end_rendering();
 
             cmd.layout_barrier(
-                &self.test_data.test_pixel_buffer_2,
+                &target_frame,
                 Layout::COLOR_ATTACHMENT,
                 Layout::TRANSFER_SRC,
             );
@@ -520,7 +532,7 @@ impl Core {
         self.queue.enqueue_present(|cmd, present_image| {
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
             cmd.blit_to_present(
-                &self.test_data.test_pixel_buffer_2,
+                &target_frame,
                 present_image,
                 Filter::Linear,
             );

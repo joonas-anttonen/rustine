@@ -1642,6 +1642,12 @@ impl VkCompositeAlphaFlagsKHR {
     pub const POST_MULTIPLIED_BIT_KHR: Self = Self(0x00000004);
     pub const INHERIT_BIT_KHR: Self = Self(0x00000008);
 }
+impl std::ops::BitAnd for VkCompositeAlphaFlagsKHR {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
 
 #[repr(C)]
 pub struct VkSurfaceCapabilitiesKHR {
@@ -1666,7 +1672,7 @@ pub struct VkSurfaceFormatKHR {
 
 #[repr(C)]
 pub struct VkSwapchainCreateInfoKHR {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub surface: VkSurfaceKHR,
@@ -1688,7 +1694,7 @@ pub struct VkSwapchainCreateInfoKHR {
 
 #[repr(C)]
 pub struct VkPresentInfoKHR {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub waitSemaphoreCount: u32,
     pub pWaitSemaphores: *const VkSemaphore,
@@ -1700,7 +1706,7 @@ pub struct VkPresentInfoKHR {
 
 #[repr(C)]
 pub struct VkPhysicalDeviceVulkan11Features {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub storageBuffer16BitAccess: u32,
     pub uniformAndStorageBuffer16BitAccess: u32,
@@ -1718,7 +1724,7 @@ pub struct VkPhysicalDeviceVulkan11Features {
 
 #[repr(C)]
 pub struct VkPhysicalDeviceVulkan12Features {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub samplerMirrorClampToEdge: u32,
     pub drawIndirectCount: u32,
@@ -2429,7 +2435,7 @@ impl VkImageLayout {
 
 #[repr(C)]
 pub struct VkImageCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub imageType: VkImageType,
@@ -2502,7 +2508,7 @@ pub enum VkImageViewType {
 
 #[repr(C)]
 pub struct VkImageViewCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub image: VkImage,

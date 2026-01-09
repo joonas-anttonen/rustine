@@ -28,6 +28,7 @@ use crate::version::Version;
 
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
 
+pub type Vector2u = nalgebra::Vector2<u32>;
 pub type Vector2f = nalgebra::Vector2<f32>;
 
 pub struct Image {

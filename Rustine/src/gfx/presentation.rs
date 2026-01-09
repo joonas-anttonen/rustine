@@ -42,6 +42,7 @@ pub struct PresentationImage {
 pub trait PresentationProvider {
     fn method(&self) -> Method;
     fn image_count(&self) -> u32;
+    fn image_size(&self) -> Vector2f;
     fn acquire(&mut self) -> AcquireStatus;
 }
 
@@ -67,6 +68,13 @@ impl SharedImageProvider {
 impl PresentationProvider for SharedImageProvider {
     fn method(&self) -> Method {
         Method::SharedImage
+    }
+
+    fn image_size(&self) -> Vector2f {
+        Vector2f::new(
+            self.output_frame.width() as f32,
+            self.output_frame.height() as f32,
+        )
     }
 
     fn image_count(&self) -> u32 {
@@ -136,6 +144,17 @@ impl PresentationProvider for SwapchainProvider {
         self.swapchain_images.len() as u32
     }
 
+    fn image_size(&self) -> Vector2f {
+        if self.swapchain_images.is_empty() {
+            Vector2f::new(0.0, 0.0)
+        } else {
+            Vector2f::new(
+                self.swapchain_images[0].width as f32,
+                self.swapchain_images[0].height as f32,
+            )
+        }
+    }
+
     fn acquire(&mut self) -> AcquireStatus {
         let previous_acquire_index = if self.current_acquire_index == 0 {
             (self.acquire_semaphores.len() - 1) as u32
@@ -191,7 +210,11 @@ impl SwapchainProvider {
         self.swapchain_handle
     }
 
-    pub fn new(device: &Arc<Device>, params: Parameters, old_swapchain: vk::VkSwapchainKHR) -> Self {
+    pub fn new(
+        device: &Arc<Device>,
+        params: Parameters,
+        old_swapchain: vk::VkSwapchainKHR,
+    ) -> Self {
         let physical_device = device.physical_device();
         let surface_handle = vk::VkSurfaceKHR(params.surface_handle);
 
@@ -255,8 +278,18 @@ impl SwapchainProvider {
             error!("Required image usage flags not supported by surface");
         }
 
+        // Choose alpha mode other than opaque if supported
+        let chosen_composite_alpha = if surface_capabilities.supportedCompositeAlpha
+            & vk::VkCompositeAlphaFlagsKHR::PRE_MULTIPLIED_BIT_KHR
+            == vk::VkCompositeAlphaFlagsKHR::PRE_MULTIPLIED_BIT_KHR
+        {
+            vk::VkCompositeAlphaFlagsKHR::PRE_MULTIPLIED_BIT_KHR
+        } else {
+            vk::VkCompositeAlphaFlagsKHR::OPAQUE_BIT_KHR
+        };
+
         let swapchain_create_info = vk::VkSwapchainCreateInfoKHR {
-            sType: vk::VkStructureType::SWAPCHAIN_CREATE_INFO_KHR as u32,
+            sType: vk::VkStructureType::SWAPCHAIN_CREATE_INFO_KHR,
             pNext: std::ptr::null(),
             flags: 0,
             surface: surface_handle,
@@ -270,7 +303,7 @@ impl SwapchainProvider {
             queueFamilyIndexCount: 0,
             pQueueFamilyIndices: std::ptr::null(),
             preTransform: vk::VkSurfaceTransformFlagsKHR::IDENTITY_BIT_KHR,
-            compositeAlpha: vk::VkCompositeAlphaFlagsKHR::OPAQUE_BIT_KHR,
+            compositeAlpha: chosen_composite_alpha,
             presentMode: chosen_present_mode,
             clipped: 1,
             oldSwapchain: old_swapchain,
@@ -298,7 +331,7 @@ impl SwapchainProvider {
             .map(|(index, img_handle)| {
                 // Create image view for each swapchain image
                 let image_view_create_info = vk::VkImageViewCreateInfo {
-                    sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
+                    sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO,
                     pNext: std::ptr::null(),
                     flags: 0,
                     image: img_handle,

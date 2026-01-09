@@ -138,7 +138,7 @@ impl Allocator {
         samples: Samples,
     ) -> Result<PixelBuffer> {
         let image_create_info = vk::VkImageCreateInfo {
-            sType: vk::VkStructureType::IMAGE_CREATE_INFO as u32,
+            sType: vk::VkStructureType::IMAGE_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
             imageType: vk::VkImageType::X2D,
@@ -159,7 +159,7 @@ impl Allocator {
             initialLayout: vk::VkImageLayout::UNDEFINED,
         };
         let mut image_view_create_info = vk::VkImageViewCreateInfo {
-            sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
+            sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
             image: vk::VkImage::default(), // NOTE: image not available yet, will be set in allocate_image
@@ -327,7 +327,7 @@ impl Allocator {
         handle: *const std::ffi::c_void,
     ) -> Result<PixelBuffer> {
         let mut image_create_info = vk::VkImageCreateInfo {
-            sType: vk::VkStructureType::IMAGE_CREATE_INFO as u32,
+            sType: vk::VkStructureType::IMAGE_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
             imageType: vk::VkImageType::X2D,
@@ -348,7 +348,7 @@ impl Allocator {
             initialLayout: vk::VkImageLayout::UNDEFINED,
         };
         let mut image_view_create_info = vk::VkImageViewCreateInfo {
-            sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO as u32,
+            sType: vk::VkStructureType::IMAGE_VIEW_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
             image: vk::VkImage::default(), // NOTE: image not available yet, will be set in allocate_image
