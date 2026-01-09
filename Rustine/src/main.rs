@@ -1,9 +1,10 @@
 use rustine::{debug, error, info};
-use rustine::{gfx, gui, log::*, version::Version};
+use rustine::{gfx, gui, io, log::*, version::Version};
 
 #[cfg(unix)]
 use libc;
-use std::io;
+use std::io as stdio;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic};
 use std::thread;
 
@@ -24,11 +25,11 @@ fn install_signal_handlers() {
         libc::sigemptyset(&mut sa.sa_mask);
 
         if libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut()) != 0 {
-            let os_error = io::Error::last_os_error();
+            let os_error = stdio::Error::last_os_error();
             eprintln!("Failed to install SIGINT handler: {os_error:?}",);
         }
         if libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut()) != 0 {
-            let os_error = io::Error::last_os_error();
+            let os_error = stdio::Error::last_os_error();
             eprintln!("Failed to install SIGTERM handler: {os_error:?}",);
         }
     }
@@ -68,6 +69,8 @@ fn main() {
             }
         };
 
+        let image_mailbox = gfx_core.image_mailbox();
+
         let dev = gfx_core.selected_physical_device();
         info!("{dev}");
 
@@ -84,6 +87,10 @@ fn main() {
         thread::scope(|s| {
             s.spawn(|| {
                 gfx_thread_function(Arc::clone(&gfx), &EXIT_FLAG);
+            });
+
+            s.spawn(|| {
+                image_loader_thread(image_mailbox, &EXIT_FLAG);
             });
 
             gui_thread_function(&gui, &EXIT_FLAG);
@@ -119,6 +126,80 @@ fn format_duration(seconds: f64) -> String {
     } else {
         format!("{:.0} ns", seconds * 1e9)
     }
+}
+
+fn image_loader_thread(mailbox: Arc<Mutex<std::collections::VecDeque<io::Image>>>, exit_flag: &atomic::AtomicBool) {
+    Log::global().set_current_thread_name("image-loader");
+
+    let pictures_root = std::env::var("HOME")
+        .map(|h| PathBuf::from(h).join("pictures"))
+        .unwrap_or_else(|_| PathBuf::from("/home/jant/pictures"));
+
+    let images = collect_webp_images(&pictures_root);
+    if images.is_empty() {
+        info!("Image loader: no .webp files under {:?}", pictures_root);
+        return;
+    }
+
+    const SLIDE_DELAY: std::time::Duration = std::time::Duration::from_millis(1500);
+
+    let mut index = 0usize;
+    while !exit_flag.load(atomic::Ordering::Relaxed) {
+        let path = &images[index % images.len()];
+        if let Some(image) = load_webp_image(path) {
+            if let Ok(mut pending) = mailbox.lock() {
+                pending.push_back(image);
+            }
+        }
+
+        index = index.wrapping_add(1);
+
+        let mut slept = std::time::Duration::ZERO;
+        while slept < SLIDE_DELAY && !exit_flag.load(atomic::Ordering::Relaxed) {
+            let step = std::time::Duration::from_millis(50);
+            std::thread::sleep(step);
+            slept += step;
+        }
+    }
+}
+
+fn collect_webp_images(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    fn recurse(acc: &mut Vec<PathBuf>, path: &Path) {
+        let entries = match std::fs::read_dir(path) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                recurse(acc, &p);
+            } else if let Some(ext) = p.extension() {
+                if ext.eq_ignore_ascii_case("webp") {
+                    acc.push(p);
+                }
+            }
+        }
+    }
+    recurse(&mut files, root);
+    files.sort();
+    files
+}
+
+fn load_webp_image(path: &Path) -> Option<io::Image> {
+    let data = std::fs::read(path).ok()?;
+    let mut decoder = rustine::io::webp::WebPDecoder::new(&data).ok()?;
+    let width = decoder.width();
+    let height = decoder.height();
+    let mut frame = vec![0u8; (width * height * 4) as usize];
+    decoder.next_frame(&mut frame).ok()?;
+
+    Some(io::Image {
+        width,
+        height,
+        format: gfx::Format::R8G8B8A8_UNORM,
+        data: frame,
+    })
 }
 
 fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, exit_flag: &atomic::AtomicBool) {

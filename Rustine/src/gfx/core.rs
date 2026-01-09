@@ -2,18 +2,26 @@ use crate::{RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 struct TestData {
     test_pixel_buffer: Arc<PixelBuffer>,
+    test_pixel_format: Format,
     target_frame: Option<Arc<PixelBuffer>>,
     test_vertex_buffer: Arc<MemoryBuffer>,
     test_index_buffer: Arc<MemoryBuffer>,
-    test_image_transfer_buffer: Option<Arc<MemoryBuffer>>,
+    upload_pool: Vec<UploadBuffer>,
+    upload_cursor: usize,
+    pending_upload: Option<PendingUpload>,
     test_sampler: Arc<Sampler>,
     test_pipeline: Arc<Pipeline>,
     test_vertex_data: Vec<GpuVertex>,
     test_index_data: Vec<u32>,
+}
+
+struct UploadBuffer {
+    buffer: Arc<MemoryBuffer>,
+    capacity: usize,
 }
 
 #[repr(C)]
@@ -30,6 +38,13 @@ struct PerCommand {
     sdf_range: f32,
 }
 
+struct PendingUpload {
+    buffer: Arc<MemoryBuffer>,
+    width: u32,
+    height: u32,
+    format: Format,
+}
+
 /// The core graphics subsystem, managing Vulkan initialization and device selection.
 ///
 /// `Core` encapsulates a Vulkan instance and a selected physical device.
@@ -37,7 +52,7 @@ struct PerCommand {
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
     test_data: TestData,
-    pending_images: VecDeque<io::Image>,
+    pending_images: Arc<Mutex<VecDeque<io::Image>>>,
     next_image_id: u32,
     pixel_buffers: HashMap<u32, Option<PixelBuffer>>,
     queue: Queue,
@@ -77,14 +92,22 @@ impl Core {
             .next_frame(&mut webp_frame_data)
             .expect("Failed to decode WebP frame");
 
-        let test_image_transfer_buffer = allocator
-            .create_memory_buffer(
-                webp_frame_data.len(),
-                buffer::MemoryUsage::TRANSFER_SRC,
-                buffer::MemoryAccess::WRITE,
-            )
-            .unwrap();
-        test_image_transfer_buffer.write(&webp_frame_data);
+        const UPLOAD_POOL_SIZE: usize = 3;
+        let mut upload_pool = Vec::with_capacity(UPLOAD_POOL_SIZE);
+        for _ in 0..UPLOAD_POOL_SIZE {
+            let buffer = allocator
+                .create_memory_buffer(
+                    webp_frame_data.len(),
+                    buffer::MemoryUsage::TRANSFER_SRC,
+                    buffer::MemoryAccess::WRITE,
+                )
+                .unwrap();
+            upload_pool.push(UploadBuffer {
+                capacity: webp_frame_data.len(),
+                buffer: Arc::new(buffer),
+            });
+        }
+        upload_pool[0].buffer.write(&webp_frame_data);
 
         let test_pixel_buffer = allocator
             .create_pixel_buffer(
@@ -208,14 +231,24 @@ impl Core {
             )
             .unwrap();
 
+        let pending_upload = Some(PendingUpload {
+            buffer: Arc::clone(&upload_pool[0].buffer),
+            width: webp_width,
+            height: webp_height,
+            format: Format::R8G8B8A8_UNORM,
+        });
+
         let test_data = TestData {
             test_pixel_buffer: Arc::new(test_pixel_buffer),
+            test_pixel_format: Format::R8G8B8A8_UNORM,
             target_frame: None,
             test_sampler: Arc::new(test_sampler),
             test_pipeline: Arc::new(test_pipeline),
             test_vertex_buffer: Arc::new(test_vertex_buffer),
             test_index_buffer: Arc::new(test_index_buffer),
-            test_image_transfer_buffer: Some(Arc::new(test_image_transfer_buffer)),
+            upload_pool,
+            upload_cursor: 1,
+            pending_upload,
             test_vertex_data: Vec::with_capacity(4096),
             test_index_data: Vec::with_capacity(4096),
         };
@@ -230,7 +263,7 @@ impl Core {
             frame_n: 0,
             queue: command_queue,
             pixel_buffers: HashMap::new(),
-            pending_images: VecDeque::new(),
+            pending_images: Arc::new(Mutex::new(VecDeque::new())),
             next_image_id: 0,
             frame_cpu_times: RingBuffer::new(120),
         }
@@ -281,6 +314,103 @@ impl Core {
         self.queue.drop_presenter();
     }
 
+    pub fn image_mailbox(&self) -> Arc<Mutex<VecDeque<io::Image>>> {
+        Arc::clone(&self.pending_images)
+    }
+
+    pub fn submit_image(&self, io_image: io::Image) {
+        if let Ok(mut pending) = self.pending_images.lock() {
+            pending.push_back(io_image);
+        }
+    }
+
+    fn acquire_upload_buffer(&mut self, required_size: usize) -> Arc<MemoryBuffer> {
+        if self.test_data.upload_pool.is_empty() {
+            let buffer = self
+                .allocator
+                .create_memory_buffer(
+                    required_size,
+                    buffer::MemoryUsage::TRANSFER_SRC,
+                    buffer::MemoryAccess::WRITE,
+                )
+                .unwrap();
+            self.test_data.upload_pool.push(UploadBuffer {
+                buffer: Arc::new(buffer),
+                capacity: required_size,
+            });
+            self.test_data.upload_cursor = 0;
+        }
+
+        let index = self.test_data.upload_cursor % self.test_data.upload_pool.len();
+        if self.test_data.upload_pool[index].capacity < required_size {
+            let buffer = self
+                .allocator
+                .create_memory_buffer(
+                    required_size,
+                    buffer::MemoryUsage::TRANSFER_SRC,
+                    buffer::MemoryAccess::WRITE,
+                )
+                .unwrap();
+            self.test_data.upload_pool[index] = UploadBuffer {
+                buffer: Arc::new(buffer),
+                capacity: required_size,
+            };
+        }
+
+        let upload_buffer = Arc::clone(&self.test_data.upload_pool[index].buffer);
+        self.test_data.upload_cursor = (self.test_data.upload_cursor + 1) % self.test_data.upload_pool.len();
+        upload_buffer
+    }
+
+    fn ensure_test_pixel_buffer(&mut self, width: u32, height: u32, format: Format) {
+        let needs_recreate =
+            self.test_data.test_pixel_buffer.width() != width
+                || self.test_data.test_pixel_buffer.height() != height
+                || self.test_data.test_pixel_format != format;
+
+        if needs_recreate {
+            let pixel_buffer = self
+                .allocator
+                .create_pixel_buffer(
+                    format,
+                    width,
+                    height,
+                    ImageUsage::SAMPLED
+                        | ImageUsage::COLOR_ATTACHMENT
+                        | ImageUsage::TRANSFER_DST
+                        | ImageUsage::TRANSFER_SRC,
+                    ImageAspect::COLOR,
+                    Samples::X1,
+                )
+                .unwrap();
+            self.test_data.test_pixel_buffer = Arc::new(pixel_buffer);
+            self.test_data.test_pixel_format = format;
+        }
+    }
+
+    fn stage_incoming_images(&mut self) {
+        let next_image = {
+            let mut pending = self.pending_images.lock().unwrap();
+            let image = pending.pop_back();
+            pending.clear();
+            image
+        };
+
+        if let Some(io_image) = next_image {
+            let upload_buffer = self.acquire_upload_buffer(io_image.data.len());
+            upload_buffer.write(&io_image.data);
+
+            self.ensure_test_pixel_buffer(io_image.width, io_image.height, io_image.format);
+
+            self.test_data.pending_upload = Some(PendingUpload {
+                buffer: upload_buffer,
+                width: io_image.width,
+                height: io_image.height,
+                format: io_image.format,
+            });
+        }
+    }
+
     pub fn create_image(&mut self, io_image: io::Image) -> Image {
         let image = Image {
             width: io_image.width,
@@ -288,7 +418,9 @@ impl Core {
             id: self.next_image_id,
         };
         self.next_image_id += 1;
-        self.pending_images.push_back(io_image);
+        if let Ok(mut pending) = self.pending_images.lock() {
+            pending.push_back(io_image);
+        }
         self.pixel_buffers.insert(image.id, None);
         image
     }
@@ -325,7 +457,7 @@ impl Core {
         let mut uv1 = Vector2f::new(1.0, 1.0);
 
         let final_image_position;
-        let final_image_extent;
+        let mut final_image_extent;
 
         match fit {
             Fit::NONE => {
@@ -342,6 +474,26 @@ impl Core {
                 final_image_extent = rect.extent();
             }
             Fit::FILL_KEEP_ASPECT_RATIO => {
+                let horizontal = image_extent.x > image_extent.y;
+                let scale = if horizontal {
+                    rect.h / image_extent.y
+                } else {
+                    rect.w / image_extent.x
+                };
+                final_image_extent = image_extent * scale;
+                
+                // Calculate UV coordinates to crop the oversized dimension
+                let overflow = Vector2f::new(
+                    (final_image_extent.x - rect.extent().x) / final_image_extent.x,
+                    (final_image_extent.y - rect.extent().y) / final_image_extent.y,
+                );
+                uv0 = overflow * 0.5;
+                uv1 = Vector2f::new(1.0, 1.0) - overflow * 0.5;
+                
+                final_image_extent = rect.extent();
+                final_image_position = rect.position();
+            }
+            Fit::FIT_KEEP_ASPECT_RATIO => {
                 let horizontal = image_extent.x > image_extent.y;
                 let scale = if horizontal {
                     rect.w / image_extent.x
@@ -419,6 +571,8 @@ impl Core {
             None => return,
         };
 
+        self.stage_incoming_images();
+
         self.push_image(
             Image {
                 width: self.test_data.test_pixel_buffer.width(),
@@ -431,7 +585,7 @@ impl Core {
                 w: target_frame.width() as f32,
                 h: target_frame.height() as f32,
             },
-            Fit::FILL_KEEP_ASPECT_RATIO,
+            Fit::FIT_KEEP_ASPECT_RATIO,
             0xFFFFFFFFu32,
         );
 
@@ -443,7 +597,7 @@ impl Core {
             .write(&self.test_data.test_index_data);
 
         let test_pixel_buffer = Arc::clone(&self.test_data.test_pixel_buffer);
-        let test_image_transfer_buffer = self.test_data.test_image_transfer_buffer.take();
+        let pending_upload = self.test_data.pending_upload.take();
         let test_pipeline = Arc::clone(&self.test_data.test_pipeline);
         let test_vertex_buffer = Arc::clone(&self.test_data.test_vertex_buffer);
         let test_index_buffer = Arc::clone(&self.test_data.test_index_buffer);
@@ -451,9 +605,9 @@ impl Core {
         let index_count = self.test_data.test_index_data.len() as u32;
 
         self.queue.enqueue(|cmd| {
-            if let Some(test_image_transfer_buffer) = &test_image_transfer_buffer {
+            if let Some(upload) = &pending_upload {
                 cmd.layout_barrier(&test_pixel_buffer, Layout::UNDEFINED, Layout::TRANSFER_DST);
-                cmd.copy_buffer_to_image(test_image_transfer_buffer, &test_pixel_buffer);
+                cmd.copy_buffer_to_image(&upload.buffer, &test_pixel_buffer);
 
                 cmd.layout_barrier(
                     &test_pixel_buffer,

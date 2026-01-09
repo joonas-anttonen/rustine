@@ -42,7 +42,12 @@ pub struct Image {
 pub enum Fit {
     NONE,
     FILL,
+    /// Fits the content such that it fills the container, preserving aspect ratio.
+    ///
+    /// Will crop the content if necessary.
     FILL_KEEP_ASPECT_RATIO,
+    /// Fits the content such that it is fully visible within the container, preserving aspect ratio.
+    FIT_KEEP_ASPECT_RATIO,
     CENTER,
 }
 
