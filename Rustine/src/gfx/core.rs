@@ -1,4 +1,4 @@
-use crate::{gfx::presentation::PresentationProvider, gfx::queue::Queue, gfx::*, io, warning};
+use crate::{gfx::queue::Queue, gfx::*, io, warning};
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -40,7 +40,7 @@ pub struct Core {
     pending_images: VecDeque<io::Image>,
     next_image_id: u32,
     pixel_buffers: HashMap<u32, Option<PixelBuffer>>,
-    queue: Option<Queue>,
+    queue: Queue,
     allocator: Arc<allocator::Allocator>,
     device: Arc<Device>,
     instance: Instance,
@@ -233,13 +233,15 @@ impl Core {
             test_index_data: Vec::with_capacity(4096),
         };
 
+        let command_queue = Queue::new(&device, 4);
+
         Core {
             instance,
             device: device,
             allocator,
             test_data,
             frame_n: 0,
-            queue: None,
+            queue: command_queue,
             pixel_buffers: HashMap::new(),
             pending_images: VecDeque::new(),
             next_image_id: 0,
@@ -283,8 +285,8 @@ impl Core {
         self.frame_n
     }
 
-    pub fn drop_queue(&mut self) {
-        self.queue = None;
+    pub fn drop_presentation(&mut self) {
+        self.queue.drop_presenter();
     }
 
     pub fn create_image(&mut self, io_image: io::Image) -> Image {
@@ -299,26 +301,12 @@ impl Core {
         image
     }
 
-    pub fn initialize_swapchain_queue(
-        &mut self,
-        presentation_provider: impl PresentationProvider + 'static,
-    ) {
-        self.queue = Some(Queue::new(&self.device, presentation_provider));
-    }
-
-    pub fn initialize_shared_image_queue(
-        &mut self,
-        presentation_provider: impl PresentationProvider + 'static,
-    ) {
-        self.queue = Some(Queue::new(&self.device, presentation_provider));
+    pub fn initialize_swapchain(&mut self, parameters: presentation::Parameters) {
+        self.queue.swap_presenter(parameters);
     }
 
     pub fn create_pipeline(&self, parameters: pipeline::Parameters) -> Pipeline {
         Pipeline::new(self.device.clone(), &parameters).unwrap()
-    }
-
-    pub fn initialize_queue(&mut self, presentation_provider: impl PresentationProvider + 'static) {
-        self.queue = Some(Queue::new(&self.device, presentation_provider));
     }
 
     fn push_image(&mut self, image: Image, rect: Rectangle, fit: Fit, color: u32) {
@@ -441,119 +429,116 @@ impl Core {
             .test_index_buffer
             .write(&self.test_data.test_index_data);
 
-        if let Some(queue) = &mut self.queue {
-            queue.enqueue(|cmd| {
-                if let Some(test_image_transfer_buffer) = &self.test_data.test_image_transfer_buffer
-                {
-                    cmd.layout_barrier(
-                        &self.test_data.test_pixel_buffer,
-                        Layout::UNDEFINED,
-                        Layout::TRANSFER_DST,
-                    );
-                    cmd.copy_buffer_to_image(
-                        test_image_transfer_buffer,
-                        &self.test_data.test_pixel_buffer,
-                    );
-
-                    self.test_data.test_image_transfer_buffer = None;
-
-                    cmd.layout_barrier(
-                        &self.test_data.test_pixel_buffer,
-                        Layout::TRANSFER_DST,
-                        Layout::SHADER_READ_ONLY,
-                    );
-                } else {
-                    cmd.layout_barrier(
-                        &self.test_data.test_pixel_buffer,
-                        Layout::SHADER_READ_ONLY,
-                        Layout::SHADER_READ_ONLY,
-                    );
-                }
-
+        self.queue.enqueue(|cmd| {
+            if let Some(test_image_transfer_buffer) = &self.test_data.test_image_transfer_buffer {
                 cmd.layout_barrier(
-                    &self.test_data.test_pixel_buffer_2,
+                    &self.test_data.test_pixel_buffer,
                     Layout::UNDEFINED,
                     Layout::TRANSFER_DST,
                 );
-
-                cmd.clear_pixel_buffer(
-                    &self.test_data.test_pixel_buffer_2,
-                    &[0f32, 0f32, 1f32, 1f32],
-                );
-
-                cmd.layout_barrier(
-                    &self.test_data.test_pixel_buffer_2,
-                    Layout::TRANSFER_DST,
-                    Layout::COLOR_ATTACHMENT,
-                );
-
-                let render_area = Rectangle {
-                    x: 0.0,
-                    y: 0.0,
-                    w: self.test_data.test_pixel_buffer_2.width() as f32,
-                    h: self.test_data.test_pixel_buffer_2.height() as f32,
-                };
-
-                cmd.begin_rendering(&render_area, &[&self.test_data.test_pixel_buffer_2]);
-                cmd.bind_pipeline(&self.test_data.test_pipeline);
-                cmd.bind_vertex_buffer(&self.test_data.test_vertex_buffer);
-                cmd.bind_index_buffer(&self.test_data.test_index_buffer);
-                cmd.set_viewport(&render_area);
-                cmd.set_scissor(&render_area);
-
-                let push_constants = PerCommand {
-                    scale: Vector2f::new(
-                        2f32 / self.test_data.test_pixel_buffer_2.width() as f32,
-                        2f32 / self.test_data.test_pixel_buffer_2.height() as f32,
-                    ),
-                    sdf_range: 1f32,
-                    is_sdf: false,
-                };
-                cmd.push_constants(
-                    &self.test_data.test_pipeline,
-                    Stage::VERTEX | Stage::FRAGMENT,
-                    &push_constants,
-                );
-                cmd.push_pixel_descriptor(
-                    &self.test_data.test_pipeline,
-                    0,
+                cmd.copy_buffer_to_image(
+                    test_image_transfer_buffer,
                     &self.test_data.test_pixel_buffer,
-                    1,
-                    &self.test_data.test_sampler,
                 );
-                cmd.draw_indexed(self.test_data.test_index_data.len() as u32, 1, 0, 0, 0);
-                cmd.end_rendering();
+
+                self.test_data.test_image_transfer_buffer = None;
 
                 cmd.layout_barrier(
-                    &self.test_data.test_pixel_buffer_2,
-                    Layout::COLOR_ATTACHMENT,
-                    Layout::TRANSFER_SRC,
+                    &self.test_data.test_pixel_buffer,
+                    Layout::TRANSFER_DST,
+                    Layout::SHADER_READ_ONLY,
                 );
-            });
+            } else {
+                cmd.layout_barrier(
+                    &self.test_data.test_pixel_buffer,
+                    Layout::SHADER_READ_ONLY,
+                    Layout::SHADER_READ_ONLY,
+                );
+            }
 
-            queue.enqueue_present(|cmd, present_image| {
-                cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
-                cmd.blit_to_present(
-                    &self.test_data.test_pixel_buffer_2,
-                    present_image,
-                    Filter::Linear,
-                );
-                cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
+            cmd.layout_barrier(
+                &self.test_data.test_pixel_buffer_2,
+                Layout::UNDEFINED,
+                Layout::TRANSFER_DST,
+            );
 
-                /*cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::GENERAL);
-                
-                cmd.clear_present_image(
-                    present_image,
-                    [
-                        ((t * 1.0).sin() * 0.25 + 0.5) as f32,
-                        ((t * 5.0).sin() * 0.25 + 0.5) as f32,
-                        ((t * 10.0).sin() * 0.25 + 0.5) as f32,
-                        1.0,
-                    ],
-                );
-                cmd.present_image_barrier(present_image, Layout::GENERAL, Layout::PRESENT_SRC_KHR);*/
-            });
-        }
+            cmd.clear_pixel_buffer(
+                &self.test_data.test_pixel_buffer_2,
+                &[0f32, 0f32, 1f32, 1f32],
+            );
+
+            cmd.layout_barrier(
+                &self.test_data.test_pixel_buffer_2,
+                Layout::TRANSFER_DST,
+                Layout::COLOR_ATTACHMENT,
+            );
+
+            let render_area = Rectangle {
+                x: 0.0,
+                y: 0.0,
+                w: self.test_data.test_pixel_buffer_2.width() as f32,
+                h: self.test_data.test_pixel_buffer_2.height() as f32,
+            };
+
+            cmd.begin_rendering(&render_area, &[&self.test_data.test_pixel_buffer_2]);
+            cmd.bind_pipeline(&self.test_data.test_pipeline);
+            cmd.bind_vertex_buffer(&self.test_data.test_vertex_buffer);
+            cmd.bind_index_buffer(&self.test_data.test_index_buffer);
+            cmd.set_viewport(&render_area);
+            cmd.set_scissor(&render_area);
+
+            let push_constants = PerCommand {
+                scale: Vector2f::new(
+                    2f32 / self.test_data.test_pixel_buffer_2.width() as f32,
+                    2f32 / self.test_data.test_pixel_buffer_2.height() as f32,
+                ),
+                sdf_range: 1f32,
+                is_sdf: false,
+            };
+            cmd.push_constants(
+                &self.test_data.test_pipeline,
+                Stage::VERTEX | Stage::FRAGMENT,
+                &push_constants,
+            );
+            cmd.push_pixel_descriptor(
+                &self.test_data.test_pipeline,
+                0,
+                &self.test_data.test_pixel_buffer,
+                1,
+                &self.test_data.test_sampler,
+            );
+            cmd.draw_indexed(self.test_data.test_index_data.len() as u32, 1, 0, 0, 0);
+            cmd.end_rendering();
+
+            cmd.layout_barrier(
+                &self.test_data.test_pixel_buffer_2,
+                Layout::COLOR_ATTACHMENT,
+                Layout::TRANSFER_SRC,
+            );
+        });
+
+        self.queue.enqueue_present(|cmd, present_image| {
+            cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
+            cmd.blit_to_present(
+                &self.test_data.test_pixel_buffer_2,
+                present_image,
+                Filter::Linear,
+            );
+            cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
+
+            /*cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::GENERAL);
+
+            cmd.clear_present_image(
+                present_image,
+                [
+                    ((t * 1.0).sin() * 0.25 + 0.5) as f32,
+                    ((t * 5.0).sin() * 0.25 + 0.5) as f32,
+                    ((t * 10.0).sin() * 0.25 + 0.5) as f32,
+                    1.0,
+                ],
+            );
+            cmd.present_image_barrier(present_image, Layout::GENERAL, Layout::PRESENT_SRC_KHR);*/
+        });
     }
 }
 

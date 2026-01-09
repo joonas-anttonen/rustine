@@ -26,7 +26,7 @@ impl Drop for Gui {
         warning!("Gui::drop");
 
         let mut gfx = self.gfx.lock().unwrap();
-        gfx.drop_queue();
+        gfx.drop_presentation();
 
         unsafe {
             if !self.gfx_surface.is_null() {
@@ -179,8 +179,6 @@ impl Gui {
                 let gui = &mut *gui_ptr;
                 let mut gfx = gui.gfx.lock().unwrap();
 
-                gfx.drop_queue();
-
                 // When minimized, width and height can be zero
                 // but we can't create a swapchain with zero dimensions
                 if width == 0 || height == 0 {
@@ -193,9 +191,8 @@ impl Gui {
                     surface_handle: gui.gfx_surface.to_ptr(),
                     vertical_sync: 0,
                 };
-                let presentation_provider =
-                    presentation::SwapchainProvider::new(gfx.device(), presentation_parameters);
-                gfx.initialize_swapchain_queue(presentation_provider);
+
+                gfx.initialize_swapchain(presentation_parameters);
             }
         }
     }

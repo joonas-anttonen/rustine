@@ -10,7 +10,7 @@ use std::{sync::Arc, sync::Mutex, sync::atomic};
 
 /// Internal library state
 struct State {
-    gfx: Arc<Mutex<gfx::Core>>,
+    _gfx: Arc<Mutex<gfx::Core>>,
     gfx_thread: std::thread::JoinHandle<()>,
     gfx_shutdown_signal: Arc<atomic::AtomicBool>,
 }
@@ -28,7 +28,7 @@ impl State {
         });
 
         State {
-            gfx,
+            _gfx: gfx,
             gfx_thread,
             gfx_shutdown_signal,
         }
@@ -152,23 +152,9 @@ pub extern "C" fn rustine_shutdown() -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rustine_gfx_initialize_presentation(
-    params: *const gfx::presentation::Parameters,
+    _params: *const gfx::presentation::Parameters,
 ) -> i32 {
-    let state = STATE.lock().unwrap();
-    if state.is_none() {
-        return Status::InvalidOperation(-1).to_code();
-    }
-
-    let in_params = unsafe { (*params).clone() };
-
-    let gfx_in_state = &state.as_ref().unwrap().gfx;
-    let mut gfx = gfx_in_state.lock().unwrap();
-
-    let shared_image_provider =
-        gfx::presentation::SharedImageProvider::new(gfx.allocator(), in_params);
-    gfx.initialize_shared_image_queue(shared_image_provider);
-
-    Status::Success.to_code()
+    unimplemented!()
 }
 
 mod ffi {

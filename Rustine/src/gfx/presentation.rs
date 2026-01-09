@@ -100,6 +100,8 @@ pub struct SwapchainProvider {
 impl Drop for SwapchainProvider {
     fn drop(&mut self) {
         unsafe {
+            warning!("SwapchainProvider::drop");
+
             vk::vkDestroyFence(self.device.handle(), self.acquire_fence, std::ptr::null());
             for semaphore in &self.acquire_semaphores {
                 vk::vkDestroySemaphore(self.device.handle(), *semaphore, std::ptr::null());
@@ -185,7 +187,11 @@ impl PresentationProvider for SwapchainProvider {
 }
 
 impl SwapchainProvider {
-    pub fn new(device: &Arc<Device>, params: Parameters) -> Self {
+    pub fn handle(&self) -> vk::VkSwapchainKHR {
+        self.swapchain_handle
+    }
+
+    pub fn new(device: &Arc<Device>, params: Parameters, old_swapchain: vk::VkSwapchainKHR) -> Self {
         let physical_device = device.physical_device();
         let surface_handle = vk::VkSurfaceKHR(params.surface_handle);
 
@@ -267,7 +273,7 @@ impl SwapchainProvider {
             compositeAlpha: vk::VkCompositeAlphaFlagsKHR::OPAQUE_BIT_KHR,
             presentMode: chosen_present_mode,
             clipped: 1,
-            oldSwapchain: vk::VkSwapchainKHR::default(),
+            oldSwapchain: old_swapchain,
         };
 
         let mut swapchain_handle: vk::VkSwapchainKHR = vk::VkSwapchainKHR::default();

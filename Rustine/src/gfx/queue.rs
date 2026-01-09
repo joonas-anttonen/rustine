@@ -25,7 +25,9 @@ pub struct Queue {
     available_commands: VecDeque<CommandBuffer>,
     queued_commands: VecDeque<CommandBuffer>,
 
-    presentation_provider: Box<dyn PresentationProvider>,
+    presentation_provider: Option<presentation::SwapchainProvider>,
+
+    device: Arc<Device>,
 }
 
 impl Drop for Queue {
@@ -37,10 +39,27 @@ impl Drop for Queue {
 }
 
 impl Queue {
-    pub fn new(
-        device: &Arc<Device>,
-        presentation_provider: impl PresentationProvider + 'static,
-    ) -> Self {
+    pub fn drop_presenter(&mut self) {
+        self.drain();
+        self.presentation_provider = None;
+    }
+
+    pub fn swap_presenter(&mut self, parameters: presentation::Parameters) {
+        let old_presenter = self.presentation_provider.take();
+        let old_swapchain = if old_presenter.is_some() {
+            old_presenter.as_ref().unwrap().handle()
+        } else {
+            vk::VkSwapchainKHR::default()
+        };
+
+        let presentation_provider =
+            presentation::SwapchainProvider::new(&self.device, parameters, old_swapchain);
+        self.presentation_provider = Some(presentation_provider);
+
+        self.drain();
+    }
+
+    pub fn new(device: &Arc<Device>, concurrent_commands: u32) -> Self {
         let family_index = device.general_queue_family_index();
         let queue_handle = device.general_queue();
 
@@ -48,8 +67,7 @@ impl Queue {
 
         let mut available_commands = VecDeque::new();
 
-        let command_buffer_count = u32::max(1, presentation_provider.image_count() - 1);
-        for _ in 0..command_buffer_count {
+        for _ in 0..concurrent_commands {
             available_commands.push_back(command_pool.allocate_command_buffer().unwrap());
         }
 
@@ -58,7 +76,8 @@ impl Queue {
             command_pool,
             available_commands,
             queued_commands: VecDeque::new(),
-            presentation_provider: Box::new(presentation_provider),
+            presentation_provider: None,
+            device: Arc::clone(device),
         }
     }
 
@@ -72,6 +91,7 @@ impl Queue {
     }
 
     pub fn drain(&mut self) {
+        warning!("Queue::drain");
         self.wait_for_idle();
 
         while let Some(mut cmd) = self.queued_commands.pop_front() {
@@ -156,7 +176,14 @@ impl Queue {
             return;
         }
 
-        let output_frame = match self.presentation_provider.acquire() {
+        if self.presentation_provider.is_none() {
+            warning!("Queue::enqueue_present: No presentation provider");
+            return;
+        }
+
+        let presentation_provider = &mut self.presentation_provider.as_mut().unwrap();
+
+        let output_frame = match presentation_provider.acquire() {
             AcquireStatus::Success(frame) => frame,
             AcquireStatus::Timeout => {
                 warning!("Queue::enqueue_present: Acquire Timeout");
@@ -182,7 +209,7 @@ impl Queue {
         command_recorder(&mut command_buffer, &output_frame);
         command_buffer.end();
 
-        let submit_status = match self.presentation_provider.method() {
+        let submit_status = match presentation_provider.method() {
             Method::Headless => {
                 warning!(
                     "Queue::enqueue_present: Headless presentation method does not support presenting"
