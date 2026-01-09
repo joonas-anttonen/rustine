@@ -1,4 +1,4 @@
-use crate::{gfx::queue::Queue, gfx::*, io, warning};
+use crate::{RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -45,6 +45,7 @@ pub struct Core {
     device: Arc<Device>,
     instance: Instance,
     frame_n: u64,
+    frame_cpu_times: RingBuffer<f64>,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -231,6 +232,7 @@ impl Core {
             pixel_buffers: HashMap::new(),
             pending_images: VecDeque::new(),
             next_image_id: 0,
+            frame_cpu_times: RingBuffer::new(120),
         }
     }
 
@@ -269,6 +271,10 @@ impl Core {
     pub fn next_frame(&mut self) -> u64 {
         self.frame_n += 1;
         self.frame_n
+    }
+
+    pub fn frame_cpu_times(&self) -> &RingBuffer<f64> {
+        &self.frame_cpu_times
     }
 
     pub fn drop_presentation(&mut self) {
@@ -330,10 +336,6 @@ impl Core {
                 uv0.y = rect.y / image_extent.y;
                 uv1.x = (rect.x + rect.w) / image_extent.x;
                 uv1.y = (rect.y + rect.h) / image_extent.y;
-            }
-            Fit::STRETCH => {
-                final_image_position = rect.position();
-                final_image_extent = rect.extent();
             }
             Fit::FILL => {
                 final_image_position = rect.position();
@@ -406,6 +408,8 @@ impl Core {
     }
 
     pub fn render(&mut self, _t: f64, _dt: f32) {
+        let frame_start = std::time::Instant::now();
+
         self.next_frame();
         self.test_data.test_vertex_data.clear();
         self.test_data.test_index_data.clear();
@@ -448,11 +452,7 @@ impl Core {
 
         self.queue.enqueue(|cmd| {
             if let Some(test_image_transfer_buffer) = &test_image_transfer_buffer {
-                cmd.layout_barrier(
-                    &test_pixel_buffer,
-                    Layout::UNDEFINED,
-                    Layout::TRANSFER_DST,
-                );
+                cmd.layout_barrier(&test_pixel_buffer, Layout::UNDEFINED, Layout::TRANSFER_DST);
                 cmd.copy_buffer_to_image(test_image_transfer_buffer, &test_pixel_buffer);
 
                 cmd.layout_barrier(
@@ -468,16 +468,9 @@ impl Core {
                 );
             }
 
-            cmd.layout_barrier(
-                &target_frame,
-                Layout::UNDEFINED,
-                Layout::TRANSFER_DST,
-            );
+            cmd.layout_barrier(&target_frame, Layout::UNDEFINED, Layout::TRANSFER_DST);
 
-            cmd.clear_pixel_buffer(
-                &target_frame,
-                &[0f32, 0f32, 0f32, 0f32],
-            );
+            cmd.clear_pixel_buffer(&target_frame, &[0f32, 0f32, 0f32, 0f32]);
 
             cmd.layout_barrier(
                 &target_frame,
@@ -512,13 +505,7 @@ impl Core {
                 Stage::VERTEX | Stage::FRAGMENT,
                 &push_constants,
             );
-            cmd.push_pixel_descriptor(
-                &test_pipeline,
-                0,
-                &test_pixel_buffer,
-                1,
-                &test_sampler,
-            );
+            cmd.push_pixel_descriptor(&test_pipeline, 0, &test_pixel_buffer, 1, &test_sampler);
             cmd.draw_indexed(index_count, 1, 0, 0, 0);
             cmd.end_rendering();
 
@@ -531,26 +518,13 @@ impl Core {
 
         self.queue.enqueue_present(|cmd, present_image| {
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
-            cmd.blit_to_present(
-                &target_frame,
-                present_image,
-                Filter::Linear,
-            );
+            cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
             cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
-
-            /*cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::GENERAL);
-
-            cmd.clear_present_image(
-                present_image,
-                [
-                    ((t * 1.0).sin() * 0.25 + 0.5) as f32,
-                    ((t * 5.0).sin() * 0.25 + 0.5) as f32,
-                    ((t * 10.0).sin() * 0.25 + 0.5) as f32,
-                    1.0,
-                ],
-            );
-            cmd.present_image_barrier(present_image, Layout::GENERAL, Layout::PRESENT_SRC_KHR);*/
         });
+
+        let frame_end = std::time::Instant::now();
+        let frame_duration = frame_end.duration_since(frame_start).as_secs_f64();
+        self.frame_cpu_times.push(frame_duration);
     }
 }
 
@@ -743,7 +717,6 @@ float4 fragment(fragment_input input) : SV_TARGET
 { 
 	float4 geometryColor = input.Color;
 	float4 textureColor = commandTexture.Sample(commandSampler, input.UV);
-    return textureColor;
     float alpha = textureColor.a;
 
 	//if (command.isSdf)

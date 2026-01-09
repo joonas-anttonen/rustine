@@ -170,6 +170,12 @@ impl Gui {
         }
     }
 
+    pub fn wait_events_timeout(&self, timeout_ms: u32) {
+        unsafe {
+            ffi::panic_if_error(ffi::rwlWaitEventsTimeout(timeout_ms as u64 * 1000u64 * 1000u64 ));
+        }
+    }
+
     unsafe extern "C" fn rwl_pixel_size_callback(window: ffi::RwlWindow, width: u32, height: u32) {
         unsafe {
             let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;

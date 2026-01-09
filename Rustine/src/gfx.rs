@@ -41,7 +41,6 @@ pub struct Image {
 #[allow(non_camel_case_types)]
 pub enum Fit {
     NONE,
-    STRETCH,
     FILL,
     FILL_KEEP_ASPECT_RATIO,
     CENTER,

@@ -1,4 +1,4 @@
-use rustine::{error, info};
+use rustine::{debug, error, info};
 use rustine::{gfx, gui, log::*, version::Version};
 
 #[cfg(unix)]
@@ -99,10 +99,26 @@ fn gui_thread_function(gui: &gui::Gui, exit_flag: &atomic::AtomicBool) {
     info!("GUI START");
 
     while !exit_flag.load(atomic::Ordering::Relaxed) && !gui.should_close() {
-        gui.process_events();
+        gui.wait_events_timeout(16);
     }
 
     info!("GUI STOP");
+}
+
+fn format_duration(seconds: f64) -> String {
+    if seconds >= 3600.0 {
+        format!("{:.0} h", seconds / 3600.0)
+    } else if seconds >= 60.0 {
+        format!("{:.0} m", seconds / 60.0)
+    } else if seconds >= 1.0 {
+        format!("{:.0} s", seconds)
+    } else if seconds >= 1e-3 {
+        format!("{:.0} ms", seconds * 1e3)
+    } else if seconds >= 1e-6 {
+        format!("{:.0} us", seconds * 1e6)
+    } else {
+        format!("{:.0} ns", seconds * 1e9)
+    }
 }
 
 fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, exit_flag: &atomic::AtomicBool) {
@@ -110,35 +126,67 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, exit_flag: &atomic::AtomicBoo
 
     info!("GFX START");
 
-    let mut skip_frame = false;
+    const TARGET_FPS: f64 = 120.0;
+    let target_frame_time = std::time::Duration::from_secs_f64(1.0 / TARGET_FPS);
+    const SPIN_THRESHOLD: std::time::Duration = std::time::Duration::from_micros(500);
+
     let start_instant = std::time::Instant::now();
     let mut last_instant = std::time::Instant::now();
+    let mut last_stat_instant = std::time::Instant::now();
+    let mut frame_delta_times: rustine::RingBuffer<f64> = rustine::RingBuffer::new(120);
 
     while !exit_flag.load(atomic::Ordering::Relaxed) {
+        let frame_start = std::time::Instant::now();
+
         {
-            let attempted_lock = gfx.try_lock();
-            if attempted_lock.is_err() {
-                skip_frame = true;
-                std::thread::sleep(std::time::Duration::from_millis(1));
-                continue;
-            }
-            if skip_frame {
-                info!("CONTINUE");
-                skip_frame = false;
-            }
-            let mut core = attempted_lock.unwrap();
+            let mut core = gfx.lock().unwrap();
 
             let now = std::time::Instant::now();
             let t = now.duration_since(start_instant).as_secs_f64();
             let dt = now.duration_since(last_instant).as_secs_f32();
+            frame_delta_times.push(dt as f64);
             core.render(t, dt);
             last_instant = now;
+
+            let stat_now = std::time::Instant::now();
+            if stat_now.duration_since(last_stat_instant).as_secs_f64() >= 1.0 {
+                let frame_cpu_times = core.frame_cpu_times();
+                if let Some((min, max, mean)) = frame_cpu_times.min_max_mean() {
+                    debug!(
+                        "Frame CPU -> min: {}, max: {}, mean: {}",
+                        format_duration(min),
+                        format_duration(max),
+                        format_duration(mean)
+                    );
+                }
+                if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
+                    debug!(
+                        "Frame Delta -> min: {}, max: {}, mean: {}",
+                        format_duration(min as f64),
+                        format_duration(max as f64),
+                        format_duration(mean as f64)
+                    );
+                }
+                last_stat_instant = stat_now;
+            }
         }
 
-        // NOTE: Sleeping seems necessary
-        // If we don't sleep, the host thread struggles to acquire the lock,
-        // causing unresponsiveness, especially when resizing the window.
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        // Adaptive spin-sleep frame rate limiting
+        let elapsed = frame_start.elapsed();
+        if elapsed < target_frame_time {
+            let mut remaining = target_frame_time - elapsed;
+
+            // Sleep for bulk of remaining time
+            while remaining > SPIN_THRESHOLD {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                remaining = target_frame_time.saturating_sub(frame_start.elapsed());
+            }
+
+            // Spin for precise timing
+            while frame_start.elapsed() < target_frame_time {
+                std::hint::spin_loop();
+            }
+        }
     }
 
     info!("GFX STOP");

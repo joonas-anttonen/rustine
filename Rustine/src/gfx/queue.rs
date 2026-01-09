@@ -126,7 +126,7 @@ impl Queue {
                     completed.reset();
                     self.available_commands.push_back(completed);
                 } else {
-                    warning!("Queue::ensure_available_command: Timeout");
+                    //warning!("Queue::ensure_available_command: Timeout");
                     return false;
                 }
             }
@@ -137,13 +137,13 @@ impl Queue {
     pub fn enqueue(&mut self, command_recorder: impl FnOnce(&mut CommandBuffer)) {
         self.collect_completed_commands();
         if !self.ensure_available_command() {
-            warning!("Queue::enqueue: No available command buffers");
+            //warning!("Queue::enqueue: No available command buffers");
             return;
         }
 
         let command_buffer = self.available_commands.pop_front();
         if command_buffer.is_none() {
-            error!("Queue::enqueue: No available command buffer!");
+            //error!("Queue::enqueue: No available command buffer!");
             return;
         }
 
@@ -172,7 +172,7 @@ impl Queue {
     ) {
         self.collect_completed_commands();
         if !self.ensure_available_command() {
-            warning!("Queue::enqueue_present: No available command buffers");
+            //warning!("Queue::enqueue_present: No available command buffers");
             return;
         }
 
