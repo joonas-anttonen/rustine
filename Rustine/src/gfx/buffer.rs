@@ -82,6 +82,14 @@ impl PixelBuffer {
         self.height
     }
 
+    pub fn format(&self) -> crate::gfx::Format {
+        self.format
+    }
+
+    pub fn is_defined(&self) -> bool {
+        self.layout.load(Ordering::Acquire) != crate::gfx::Layout::UNDEFINED.to_raw_u32()
+    }
+
     /// Returns the current layout of the image.
     pub fn layout(&self) -> crate::gfx::Layout {
         let raw = self.layout.load(Ordering::Acquire);

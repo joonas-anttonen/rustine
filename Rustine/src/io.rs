@@ -7,5 +7,5 @@ pub struct Image {
     pub width: u32,
     pub height: u32,
     pub format: crate::gfx::Format,
-    pub data: Vec<u8>,
+    pub pixels: Vec<u8>,
 }

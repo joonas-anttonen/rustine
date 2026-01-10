@@ -405,8 +405,8 @@ impl Core {
         let mut uploads_processed = 0;
         while uploads_processed < self.max_uploads_per_frame {
             if let Some((image_id, io_image)) = self.pending_image_uploads.pop_front() {
-                let upload_buffer = self.acquire_upload_buffer(io_image.data.len());
-                upload_buffer.write(&io_image.data);
+                let upload_buffer = self.acquire_upload_buffer(io_image.pixels.len());
+                upload_buffer.write(&io_image.pixels);
 
                 if let Some(target_buffer) = self.pixel_buffers.get(&image_id) {
                     self.test_data.pending_uploads.push_back(PendingUpload {
@@ -549,25 +549,30 @@ impl Core {
                             .unwrap_or_else(|| render_area.clone());
                         cmd.set_scissor(&scissor);
 
-                        // Get texture, use fallback if not available
-                        let texture_id = draw_cmd.image_id.unwrap_or(FALLBACK_TEXTURE_ID);
-                        if let Some(texture) = pixel_buffers.get(&texture_id) {
-                            if texture.layout() != Layout::UNDEFINED {
-                                cmd.push_pixel_descriptor(
-                                    &test_pipeline,
-                                    0,
-                                    texture,
-                                    1,
-                                    &test_sampler,
-                                );
-                                cmd.draw_indexed(
-                                    draw_cmd.index_count,
-                                    1,
-                                    draw_cmd.index_offset,
-                                    0,
-                                    0,
-                                );
-                            }
+                        // In short, image_id being Some indicates intention that this is
+                        // a textured draw. If no image with that id exists (or otherwise invalid),
+                        // try the fallback in the same manner.
+                        // Otherwise, use the fallback texture for a pure geometry draw.
+                        let texture = if let Some(image_id) = draw_cmd.image_id {
+                            pixel_buffers
+                                .get(&image_id)
+                                .and_then(|t| t.is_defined().then(|| t))
+                                .or_else(|| {
+                                    draw_cmd.image_fallback_id.and_then(|fallback_id| {
+                                        pixel_buffers
+                                            .get(&fallback_id)
+                                            .and_then(|t| t.is_defined().then(|| t))
+                                    })
+                                })
+                        } else {
+                            pixel_buffers
+                                .get(&FALLBACK_TEXTURE_ID)
+                                .and_then(|t| t.is_defined().then(|| t))
+                        };
+
+                        if let Some(texture) = texture {
+                            cmd.push_pixel_descriptor(&test_pipeline, 0, texture, 1, &test_sampler);
+                            cmd.draw_indexed(draw_cmd.index_count, 1, draw_cmd.index_offset, 0, 0);
                         }
                     }
                 }

@@ -83,6 +83,15 @@ fn main() {
             gfx::Image::default()
         };
 
+        // Create a fallback image handle used for rendering
+        let fallback_image_pixels = vec![0u8; 4]; // Transparent black pixel
+        let display_image_fallback = gfx_core.create_image(io::Image {
+            width: 1,
+            height: 1,
+            format: gfx::Format::R8G8B8A8_UNORM,
+            pixels: fallback_image_pixels,
+        });
+
         let image_mailbox = gfx_core.image_mailbox();
         let render_mailbox = gfx_core.render_mailbox();
 
@@ -115,6 +124,7 @@ fn main() {
                 render_mailbox,
                 display_image_static,
                 display_image_dynamic,
+                display_image_fallback,
                 &EXIT_FLAG,
             );
 
@@ -129,18 +139,31 @@ fn gui_thread_function(
     gui: &gui::Gui,
     render_mailbox: Arc<Mutex<VecDeque<gfx::RenderFrame>>>,
     static_image: gfx::Image,
-    dynamic_image: gfx::Image,
+    mut dynamic_image: gfx::Image,
+    fallback_image: gfx::Image,
     exit_flag: &atomic::AtomicBool,
 ) {
     Log::global().set_current_thread_name("gui-render");
 
     info!("GUI START");
 
+    let mut soft_drop_instant = std::time::Instant::now();
+
     while !exit_flag.load(atomic::Ordering::Relaxed) && !gui.should_close() {
         gui.wait_events_timeout(16);
 
         // Generate a render frame with pre-computed vertices and draw commands
-        let frame = generate_render_frame(gui.pixel_size(), &static_image, &dynamic_image);
+        let frame = generate_render_frame(
+            gui.pixel_size(),
+            &static_image,
+            &dynamic_image,
+            &fallback_image,
+        );
+
+        if soft_drop_instant.elapsed() >= std::time::Duration::from_secs(2) {
+            dynamic_image.soft_drop();
+            soft_drop_instant = std::time::Instant::now();
+        }
 
         if let Ok(mut pending) = render_mailbox.lock() {
             pending.push_back(frame);
@@ -154,6 +177,7 @@ fn generate_render_frame(
     frame_size: Vector2u,
     static_image: &gfx::Image,
     dynamic_image: &gfx::Image,
+    fallback_image: &gfx::Image,
 ) -> gfx::RenderFrame {
     let mut frame = gfx::RenderFrame::new();
 
@@ -220,11 +244,15 @@ fn generate_render_frame(
 
     // Create a batch with two draw commands
     let mut batch = gfx::DrawBatch::new();
-    batch.push_command(gfx::DrawCommand::new(0, 6, Some(static_image.id)));
-    batch.push_command(gfx::DrawCommand::new(6, 6, Some(dynamic_image.id)));
+    batch.push_command(gfx::DrawCommand::new(0, 6, Some(static_image.id), None));
+    batch.push_command(gfx::DrawCommand::new(
+        6,
+        6,
+        Some(dynamic_image.id),
+        Some(fallback_image.id),
+    ));
 
     frame.push_batch(batch);
-
     frame
 }
 
@@ -262,6 +290,9 @@ fn image_loader_thread(
     }
 
     const SLIDE_DELAY: std::time::Duration = std::time::Duration::from_millis(1500);
+
+    // TESTING: Delay several seconds on purpose
+    std::thread::sleep(std::time::Duration::from_secs(5));
 
     let mut index = 0usize;
     while !exit_flag.load(atomic::Ordering::Relaxed) {
@@ -314,7 +345,7 @@ fn load_and_display_webp(
                         width,
                         height,
                         format: gfx::Format::R8G8B8A8_UNORM,
-                        data: frame,
+                        pixels: frame,
                     },
                 ));
             }
@@ -335,7 +366,7 @@ fn load_and_display_webp(
                             width,
                             height,
                             format: gfx::Format::R8G8B8A8_UNORM,
-                            data: frame,
+                            pixels: frame,
                         },
                     ));
                 }
@@ -377,7 +408,7 @@ fn load_webp_image(path: &Path) -> Option<io::Image> {
         width,
         height,
         format: gfx::Format::R8G8B8A8_UNORM,
-        data: frame,
+        pixels: frame,
     })
 }
 

@@ -72,6 +72,16 @@ impl Image {
             released_images,
         }
     }
+
+    /// It is always safe to add an image to the released images queue.
+    /// If the image is used after this, any resources will get reallocated.
+    pub fn soft_drop(&mut self) {
+        if let Some(mailbox) = self.released_images.upgrade() {
+            if let Ok(mut queue) = mailbox.lock() {
+                queue.push_back(self.id);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,16 +125,18 @@ pub struct DrawCommand {
     pub index_count: u32,
     /// Optional image/texture ID to bind.
     pub image_id: Option<u32>,
+    pub image_fallback_id: Option<u32>,
     /// Scissor rectangle for this draw; None means fullscreen.
     pub scissor: Option<Rectangle>,
 }
 
 impl DrawCommand {
-    pub fn new(index_offset: u32, index_count: u32, image_id: Option<u32>) -> Self {
+    pub fn new(index_offset: u32, index_count: u32, image_id: Option<u32>, image_fallback_id: Option<u32>) -> Self {
         Self {
             index_offset,
             index_count,
             image_id,
+            image_fallback_id,
             scissor: None,
         }
     }
