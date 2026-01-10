@@ -1,5 +1,5 @@
 use fontdue::Font;
-use std::{env, fs, path::Path, path::PathBuf};
+use std::{collections::HashMap, env, fs, path::Path, path::PathBuf};
 
 /// println!("cargo:rerun-if-changed={}"...
 fn rerun_if_changed<P: AsRef<Path>>(path: P) {
@@ -40,7 +40,7 @@ fn main() {
 
     link_dynamic("vulkan");
 
-    build_bitmap_font(&project_dir, &out_dir);
+    build_bitmap_fonts(&project_dir, &out_dir);
     build_rustine_vma(&project_dir, &out_dir, generator);
     build_rustine_webp(&project_dir, &out_dir, generator);
     build_rustine_dxc(&project_dir, &out_dir, generator);
@@ -169,30 +169,171 @@ fn build_rustine_dxc(project_dir: &Path, out_dir: &Path, generator: &'static str
     rerun_if_changed(rustine_dxc_dir.join("rustine-dxc.hpp"));
 }
 
-fn build_bitmap_font(project_dir: &Path, out_dir: &Path) {
-    let font_path = project_dir.join("src/gfx/fonts").join("ProggyClean.ttf");
+fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
+    let fonts_dir = project_dir.join("src/gfx/fonts");
+    let config_path = fonts_dir.join("fonts.toml");
 
-    let font_data = fs::read(&font_path).expect("Failed to read font file");
+    // Load font configuration
+    let mut font_sizes: HashMap<String, f32> = HashMap::new();
+    if config_path.exists() {
+        let config_content = fs::read_to_string(&config_path)
+            .expect("Failed to read fonts.toml");
+        if let Ok(config) = toml::from_str::<toml::Value>(&config_content) {
+            if let Some(fonts_table) = config.get("fonts").and_then(|v| v.as_table()) {
+                for (name, value) in fonts_table {
+                    if let Some(size) = value.as_float() {
+                        font_sizes.insert(name.clone(), size as f32);
+                    }
+                }
+            }
+        }
+    }
+
+    // Discover all font files (TTF and OTF)
+    let mut font_paths = Vec::new();
+    if let Ok(entries) = fs::read_dir(&fonts_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                let ext_str = ext.to_string_lossy().to_lowercase();
+                if ext_str == "ttf" || ext_str == "otf" {
+                    font_paths.push(path);
+                }
+            }
+        }
+    }
+
+    font_paths.sort();
+
+    // Generate a module file that includes all font modules
+    let mut module_code = String::new();
+    module_code.push_str("// Auto-generated font modules\n\n");
+    module_code.push_str("use std::collections::HashMap;\n");
+    module_code.push_str("use std::sync::OnceLock;\n\n");
+    module_code.push_str("pub struct GlyphMetrics {\n");
+    module_code.push_str("    pub x: u32,\n");
+    module_code.push_str("    pub y: u32,\n");
+    module_code.push_str("    pub width: u32,\n");
+    module_code.push_str("    pub height: u32,\n");
+    module_code.push_str("    pub advance_width: i32,\n");
+    module_code.push_str("    pub offset_x: i32,\n");
+    module_code.push_str("    pub offset_y: i32,\n");
+    module_code.push_str("    pub u0: f32,\n");
+    module_code.push_str("    pub v0: f32,\n");
+    module_code.push_str("    pub u1: f32,\n");
+    module_code.push_str("    pub v1: f32,\n");
+    module_code.push_str("}\n\n");
+
+    // Generate font IDs starting from u32::MAX - 2 and going down
+    let mut font_id = u32::MAX - 2u32;
+    let mut font_info = Vec::new();
+
+    for font_path in &font_paths {
+        let font_name = font_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .expect("Invalid font filename");
+
+        // Get font size from config, default to 16.0
+        let font_size = font_sizes.get(font_name).copied().unwrap_or(16.0);
+
+        build_bitmap_font(&font_path, font_name, font_size, out_dir);
+        
+        module_code.push_str(&format!("include!(concat!(env!(\"OUT_DIR\"), \"/{}.rs\"));\n", font_name));
+        
+        // Store font info for the registry
+        font_info.push((font_name.to_string(), font_id));
+        font_id -= 1;
+
+        rerun_if_changed(&font_path);
+    }
+
+    // Generate font constants and registry
+    module_code.push_str("\n// Auto-generated font IDs\n");
+    for (_idx, (font_name, id)) in font_info.iter().enumerate() {
+        let const_name = format!("{}_FONT_ID", font_name.to_uppercase());
+        module_code.push_str(&format!("pub const {}: u32 = {};\n", const_name, id));
+    }
+
+    // Generate font size constants
+    module_code.push_str("\n// Auto-generated font sizes\n");
+    for (font_name, _id) in font_info.iter() {
+        let font_size = font_sizes.get(font_name).copied().unwrap_or(16.0);
+        let const_name = format!("{}_FONT_SIZE", font_name.to_uppercase());
+        module_code.push_str(&format!("pub const {}: f32 = {}f32;\n", const_name, font_size));
+    }
+
+    // Generate font data structure and registry
+    module_code.push_str("\npub struct FontAtlasData {\n");
+    module_code.push_str("    pub texture_id: u32,\n");
+    module_code.push_str("    pub atlas_data: &'static [u8],\n");
+    module_code.push_str("    pub width: u32,\n");
+    module_code.push_str("    pub height: u32,\n");
+    module_code.push_str("}\n\n");
+
+    module_code.push_str("pub fn get_font_atlas(id: u32) -> Option<FontAtlasData> {\n");
+    module_code.push_str("    match id {\n");
+    for (font_name, id) in font_info.iter() {
+        let atlas_const = format!("{}_ATLAS", font_name.to_uppercase());
+        let width_const = format!("{}_ATLAS_WIDTH", font_name.to_uppercase());
+        let height_const = format!("{}_ATLAS_HEIGHT", font_name.to_uppercase());
+        module_code.push_str(&format!(
+            "        {} => Some(FontAtlasData {{\n            texture_id: {},\n            atlas_data: &{},\n            width: {},\n            height: {},\n        }}),\n",
+            id, id, atlas_const, width_const, height_const
+        ));
+    }
+    module_code.push_str("        _ => None,\n");
+    module_code.push_str("    }\n");
+    module_code.push_str("}\n\n");
+
+    // Generate glyph metrics accessor function using HashMap lookups
+    module_code.push_str("pub fn get_glyph_metrics(font_id: u32, ch: char) -> Option<&'static GlyphMetrics> {\n");
+    module_code.push_str("    match font_id {\n");
+    for (font_name, id) in font_info.iter() {
+        let get_lookup_fn = format!("get_{}_lookup", font_name.to_lowercase());
+        module_code.push_str(&format!(
+            "        {} => {}().get(&ch).copied(),\n",
+            id, get_lookup_fn
+        ));
+    }
+    module_code.push_str("        _ => None,\n");
+    module_code.push_str("    }\n");
+    module_code.push_str("}\n\n");
+
+    // Generate font size accessor function
+    module_code.push_str("pub fn get_font_size(font_id: u32) -> f32 {\n");
+    module_code.push_str("    match font_id {\n");
+    for (font_name, id) in font_info.iter() {
+        let size_const = format!("{}_FONT_SIZE", font_name.to_uppercase());
+        module_code.push_str(&format!("        {} => {},\n", id, size_const));
+    }
+    module_code.push_str("        _ => 16.0,\n");
+    module_code.push_str("    }\n");
+    module_code.push_str("}\n\n");
+
+    // Generate array of all font IDs
+    module_code.push_str("pub const ALL_FONT_IDS: &[u32] = &[");
+    for (id_idx, (_, id)) in font_info.iter().enumerate() {
+        if id_idx > 0 {
+            module_code.push_str(", ");
+        }
+        module_code.push_str(&id.to_string());
+    }
+    module_code.push_str("];\n");
+
+    rerun_if_changed(&config_path);
+    let output_path = out_dir.join("fonts.rs");
+    fs::write(&output_path, module_code).expect("Failed to write generated fonts file");
+}
+
+fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, out_dir: &Path) {
+    let font_data = fs::read(font_path).expect("Failed to read font file");
     let font =
         Font::from_bytes(font_data.as_slice(), Default::default()).expect("Failed to load font");
 
     // Generate glyph metrics and bitmaps
     let mut glyph_code = String::new();
     glyph_code.push_str("// Auto-generated bitmap font data\n\n");
-
-    glyph_code.push_str("pub struct GlyphMetrics {\n");
-    glyph_code.push_str("    pub x: u32,\n");
-    glyph_code.push_str("    pub y: u32,\n");
-    glyph_code.push_str("    pub width: u32,\n");
-    glyph_code.push_str("    pub height: u32,\n");
-    glyph_code.push_str("    pub advance_width: i32,\n");
-    glyph_code.push_str("    pub offset_x: i32,\n");
-    glyph_code.push_str("    pub offset_y: i32,\n");
-    glyph_code.push_str("    pub u0: f32,\n");
-    glyph_code.push_str("    pub v0: f32,\n");
-    glyph_code.push_str("    pub u1: f32,\n");
-    glyph_code.push_str("    pub v1: f32,\n");
-    glyph_code.push_str("}\n\n");
 
     // Rasterize full Latin-1 character set (0-255)
     // Skip control characters (0-31) to save space
@@ -201,7 +342,7 @@ fn build_bitmap_font(project_dir: &Path, out_dir: &Path) {
     let mut max_height = 0u32;
 
     for ch in 32u8..=255u8 {
-        let (metrics_local, bitmap) = font.rasterize(ch as char, 16.0);
+        let (metrics_local, bitmap) = font.rasterize(ch as char, font_size);
 
         // Include all characters, even those with empty bitmaps (like space)
         max_height = max_height.max(metrics_local.height as u32);
@@ -254,15 +395,28 @@ fn build_bitmap_font(project_dir: &Path, out_dir: &Path) {
         }
     }
 
+    // Generate variable names based on font name
+    let atlas_width_const = format!("{}_ATLAS_WIDTH", font_name.to_uppercase());
+    let atlas_height_const = format!("{}_ATLAS_HEIGHT", font_name.to_uppercase());
+    let atlas_data_const = format!("{}_ATLAS", font_name.to_uppercase());
+    let metrics_const = format!("{}_METRICS", font_name.to_uppercase());
+    let charset_const = format!("{}_CHARSET", font_name.to_uppercase());
+
     // Generate Rust code
-    glyph_code.push_str("pub const GLYPH_ATLAS_WIDTH: u32 = ");
+    glyph_code.push_str("pub const ");
+    glyph_code.push_str(&atlas_width_const);
+    glyph_code.push_str(": u32 = ");
     glyph_code.push_str(&atlas_width.to_string());
     glyph_code.push_str(";\n");
-    glyph_code.push_str("pub const GLYPH_ATLAS_HEIGHT: u32 = ");
+    glyph_code.push_str("pub const ");
+    glyph_code.push_str(&atlas_height_const);
+    glyph_code.push_str(": u32 = ");
     glyph_code.push_str(&atlas_height.to_string());
     glyph_code.push_str(";\n\n");
 
-    glyph_code.push_str("pub static GLYPH_ATLAS: &[u8] = &[\n");
+    glyph_code.push_str("pub static ");
+    glyph_code.push_str(&atlas_data_const);
+    glyph_code.push_str(": &[u8] = &[\n");
     for chunk in atlas.chunks(16) {
         glyph_code.push_str("    ");
         for byte in chunk {
@@ -272,7 +426,9 @@ fn build_bitmap_font(project_dir: &Path, out_dir: &Path) {
     }
     glyph_code.push_str("];\n\n");
 
-    glyph_code.push_str("pub static GLYPH_METRICS: &[(char, GlyphMetrics)] = &[\n");
+    glyph_code.push_str("pub static ");
+    glyph_code.push_str(&metrics_const);
+    glyph_code.push_str(": &[(char, GlyphMetrics)] = &[\n");
     let atlas_w = atlas_width as f32;
     let atlas_h = atlas_height as f32;
     for (px, py, ch, met) in &glyph_positions {
@@ -299,9 +455,26 @@ fn build_bitmap_font(project_dir: &Path, out_dir: &Path) {
     }
     glyph_code.push_str("];\n\n");
 
+    // Generate HashMap lookup for O(1) glyph access
+    let lookup_const = format!("{}_LOOKUP", font_name.to_uppercase());
+    glyph_code.push_str(&format!("static {}: OnceLock<HashMap<char, &'static GlyphMetrics>> = OnceLock::new();\n\n", lookup_const));
+    
+    let get_lookup_fn = format!("get_{}_lookup", font_name.to_lowercase());
+    glyph_code.push_str(&format!("fn {}() -> &'static HashMap<char, &'static GlyphMetrics> {{\n", get_lookup_fn));
+    glyph_code.push_str(&format!("    {}.get_or_init(|| {{\n", lookup_const));
+    glyph_code.push_str("        let mut map = HashMap::new();\n");
+    glyph_code.push_str(&format!("        for (ch, metrics) in {}.iter() {{\n", metrics_const));
+    glyph_code.push_str("            map.insert(*ch, metrics);\n");
+    glyph_code.push_str("        }\n");
+    glyph_code.push_str("        map\n");
+    glyph_code.push_str("    })\n");
+    glyph_code.push_str("}\n\n");
+
     // Generate full Latin-1 character set for testing
     glyph_code.push_str("/// Full Latin-1 character set (characters 32-255)\n");
-    glyph_code.push_str("pub const LATIN1_CHARSET: &str = \"\\\n");
+    glyph_code.push_str("pub const ");
+    glyph_code.push_str(&charset_const);
+    glyph_code.push_str(": &str = \"\\\n");
     for ch in 32u8..=255u8 {
         let c = ch as char;
         match c {
@@ -312,8 +485,6 @@ fn build_bitmap_font(project_dir: &Path, out_dir: &Path) {
     }
     glyph_code.push_str("\";\n");
 
-    let output_path = out_dir.join("ProggyClean.rs");
+    let output_path = out_dir.join(format!("{}.rs", font_name));
     fs::write(&output_path, glyph_code).expect("Failed to write generated font file");
-
-    rerun_if_changed(&font_path);
 }

@@ -258,12 +258,12 @@ fn generate_render_frame(
     );
 
     frame.push_text(
-        gfx::fonts::LATIN1_CHARSET,
+        "J{oo}nas [A]nttonen -> (@_åäö)\nAnother row !!! | ??? /\\ ^ ~* '",
         address_bar_x,
-        address_bar_y + 16.0,
+        address_bar_y + gfx::fonts::get_font_size(gfx::fonts::DEPARTUREMONO_FONT_ID),
         1.0,
         color,
-        gfx::FONT_TEXTURE_ID,
+        gfx::fonts::DEPARTUREMONO_FONT_ID,
     );
 
     frame

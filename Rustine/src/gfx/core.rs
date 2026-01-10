@@ -5,7 +5,6 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const FALLBACK_TEXTURE_ID: u32 = u32::MAX;
-pub const FONT_TEXTURE_ID: u32 = u32::MAX - 1;
 
 struct TestData {
     target_frame: Option<Arc<PixelBuffer>>,
@@ -221,38 +220,44 @@ impl Core {
         let mut pending_uploads = VecDeque::new();
         pending_uploads.push_back(pending_fallback);
 
-        // Create font atlas texture
-        let (font_atlas_width, font_atlas_height) = fonts::get_atlas_dimensions();
-        let font_atlas_data = fonts::get_atlas_data();
-        
-        let font_upload = allocator
-            .create_memory_buffer(
-                font_atlas_data.len(),
-                buffer::MemoryUsage::TRANSFER_SRC,
-                buffer::MemoryAccess::WRITE,
-            )
-            .unwrap();
-        font_upload.write(font_atlas_data);
+        let mut pixel_buffers = HashMap::new();
+        pixel_buffers.insert(FALLBACK_TEXTURE_ID, Arc::clone(&fallback_texture));
 
-        let font_texture_buffer = allocator
-            .create_pixel_buffer(
-                Format::R8G8B8A8_UNORM,
-                font_atlas_width,
-                font_atlas_height,
-                ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
-                ImageAspect::COLOR,
-                Samples::X1,
-            )
-            .unwrap();
-        let font_texture = Arc::new(font_texture_buffer);
+        // Create all available font atlases
+        for font_id in fonts::ALL_FONT_IDS {
+            if let Some(font_data) = fonts::get_font_atlas(*font_id) {
+                let font_upload = allocator
+                    .create_memory_buffer(
+                        font_data.atlas_data.len(),
+                        buffer::MemoryUsage::TRANSFER_SRC,
+                        buffer::MemoryAccess::WRITE,
+                    )
+                    .unwrap();
+                font_upload.write(font_data.atlas_data);
 
-        let font_texture_clone = Arc::clone(&font_texture);
-        let pending_font = PendingUpload {
-            buffer: Arc::new(font_upload),
-            target: font_texture_clone,
-            image_id: FONT_TEXTURE_ID,
-        };
-        pending_uploads.push_back(pending_font);
+                let font_texture_buffer = allocator
+                    .create_pixel_buffer(
+                        Format::R8G8B8A8_UNORM,
+                        font_data.width,
+                        font_data.height,
+                        ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+                        ImageAspect::COLOR,
+                        Samples::X1,
+                    )
+                    .unwrap();
+                let font_texture = Arc::new(font_texture_buffer);
+
+                pixel_buffers.insert(font_data.texture_id, Arc::clone(&font_texture));
+
+                let font_texture_clone = Arc::clone(&font_texture);
+                let pending_font = PendingUpload {
+                    buffer: Arc::new(font_upload),
+                    target: font_texture_clone,
+                    image_id: font_data.texture_id,
+                };
+                pending_uploads.push_back(pending_font);
+            }
+        }
 
         let test_data = TestData {
             target_frame: None,
@@ -266,10 +271,6 @@ impl Core {
         };
 
         let command_queue = Queue::new(&device, 4);
-
-        let mut pixel_buffers = HashMap::new();
-        pixel_buffers.insert(FALLBACK_TEXTURE_ID, Arc::clone(&test_data.fallback_texture));
-        pixel_buffers.insert(FONT_TEXTURE_ID, font_texture);
 
         Core {
             instance,

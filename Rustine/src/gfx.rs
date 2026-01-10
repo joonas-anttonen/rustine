@@ -8,7 +8,6 @@ mod device;
 pub use device::*;
 pub mod vulkan;
 pub use core::Core;
-pub use core::FONT_TEXTURE_ID;
 use std::collections;
 use std::sync;
 pub mod presentation;
@@ -384,19 +383,20 @@ impl RenderFrame {
     /// Render text using the embedded bitmap font.
     ///
     /// The text is rendered at the specified position using the given color and scale factor.
-    /// Supports newlines. The font atlas texture must be loaded as an image and passed as `font_image_id`.
-    pub fn push_text(&mut self, text: &str, x: f32, y: f32, scale: f32, color: u32, font_image_id: u32) {
+    /// Supports newlines. The font ID determines which font to use.
+    pub fn push_text(&mut self, text: &str, x: f32, y: f32, scale: f32, color: u32, font_id: u32) {
+        let font_size = fonts::get_font_size(font_id);
         let mut cursor_x = x;
         let mut cursor_y = y;
         
         for ch in text.chars() {
             if ch == '\n' {
                 cursor_x = x;
-                cursor_y += 16.0 * scale;
+                cursor_y += font_size * scale;
                 continue;
             }
             
-            if let Some(metrics) = fonts::get_glyph(ch) {
+            if let Some(metrics) = fonts::get_glyph_metrics(font_id, ch) {
                 let glyph_w = metrics.width as f32;
                 let glyph_h = metrics.height as f32;
                 
@@ -426,7 +426,7 @@ impl RenderFrame {
                     Vector2f::new(u0, v1),
                 ];
                 
-                self.push_quad(positions, uvs, color, Some(font_image_id), None);
+                self.push_quad(positions, uvs, color, Some(font_id), None);
                 
                 cursor_x += metrics.advance_width as f32 * scale;
             }

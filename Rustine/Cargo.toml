@@ -19,3 +19,4 @@ libc = "0.2"
 [build-dependencies]
 cmake = "0.1.54"
 fontdue = "0.7"
+toml = "0.8"
