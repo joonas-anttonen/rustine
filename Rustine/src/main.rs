@@ -1,8 +1,9 @@
 use rustine::{debug, error, info};
-use rustine::{gfx, gui, io, log::*, version::Version};
+use rustine::{gfx, gfx::*, gui, io, log::*, version::Version};
 
 #[cfg(unix)]
 use libc;
+use std::collections::VecDeque;
 use std::io as stdio;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic};
@@ -70,6 +71,7 @@ fn main() {
         };
 
         let image_mailbox = gfx_core.image_mailbox();
+        let render_mailbox = gfx_core.render_mailbox();
 
         let dev = gfx_core.selected_physical_device();
         info!("{dev}");
@@ -93,7 +95,7 @@ fn main() {
                 image_loader_thread(image_mailbox, &EXIT_FLAG);
             });
 
-            gui_thread_function(&gui, &EXIT_FLAG);
+            gui_thread_function(&gui, render_mailbox, &EXIT_FLAG);
 
             EXIT_FLAG.store(true, atomic::Ordering::Relaxed);
         });
@@ -102,14 +104,80 @@ fn main() {
     info!("SHUTDOWN");
 }
 
-fn gui_thread_function(gui: &gui::Gui, exit_flag: &atomic::AtomicBool) {
+fn gui_thread_function(gui: &gui::Gui, render_mailbox: Arc<Mutex<VecDeque<gfx::RenderFrame>>>, exit_flag: &atomic::AtomicBool) {
+    Log::global().set_current_thread_name("gui-render");
+
     info!("GUI START");
 
     while !exit_flag.load(atomic::Ordering::Relaxed) && !gui.should_close() {
         gui.wait_events_timeout(16);
+
+        // Generate a render frame with pre-computed vertices and draw commands
+        let frame = generate_render_frame(gui.pixel_size());
+
+        if let Ok(mut pending) = render_mailbox.lock() {
+            pending.push_back(frame);
+        }
     }
 
     info!("GUI STOP");
+}
+
+fn generate_render_frame(frame_size: Vector2u) -> gfx::RenderFrame {
+    let mut frame = gfx::RenderFrame::new();
+
+    // Build a simple fullscreen quad with the dynamic image (ID 0)
+    // Vertices are in screen coordinates (0 to width/height)
+    // Shader will transform to NDC space during vertex processing
+    // Vertices: 4 corners (position: 2xf32, uv: 2xf32, color: u32)
+    let mut vertices_bytes = Vec::new();
+    let color = 0xFFFFFFFFu32;
+
+    // Screen coordinates: fullscreen quad (0,0) to (1920, 1080)
+    // Vertex 0: (0, 0), uv (0, 0), color white
+    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&color.to_le_bytes());
+
+    // Vertex 1: (1920, 0), uv (1, 0)
+    vertices_bytes.extend_from_slice(&(frame_size.x as f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(1.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&color.to_le_bytes());
+
+    // Vertex 2: (1920, 1080), uv (1, 1)
+    vertices_bytes.extend_from_slice(&(frame_size.x as f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(frame_size.y as f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(1.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(1.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&color.to_le_bytes());
+
+    // Vertex 3: (0, 1080), uv (0, 1)
+    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(frame_size.y as f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&(1.0_f32).to_le_bytes());
+    vertices_bytes.extend_from_slice(&color.to_le_bytes());
+
+    // Indices: two triangles (0, 1, 2, 0, 2, 3)
+    let mut indices_bytes = Vec::new();
+    for idx in &[0u32, 1, 2, 0, 2, 3] {
+        indices_bytes.extend_from_slice(&idx.to_le_bytes());
+    }
+
+    frame.vertices = vertices_bytes;
+    frame.indices = indices_bytes;
+
+    // Create a single batch with a draw command for the quad
+    let mut batch = gfx::DrawBatch::new();
+    batch.push_command(gfx::DrawCommand::new(0, 6, Some(0)));
+
+    frame.push_batch(batch);
+
+    frame
 }
 
 fn format_duration(seconds: f64) -> String {

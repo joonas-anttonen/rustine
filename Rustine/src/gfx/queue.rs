@@ -261,7 +261,7 @@ impl Queue {
             };
 
         let submit_info = vk::VkSubmitInfo {
-            sType: vk::VkStructureType::SUBMIT_INFO as u32,
+            sType: vk::VkStructureType::SUBMIT_INFO,
             pNext: std::ptr::null(),
             waitSemaphoreCount: wait_semaphore_count,
             pWaitSemaphores: wait_semaphores,

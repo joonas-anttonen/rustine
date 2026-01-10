@@ -30,6 +30,10 @@ pub struct PhysicalDevice {
     pub handle: vk::VkPhysicalDevice,
 }
 
+pub struct DeviceProperties {
+    uniform_alignment: u64,
+}
+
 impl std::fmt::Display for PhysicalDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -170,6 +174,7 @@ impl PhysicalDevice {
 
 /// Represents a Vulkan logical device.
 pub struct Device {
+    device_properties: DeviceProperties,
     general_queue_family_index: u32,
     transfer_queue_family_index: u32,
     general_queue_handle: Arc<Mutex<vk::VkQueue>>,
@@ -239,6 +244,29 @@ impl Device {
             .iter()
             .map(|cs| cs.as_ptr())
             .collect();
+
+        let device_properties = {
+            let mut physical_device_properties = unsafe {
+                vk::VkPhysicalDeviceProperties2 {
+                    sType: vk::VkStructureType::PHYSICAL_DEVICE_PROPERTIES_2,
+                    ..std::mem::zeroed()
+                }
+            };
+
+            unsafe {
+                vk::vkGetPhysicalDeviceProperties2(
+                    physical_device.handle(),
+                    &mut physical_device_properties,
+                )
+            }
+
+            DeviceProperties {
+                uniform_alignment: physical_device_properties
+                    .properties
+                    .limits
+                    .minUniformBufferOffsetAlignment,
+            }
+        };
 
         let mut physical_device_vk14_features = unsafe {
             vk::VkPhysicalDeviceVulkan14Features {
@@ -344,7 +372,7 @@ impl Device {
         };
 
         let device_create_info = vk::VkDeviceCreateInfo {
-            sType: vk::VkStructureType::DEVICE_CREATE_INFO as u32,
+            sType: vk::VkStructureType::DEVICE_CREATE_INFO,
             pNext: vk_next!(physical_device_features),
             flags: 0,
             queueCreateInfoCount: queue_create_infos.len() as u32,
@@ -396,6 +424,7 @@ impl Device {
             transfer_queue_family_index,
             general_queue_handle,
             transfer_queue_handle,
+            device_properties,
         })
     }
 

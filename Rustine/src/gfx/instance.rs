@@ -69,8 +69,8 @@ impl Instance {
         wl_surface: *const std::ffi::c_void,
     ) -> vk::VkSurfaceKHR {
         let create_info = vk::VkWaylandSurfaceCreateInfoKHR {
-            sType: vk::VkStructureType::VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR as u32,
-            pNext: std::ptr::null(),
+            sType: vk::VkStructureType::WAYLAND_SURFACE_CREATE_INFO_KHR,
+            pNext: ptr::null(),
             flags: 0,
             display: wl_output,
             surface: wl_surface,
@@ -80,7 +80,7 @@ impl Instance {
         vk_call!(vk::vkCreateWaylandSurfaceKHR(
             self.handle,
             &create_info,
-            std::ptr::null(),
+            ptr::null(),
             &mut surface_handle,
         ))
         .unwrap();
@@ -90,7 +90,7 @@ impl Instance {
 
     pub fn destroy_surface(&self, surface: vk::VkSurfaceKHR) {
         unsafe {
-            vk::vkDestroySurfaceKHR(self.handle, surface, std::ptr::null());
+            vk::vkDestroySurfaceKHR(self.handle, surface, ptr::null());
         }
     }
 
@@ -154,7 +154,7 @@ impl Instance {
             enabled_extensions.iter().map(|cs| cs.as_ptr()).collect();
 
         let app_info = vk::VkApplicationInfo {
-            sType: vk::VkStructureType::APPLICATION_INFO as u32,
+            sType: vk::VkStructureType::APPLICATION_INFO,
             pNext: ptr::null(),
             pApplicationName: app_name_cstring.as_ptr(),
             applicationVersion: parameters.host_version.to_vk_version(),
@@ -164,7 +164,7 @@ impl Instance {
         };
 
         let create_info = vk::VkInstanceCreateInfo {
-            sType: vk::VkStructureType::INSTANCE_CREATE_INFO as u32,
+            sType: vk::VkStructureType::INSTANCE_CREATE_INFO,
             pNext: ptr::null(),
             flags: 0,
             pApplicationInfo: &app_info,
@@ -205,7 +205,7 @@ impl Instance {
 
             // Create debug messenger info
             let debug_create_info = vk::VkDebugUtilsMessengerCreateInfoEXT {
-                sType: vk::VkStructureType::DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT as u32,
+                sType: vk::VkStructureType::DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
                 pNext: ptr::null(),
                 flags: 0,
                 messageSeverity: vk::VkDebugUtilsMessageSeverityFlagsEXT::ERROR_BIT_EXT
@@ -258,14 +258,14 @@ impl Instance {
             .map(|&device_handle| {
                 let mut id_properties = unsafe {
                     vk::VkPhysicalDeviceIDProperties {
-                        sType: vk::VkStructureType::PHYSICAL_DEVICE_ID_PROPERTIES as u32,
+                        sType: vk::VkStructureType::PHYSICAL_DEVICE_ID_PROPERTIES,
                         ..std::mem::zeroed()
                     }
                 };
 
                 let mut properties = unsafe {
                     vk::VkPhysicalDeviceProperties2 {
-                        sType: vk::VkStructureType::PHYSICAL_DEVICE_PROPERTIES_2 as u32,
+                        sType: vk::VkStructureType::PHYSICAL_DEVICE_PROPERTIES_2,
                         pNext: vk_next!(mut id_properties),
                         ..std::mem::zeroed()
                     }

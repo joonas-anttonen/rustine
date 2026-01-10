@@ -1546,7 +1546,7 @@ pub enum VkPrimitiveTopology {
 
 #[repr(C)]
 pub struct VkWaylandSurfaceCreateInfoKHR {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub display: *const std::ffi::c_void,
@@ -2647,7 +2647,7 @@ pub struct VkExtensionProperties {
 
 #[repr(C)]
 pub struct VkApplicationInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub pApplicationName: *const std::ffi::c_char,
     pub applicationVersion: u32,
@@ -2658,7 +2658,7 @@ pub struct VkApplicationInfo {
 
 #[repr(C)]
 pub struct VkInstanceCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub pApplicationInfo: *const VkApplicationInfo,
@@ -2868,7 +2868,7 @@ pub struct VkPhysicalDeviceProperties {
 
 #[repr(C)]
 pub struct VkDebugUtilsMessengerCreateInfoEXT {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub messageSeverity: VkDebugUtilsMessageSeverityFlagsEXT,
@@ -2886,7 +2886,7 @@ pub struct VkDebugUtilsMessengerCreateInfoEXT {
 
 #[repr(C)]
 pub struct VkDebugUtilsMessengerCallbackDataEXT {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub pMessageIdName: *const std::ffi::c_char,
@@ -2902,14 +2902,14 @@ pub struct VkDebugUtilsMessengerCallbackDataEXT {
 
 #[repr(C)]
 pub struct VkPhysicalDevicePushDescriptorProperties {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub maxPushDescriptors: u32,
 }
 
 #[repr(C)]
 pub struct VkPhysicalDeviceShaderFloat16Int8Features {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub shaderFloat16: u32,
     pub shaderInt8: u32,
@@ -2950,7 +2950,7 @@ pub struct VkDeviceQueueCreateInfo {
 
 #[repr(C)]
 pub struct VkDeviceCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub flags: u32,
     pub queueCreateInfoCount: u32,
@@ -2996,7 +2996,7 @@ pub enum VkPipelineStageFlags {
 
 #[repr(C)]
 pub struct VkSubmitInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub waitSemaphoreCount: u32,
     pub pWaitSemaphores: *const VkSemaphore,
@@ -3024,14 +3024,14 @@ pub struct VkPhysicalDeviceFeatures2 {
 
 #[repr(C)]
 pub struct VkPhysicalDeviceProperties2 {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub properties: VkPhysicalDeviceProperties,
 }
 
 #[repr(C)]
 pub struct VkPhysicalDeviceIDProperties {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub deviceUUID: [u8; 16],
     pub driverUUID: [u8; 16],
@@ -3409,7 +3409,7 @@ pub enum VkStructureType {
     VK_STRUCTURE_TYPE_DISPLAY_PRESENT_INFO_KHR = 1000003000,
     VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR = 1000004000,
     VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR = 1000005000,
-    VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR = 1000006000,
+    WAYLAND_SURFACE_CREATE_INFO_KHR = 1000006000,
     VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR = 1000008000,
     VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR = 1000009000,
     VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT = 1000011000,

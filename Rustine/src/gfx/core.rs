@@ -53,6 +53,8 @@ struct PendingUpload {
 pub struct Core {
     test_data: TestData,
     pending_images: Arc<Mutex<VecDeque<io::Image>>>,
+    render_commands: Arc<Mutex<VecDeque<RenderFrame>>>,
+    cached_render_frame: Option<RenderFrame>,
     next_image_id: u32,
     pixel_buffers: HashMap<u32, Option<PixelBuffer>>,
     queue: Queue,
@@ -264,6 +266,8 @@ impl Core {
             queue: command_queue,
             pixel_buffers: HashMap::new(),
             pending_images: Arc::new(Mutex::new(VecDeque::new())),
+            render_commands: Arc::new(Mutex::new(VecDeque::new())),
+            cached_render_frame: None,
             next_image_id: 0,
             frame_cpu_times: RingBuffer::new(120),
         }
@@ -321,6 +325,23 @@ impl Core {
     pub fn submit_image(&self, io_image: io::Image) {
         if let Ok(mut pending) = self.pending_images.lock() {
             pending.push_back(io_image);
+        }
+    }
+
+    pub fn render_mailbox(&self) -> Arc<Mutex<VecDeque<RenderFrame>>> {
+        Arc::clone(&self.render_commands)
+    }
+
+    pub fn submit_render_frame(&self, frame: RenderFrame) {
+        if let Ok(mut pending) = self.render_commands.lock() {
+            pending.push_back(frame);
+        }
+    }
+
+    pub fn clear_render_commands(&mut self) {
+        self.cached_render_frame = None;
+        if let Ok(mut pending) = self.render_commands.lock() {
+            pending.clear();
         }
     }
 
@@ -573,28 +594,50 @@ impl Core {
 
         self.stage_incoming_images();
 
-        self.push_image(
-            Image {
-                width: self.test_data.test_pixel_buffer.width(),
-                height: self.test_data.test_pixel_buffer.height(),
-                id: 0,
-            },
-            Rectangle {
-                x: 0.0,
-                y: 0.0,
-                w: target_frame.width() as f32,
-                h: target_frame.height() as f32,
-            },
-            Fit::FIT_KEEP_ASPECT_RATIO,
-            0xFFFFFFFFu32,
-        );
+        // Check for new render commands; if present, cache them and use; otherwise use cached frame
+        {
+            if let Ok(mut pending) = self.render_commands.lock() {
+                if let Some(frame) = pending.pop_back() {
+                    pending.clear();
+                    self.cached_render_frame = Some(frame);
+                }
+            }
+        }
 
-        self.test_data
-            .test_vertex_buffer
-            .write(&self.test_data.test_vertex_data);
-        self.test_data
-            .test_index_buffer
-            .write(&self.test_data.test_index_data);
+        if let Some(frame) = &self.cached_render_frame {
+            // Update vertex and index buffers with pre-computed data from UI
+            if !frame.vertices.is_empty() {
+                self.test_data.test_vertex_buffer.write(&frame.vertices);
+            }
+            if !frame.indices.is_empty() {
+                self.test_data.test_index_buffer.write(&frame.indices);
+            }
+        } else {
+            // Fallback: render the dynamic image (compute vertices on the fly)
+            self.test_data.test_vertex_data.clear();
+            self.test_data.test_index_data.clear();
+            self.push_image(
+                Image {
+                    width: self.test_data.test_pixel_buffer.width(),
+                    height: self.test_data.test_pixel_buffer.height(),
+                    id: 0,
+                },
+                Rectangle {
+                    x: 0.0,
+                    y: 0.0,
+                    w: target_frame.width() as f32,
+                    h: target_frame.height() as f32,
+                },
+                Fit::FIT_KEEP_ASPECT_RATIO,
+                0xFFFFFFFFu32,
+            );
+            self.test_data
+                .test_vertex_buffer
+                .write(&self.test_data.test_vertex_data);
+            self.test_data
+                .test_index_buffer
+                .write(&self.test_data.test_index_data);
+        }
 
         let test_pixel_buffer = Arc::clone(&self.test_data.test_pixel_buffer);
         let pending_upload = self.test_data.pending_upload.take();
@@ -602,9 +645,10 @@ impl Core {
         let test_vertex_buffer = Arc::clone(&self.test_data.test_vertex_buffer);
         let test_index_buffer = Arc::clone(&self.test_data.test_index_buffer);
         let test_sampler = Arc::clone(&self.test_data.test_sampler);
-        let index_count = self.test_data.test_index_data.len() as u32;
+        let cached_frame = self.cached_render_frame.clone();
+        let target_frame_clone = Arc::clone(&target_frame);
 
-        self.queue.enqueue(|cmd| {
+        self.queue.enqueue(move |cmd| {
             if let Some(upload) = &pending_upload {
                 cmd.layout_barrier(&test_pixel_buffer, Layout::UNDEFINED, Layout::TRANSFER_DST);
                 cmd.copy_buffer_to_image(&upload.buffer, &test_pixel_buffer);
@@ -644,7 +688,6 @@ impl Core {
             cmd.bind_vertex_buffer(&test_vertex_buffer);
             cmd.bind_index_buffer(&test_index_buffer);
             cmd.set_viewport(&render_area);
-            cmd.set_scissor(&render_area);
 
             let push_constants = PerCommand {
                 scale: Vector2f::new(
@@ -659,8 +702,23 @@ impl Core {
                 Stage::VERTEX | Stage::FRAGMENT,
                 &push_constants,
             );
-            cmd.push_pixel_descriptor(&test_pipeline, 0, &test_pixel_buffer, 1, &test_sampler);
-            cmd.draw_indexed(index_count, 1, 0, 0, 0);
+
+            // Execute draw batches if frame is present
+            if let Some(frame) = &cached_frame {
+                for batch in &frame.batches {
+                    for draw_cmd in &batch.commands {
+                        let scissor = draw_cmd.scissor.clone().unwrap_or_else(|| render_area.clone());
+                        cmd.set_scissor(&scissor);
+                        
+                        cmd.push_pixel_descriptor(&test_pipeline, 0, &test_pixel_buffer, 1, &test_sampler);
+                        cmd.draw_indexed(draw_cmd.index_count, 1, draw_cmd.index_offset, 0, 0);
+                    }
+                }
+            } else {
+                // Fallback: no batches (shouldn't happen with current logic, but safe)
+                cmd.set_scissor(&render_area);
+            }
+
             cmd.end_rendering();
 
             cmd.layout_barrier(
@@ -670,9 +728,9 @@ impl Core {
             );
         });
 
-        self.queue.enqueue_present(|cmd, present_image| {
+        self.queue.enqueue_present(move |cmd, present_image| {
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
-            cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
+            cmd.blit_to_present(&target_frame_clone, present_image, Filter::Linear);
             cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
         });
 

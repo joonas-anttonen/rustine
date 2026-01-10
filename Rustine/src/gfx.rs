@@ -51,7 +51,7 @@ pub enum Fit {
     CENTER,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Rectangle {
     pub x: f32,
     pub y: f32,
@@ -66,6 +66,75 @@ impl Rectangle {
 
     pub fn extent(&self) -> Vector2f {
         Vector2f::new(self.w, self.h)
+    }
+}
+
+/// A single draw command: draw a range of indices from the vertex/index buffer with optional scissor.
+#[derive(Debug, Clone)]
+pub struct DrawCommand {
+    /// Starting index in the index buffer.
+    pub index_offset: u32,
+    /// Number of indices to draw.
+    pub index_count: u32,
+    /// Optional image/texture ID to bind (None = use dynamic image).
+    pub image_id: Option<u32>,
+    /// Scissor rectangle for this draw; None means fullscreen.
+    pub scissor: Option<Rectangle>,
+}
+
+impl DrawCommand {
+    pub fn new(index_offset: u32, index_count: u32, image_id: Option<u32>) -> Self {
+        Self {
+            index_offset,
+            index_count,
+            image_id,
+            scissor: None,
+        }
+    }
+
+    pub fn with_scissor(mut self, scissor: Rectangle) -> Self {
+        self.scissor = Some(scissor);
+        self
+    }
+}
+
+/// A batch of draw commands sharing common state (all use same vertex/index buffers and pipeline).
+#[derive(Debug, Clone)]
+pub struct DrawBatch {
+    pub commands: Vec<DrawCommand>,
+}
+
+impl DrawBatch {
+    pub fn new() -> Self {
+        Self {
+            commands: Vec::with_capacity(256),
+        }
+    }
+
+    pub fn push_command(&mut self, cmd: DrawCommand) {
+        self.commands.push(cmd);
+    }
+}
+
+/// Pre-computed render frame: all vertices and indices are pre-built by UI thread.
+#[derive(Debug, Clone)]
+pub struct RenderFrame {
+    pub vertices: Vec<u8>,
+    pub indices: Vec<u8>,
+    pub batches: Vec<DrawBatch>,
+}
+
+impl RenderFrame {
+    pub fn new() -> Self {
+        Self {
+            vertices: Vec::with_capacity(65536),
+            indices: Vec::with_capacity(65536),
+            batches: Vec::with_capacity(16),
+        }
+    }
+
+    pub fn push_batch(&mut self, batch: DrawBatch) {
+        self.batches.push(batch);
     }
 }
 

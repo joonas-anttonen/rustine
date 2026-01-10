@@ -3,6 +3,7 @@
 mod input;
 //use input::{Action, Key, KeyEvent, Mods};
 
+use crate::gfx::Vector2u;
 use crate::gfx::{self, presentation, vulkan as vk};
 use crate::{debug, warning};
 
@@ -172,8 +173,25 @@ impl Gui {
 
     pub fn wait_events_timeout(&self, timeout_ms: u32) {
         unsafe {
-            ffi::panic_if_error(ffi::rwlWaitEventsTimeout(timeout_ms as u64 * 1000u64 * 1000u64 ));
+            ffi::panic_if_error(ffi::rwlWaitEventsTimeout(
+                timeout_ms as u64 * 1000u64 * 1000u64,
+            ));
         }
+    }
+
+    pub fn pixel_size(&self) -> Vector2u {
+        let mut width: u32 = 0;
+        let mut height: u32 = 0;
+        
+        unsafe {
+            ffi::panic_if_error(ffi::rwlGetPixelSize(
+                self.rwl_window,
+                &mut width,
+                &mut height,
+            ));
+        }
+
+        Vector2u::new(width, height)
     }
 
     unsafe extern "C" fn rwl_pixel_size_callback(window: ffi::RwlWindow, width: u32, height: u32) {
