@@ -10,6 +10,9 @@ pub use version::Version;
 use crate::gfx::Status;
 use std::{sync::Arc, sync::Mutex, sync::atomic};
 
+pub type Vector2u = nalgebra::Vector2<u32>;
+pub type Vector2f = nalgebra::Vector2<f32>;
+
 /// Internal library state
 struct State {
     _gfx: Arc<Mutex<gfx::Core>>,
@@ -84,7 +87,7 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, shutdown_signal: Arc<atomic::
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rustine_startup(startup_parameters: *const ffi::StartupParameters) -> i32 {
+extern "C" fn rustine_startup(startup_parameters: *const ffi::StartupParameters) -> i32 {
     let mut state = STATE.lock().unwrap();
     if state.is_some() {
         return Status::InvalidOperation(-1).to_code();
@@ -138,7 +141,7 @@ pub extern "C" fn rustine_startup(startup_parameters: *const ffi::StartupParamet
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rustine_shutdown() -> i32 {
+extern "C" fn rustine_shutdown() -> i32 {
     match STATE.lock() {
         Ok(mut locked_state) => {
             if let Some(state) = locked_state.take() {
@@ -153,7 +156,7 @@ pub extern "C" fn rustine_shutdown() -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rustine_gfx_initialize_presentation(
+extern "C" fn rustine_gfx_initialize_presentation(
     _params: *const gfx::presentation::Parameters,
 ) -> i32 {
     unimplemented!()

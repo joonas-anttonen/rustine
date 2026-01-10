@@ -1,5 +1,6 @@
+use rustine::*;
 use rustine::{debug, error, info};
-use rustine::{gfx, gfx::*, gui, io, log::*, version::Version};
+use rustine::{gfx, gui, io, log::*, version::Version};
 
 #[cfg(unix)]
 use libc;
@@ -62,12 +63,24 @@ fn main() {
             host_name: "rustine-app".to_string(),
         };
 
-        let gfx_core = match gfx::Core::builder(params).select_optimal_device().build() {
+        let mut gfx_core = match gfx::Core::builder(params).select_optimal_device().build() {
             Ok(core) => core,
             Err(e) => {
                 error!("Failed to build gfx::Core: {}", e);
                 return;
             }
+        };
+
+        // Create a dynamic image handle used for rendering
+        let display_image_dynamic = gfx_core.create_dynamic_image();
+
+        // Load a test image on the main thread to exercise staging
+        let display_image_static = if let Some(initial_image) =
+            load_webp_image(Path::new("/home/jant/pictures/hmm/0yzhnmy0.webp"))
+        {
+            gfx_core.create_image(initial_image)
+        } else {
+            gfx::Image::default()
         };
 
         let image_mailbox = gfx_core.image_mailbox();
@@ -91,11 +104,19 @@ fn main() {
                 gfx_thread_function(Arc::clone(&gfx), &EXIT_FLAG);
             });
 
-            s.spawn(|| {
-                image_loader_thread(image_mailbox, &EXIT_FLAG);
+            let image_mailbox_cloned = Arc::clone(&image_mailbox);
+            let display_image_id = display_image_dynamic.id;
+            s.spawn(move || {
+                image_loader_thread(image_mailbox_cloned, display_image_id, &EXIT_FLAG);
             });
 
-            gui_thread_function(&gui, render_mailbox, &EXIT_FLAG);
+            gui_thread_function(
+                &gui,
+                render_mailbox,
+                display_image_static,
+                display_image_dynamic,
+                &EXIT_FLAG,
+            );
 
             EXIT_FLAG.store(true, atomic::Ordering::Relaxed);
         });
@@ -104,7 +125,13 @@ fn main() {
     info!("SHUTDOWN");
 }
 
-fn gui_thread_function(gui: &gui::Gui, render_mailbox: Arc<Mutex<VecDeque<gfx::RenderFrame>>>, exit_flag: &atomic::AtomicBool) {
+fn gui_thread_function(
+    gui: &gui::Gui,
+    render_mailbox: Arc<Mutex<VecDeque<gfx::RenderFrame>>>,
+    static_image: gfx::Image,
+    dynamic_image: gfx::Image,
+    exit_flag: &atomic::AtomicBool,
+) {
     Log::global().set_current_thread_name("gui-render");
 
     info!("GUI START");
@@ -113,7 +140,7 @@ fn gui_thread_function(gui: &gui::Gui, render_mailbox: Arc<Mutex<VecDeque<gfx::R
         gui.wait_events_timeout(16);
 
         // Generate a render frame with pre-computed vertices and draw commands
-        let frame = generate_render_frame(gui.pixel_size());
+        let frame = generate_render_frame(gui.pixel_size(), &static_image, &dynamic_image);
 
         if let Ok(mut pending) = render_mailbox.lock() {
             pending.push_back(frame);
@@ -123,57 +150,78 @@ fn gui_thread_function(gui: &gui::Gui, render_mailbox: Arc<Mutex<VecDeque<gfx::R
     info!("GUI STOP");
 }
 
-fn generate_render_frame(frame_size: Vector2u) -> gfx::RenderFrame {
+fn generate_render_frame(
+    frame_size: Vector2u,
+    static_image: &gfx::Image,
+    dynamic_image: &gfx::Image,
+) -> gfx::RenderFrame {
     let mut frame = gfx::RenderFrame::new();
 
-    // Build a simple fullscreen quad with the dynamic image (ID 0)
-    // Vertices are in screen coordinates (0 to width/height)
-    // Shader will transform to NDC space during vertex processing
-    // Vertices: 4 corners (position: 2xf32, uv: 2xf32, color: u32)
-    let mut vertices_bytes = Vec::new();
-    let color = 0xFFFFFFFFu32;
+    // Build two fullscreen quads: static on left, dynamic on right
+    let w = frame_size.x as f32;
+    let h = frame_size.y as f32;
+    let half_w = w / 2.0;
+    let color = 0xFFFF_FFFFu32;
 
-    // Screen coordinates: fullscreen quad (0,0) to (1920, 1080)
-    // Vertex 0: (0, 0), uv (0, 0), color white
-    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&color.to_le_bytes());
+    // Left side: static image
+    let left_vertices: Vec<gfx::GpuVertex> = vec![
+        gfx::GpuVertex {
+            position: Vector2f::new(0.0, 0.0),
+            texture: Vector2f::new(0.0, 0.0),
+            color,
+        },
+        gfx::GpuVertex {
+            position: Vector2f::new(half_w, 0.0),
+            texture: Vector2f::new(1.0, 0.0),
+            color,
+        },
+        gfx::GpuVertex {
+            position: Vector2f::new(half_w, h),
+            texture: Vector2f::new(1.0, 1.0),
+            color,
+        },
+        gfx::GpuVertex {
+            position: Vector2f::new(0.0, h),
+            texture: Vector2f::new(0.0, 1.0),
+            color,
+        },
+    ];
 
-    // Vertex 1: (1920, 0), uv (1, 0)
-    vertices_bytes.extend_from_slice(&(frame_size.x as f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(1.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&color.to_le_bytes());
+    // Right side: dynamic image
+    let right_vertices: Vec<gfx::GpuVertex> = vec![
+        gfx::GpuVertex {
+            position: Vector2f::new(half_w, 0.0),
+            texture: Vector2f::new(0.0, 0.0),
+            color,
+        },
+        gfx::GpuVertex {
+            position: Vector2f::new(w, 0.0),
+            texture: Vector2f::new(1.0, 0.0),
+            color,
+        },
+        gfx::GpuVertex {
+            position: Vector2f::new(w, h),
+            texture: Vector2f::new(1.0, 1.0),
+            color,
+        },
+        gfx::GpuVertex {
+            position: Vector2f::new(half_w, h),
+            texture: Vector2f::new(0.0, 1.0),
+            color,
+        },
+    ];
 
-    // Vertex 2: (1920, 1080), uv (1, 1)
-    vertices_bytes.extend_from_slice(&(frame_size.x as f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(frame_size.y as f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(1.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(1.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&color.to_le_bytes());
+    let mut vertices = left_vertices;
+    vertices.extend(right_vertices);
+    let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
 
-    // Vertex 3: (0, 1080), uv (0, 1)
-    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(frame_size.y as f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(0.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&(1.0_f32).to_le_bytes());
-    vertices_bytes.extend_from_slice(&color.to_le_bytes());
+    frame.vertices = vertices;
+    frame.indices = indices;
 
-    // Indices: two triangles (0, 1, 2, 0, 2, 3)
-    let mut indices_bytes = Vec::new();
-    for idx in &[0u32, 1, 2, 0, 2, 3] {
-        indices_bytes.extend_from_slice(&idx.to_le_bytes());
-    }
-
-    frame.vertices = vertices_bytes;
-    frame.indices = indices_bytes;
-
-    // Create a single batch with a draw command for the quad
+    // Create a batch with two draw commands
     let mut batch = gfx::DrawBatch::new();
-    batch.push_command(gfx::DrawCommand::new(0, 6, Some(0)));
+    batch.push_command(gfx::DrawCommand::new(0, 6, Some(static_image.id)));
+    batch.push_command(gfx::DrawCommand::new(6, 6, Some(dynamic_image.id)));
 
     frame.push_batch(batch);
 
@@ -196,7 +244,11 @@ fn format_duration(seconds: f64) -> String {
     }
 }
 
-fn image_loader_thread(mailbox: Arc<Mutex<std::collections::VecDeque<io::Image>>>, exit_flag: &atomic::AtomicBool) {
+fn image_loader_thread(
+    mailbox: Arc<Mutex<std::collections::VecDeque<(u32, io::Image)>>>,
+    target_image_id: u32,
+    exit_flag: &atomic::AtomicBool,
+) {
     Log::global().set_current_thread_name("image-loader");
 
     let pictures_root = std::env::var("HOME")
@@ -216,7 +268,7 @@ fn image_loader_thread(mailbox: Arc<Mutex<std::collections::VecDeque<io::Image>>
         let path = &images[index % images.len()];
         if let Some(image) = load_webp_image(path) {
             if let Ok(mut pending) = mailbox.lock() {
-                pending.push_back(image);
+                pending.push_back((target_image_id, image));
             }
         }
 

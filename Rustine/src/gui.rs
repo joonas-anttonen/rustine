@@ -3,7 +3,7 @@
 mod input;
 //use input::{Action, Key, KeyEvent, Mods};
 
-use crate::gfx::Vector2u;
+use crate::*;
 use crate::gfx::{self, presentation, vulkan as vk};
 use crate::{debug, warning};
 

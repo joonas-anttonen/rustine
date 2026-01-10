@@ -24,17 +24,54 @@ pub use compiler::*;
 pub mod pipeline;
 pub use pipeline::*;
 
+use crate::*;
+
 use crate::version::Version;
 
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
 
-pub type Vector2u = nalgebra::Vector2<u32>;
-pub type Vector2f = nalgebra::Vector2<f32>;
-
 pub struct Image {
-    width: u32,
-    height: u32,
-    id: u32,
+    pub width: u32,
+    pub height: u32,
+    pub id: u32,
+    released_images: std::sync::Weak<std::sync::Mutex<std::collections::VecDeque<u32>>>,
+}
+
+impl Drop for Image {
+    fn drop(&mut self) {
+        if let Some(mailbox) = self.released_images.upgrade() {
+            if let Ok(mut queue) = mailbox.lock() {
+                queue.push_back(self.id);
+            }
+        }
+    }
+}
+
+impl Default for Image {
+    fn default() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            id: u32::MAX,
+            released_images: std::sync::Weak::new(),
+        }
+    }
+}
+
+impl Image {
+    pub(crate) fn new(
+        id: u32,
+        width: u32,
+        height: u32,
+        released_images: std::sync::Weak<std::sync::Mutex<std::collections::VecDeque<u32>>>,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            id,
+            released_images,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +113,7 @@ pub struct DrawCommand {
     pub index_offset: u32,
     /// Number of indices to draw.
     pub index_count: u32,
-    /// Optional image/texture ID to bind (None = use dynamic image).
+    /// Optional image/texture ID to bind.
     pub image_id: Option<u32>,
     /// Scissor rectangle for this draw; None means fullscreen.
     pub scissor: Option<Rectangle>,
@@ -116,11 +153,19 @@ impl DrawBatch {
     }
 }
 
+#[repr(C)]
+#[derive(Clone)]
+pub struct GpuVertex {
+    pub position: Vector2f,
+    pub texture: Vector2f,
+    pub color: u32,
+}
+
 /// Pre-computed render frame: all vertices and indices are pre-built by UI thread.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RenderFrame {
-    pub vertices: Vec<u8>,
-    pub indices: Vec<u8>,
+    pub vertices: Vec<GpuVertex>,
+    pub indices: Vec<u32>,
     pub batches: Vec<DrawBatch>,
 }
 

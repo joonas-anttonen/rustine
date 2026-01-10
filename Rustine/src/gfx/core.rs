@@ -5,30 +5,18 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 struct TestData {
-    test_pixel_buffer: Arc<PixelBuffer>,
-    test_pixel_format: Format,
     target_frame: Option<Arc<PixelBuffer>>,
     test_vertex_buffer: Arc<MemoryBuffer>,
     test_index_buffer: Arc<MemoryBuffer>,
-    upload_pool: Vec<UploadBuffer>,
-    upload_cursor: usize,
     pending_upload: Option<PendingUpload>,
     test_sampler: Arc<Sampler>,
     test_pipeline: Arc<Pipeline>,
-    test_vertex_data: Vec<GpuVertex>,
-    test_index_data: Vec<u32>,
 }
 
-struct UploadBuffer {
+struct PendingUpload {
     buffer: Arc<MemoryBuffer>,
-    capacity: usize,
-}
-
-#[repr(C)]
-struct GpuVertex {
-    position: Vector2f,
-    texture: Vector2f,
-    color: u32,
+    target: Arc<PixelBuffer>,
+    image_id: u32,
 }
 
 #[repr(C)]
@@ -38,13 +26,6 @@ struct PerCommand {
     sdf_range: f32,
 }
 
-struct PendingUpload {
-    buffer: Arc<MemoryBuffer>,
-    width: u32,
-    height: u32,
-    format: Format,
-}
-
 /// The core graphics subsystem, managing Vulkan initialization and device selection.
 ///
 /// `Core` encapsulates a Vulkan instance and a selected physical device.
@@ -52,11 +33,13 @@ struct PendingUpload {
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Core {
     test_data: TestData,
-    pending_images: Arc<Mutex<VecDeque<io::Image>>>,
+    pending_images: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
+    pending_image_uploads: VecDeque<(u32, io::Image)>,
     render_commands: Arc<Mutex<VecDeque<RenderFrame>>>,
     cached_render_frame: Option<RenderFrame>,
     next_image_id: u32,
-    pixel_buffers: HashMap<u32, Option<PixelBuffer>>,
+    pixel_buffers: HashMap<u32, Arc<PixelBuffer>>,
+    released_images: Arc<Mutex<VecDeque<u32>>>,
     queue: Queue,
     allocator: Arc<allocator::Allocator>,
     device: Arc<Device>,
@@ -82,49 +65,6 @@ impl Core {
         device: Arc<Device>,
         allocator: Arc<allocator::Allocator>,
     ) -> Self {
-        // Load data from /home/jant/pictures/hmm/0yzhnmy0.webp
-        let webp_raw_data = std::fs::read("/home/jant/pictures/hmm/0yzhnmy0.webp")
-            .expect("Failed to load WebP file");
-        let mut webp_decoder =
-            crate::io::webp::WebPDecoder::new(&webp_raw_data).expect("Failed to decode WebP file");
-        let webp_width = webp_decoder.width();
-        let webp_height = webp_decoder.height();
-        let mut webp_frame_data = vec![0u8; (webp_width * webp_height * 4) as usize];
-        let _ = webp_decoder
-            .next_frame(&mut webp_frame_data)
-            .expect("Failed to decode WebP frame");
-
-        const UPLOAD_POOL_SIZE: usize = 3;
-        let mut upload_pool = Vec::with_capacity(UPLOAD_POOL_SIZE);
-        for _ in 0..UPLOAD_POOL_SIZE {
-            let buffer = allocator
-                .create_memory_buffer(
-                    webp_frame_data.len(),
-                    buffer::MemoryUsage::TRANSFER_SRC,
-                    buffer::MemoryAccess::WRITE,
-                )
-                .unwrap();
-            upload_pool.push(UploadBuffer {
-                capacity: webp_frame_data.len(),
-                buffer: Arc::new(buffer),
-            });
-        }
-        upload_pool[0].buffer.write(&webp_frame_data);
-
-        let test_pixel_buffer = allocator
-            .create_pixel_buffer(
-                Format::R8G8B8A8_UNORM,
-                webp_width,
-                webp_height,
-                ImageUsage::SAMPLED
-                    | ImageUsage::COLOR_ATTACHMENT
-                    | ImageUsage::TRANSFER_DST
-                    | ImageUsage::TRANSFER_SRC,
-                ImageAspect::COLOR,
-                Samples::X1,
-            )
-            .unwrap();
-
         let test_sampler = Sampler::new(
             device.clone(),
             Filter::Linear,
@@ -233,26 +173,13 @@ impl Core {
             )
             .unwrap();
 
-        let pending_upload = Some(PendingUpload {
-            buffer: Arc::clone(&upload_pool[0].buffer),
-            width: webp_width,
-            height: webp_height,
-            format: Format::R8G8B8A8_UNORM,
-        });
-
         let test_data = TestData {
-            test_pixel_buffer: Arc::new(test_pixel_buffer),
-            test_pixel_format: Format::R8G8B8A8_UNORM,
             target_frame: None,
             test_sampler: Arc::new(test_sampler),
             test_pipeline: Arc::new(test_pipeline),
             test_vertex_buffer: Arc::new(test_vertex_buffer),
             test_index_buffer: Arc::new(test_index_buffer),
-            upload_pool,
-            upload_cursor: 1,
-            pending_upload,
-            test_vertex_data: Vec::with_capacity(4096),
-            test_index_data: Vec::with_capacity(4096),
+            pending_upload: None,
         };
 
         let command_queue = Queue::new(&device, 4);
@@ -266,9 +193,11 @@ impl Core {
             queue: command_queue,
             pixel_buffers: HashMap::new(),
             pending_images: Arc::new(Mutex::new(VecDeque::new())),
+            pending_image_uploads: VecDeque::new(),
             render_commands: Arc::new(Mutex::new(VecDeque::new())),
             cached_render_frame: None,
             next_image_id: 0,
+            released_images: Arc::new(Mutex::new(VecDeque::new())),
             frame_cpu_times: RingBuffer::new(120),
         }
     }
@@ -318,134 +247,6 @@ impl Core {
         self.queue.drop_presenter();
     }
 
-    pub fn image_mailbox(&self) -> Arc<Mutex<VecDeque<io::Image>>> {
-        Arc::clone(&self.pending_images)
-    }
-
-    pub fn submit_image(&self, io_image: io::Image) {
-        if let Ok(mut pending) = self.pending_images.lock() {
-            pending.push_back(io_image);
-        }
-    }
-
-    pub fn render_mailbox(&self) -> Arc<Mutex<VecDeque<RenderFrame>>> {
-        Arc::clone(&self.render_commands)
-    }
-
-    pub fn submit_render_frame(&self, frame: RenderFrame) {
-        if let Ok(mut pending) = self.render_commands.lock() {
-            pending.push_back(frame);
-        }
-    }
-
-    pub fn clear_render_commands(&mut self) {
-        self.cached_render_frame = None;
-        if let Ok(mut pending) = self.render_commands.lock() {
-            pending.clear();
-        }
-    }
-
-    fn acquire_upload_buffer(&mut self, required_size: usize) -> Arc<MemoryBuffer> {
-        if self.test_data.upload_pool.is_empty() {
-            let buffer = self
-                .allocator
-                .create_memory_buffer(
-                    required_size,
-                    buffer::MemoryUsage::TRANSFER_SRC,
-                    buffer::MemoryAccess::WRITE,
-                )
-                .unwrap();
-            self.test_data.upload_pool.push(UploadBuffer {
-                buffer: Arc::new(buffer),
-                capacity: required_size,
-            });
-            self.test_data.upload_cursor = 0;
-        }
-
-        let index = self.test_data.upload_cursor % self.test_data.upload_pool.len();
-        if self.test_data.upload_pool[index].capacity < required_size {
-            let buffer = self
-                .allocator
-                .create_memory_buffer(
-                    required_size,
-                    buffer::MemoryUsage::TRANSFER_SRC,
-                    buffer::MemoryAccess::WRITE,
-                )
-                .unwrap();
-            self.test_data.upload_pool[index] = UploadBuffer {
-                buffer: Arc::new(buffer),
-                capacity: required_size,
-            };
-        }
-
-        let upload_buffer = Arc::clone(&self.test_data.upload_pool[index].buffer);
-        self.test_data.upload_cursor = (self.test_data.upload_cursor + 1) % self.test_data.upload_pool.len();
-        upload_buffer
-    }
-
-    fn ensure_test_pixel_buffer(&mut self, width: u32, height: u32, format: Format) {
-        let needs_recreate =
-            self.test_data.test_pixel_buffer.width() != width
-                || self.test_data.test_pixel_buffer.height() != height
-                || self.test_data.test_pixel_format != format;
-
-        if needs_recreate {
-            let pixel_buffer = self
-                .allocator
-                .create_pixel_buffer(
-                    format,
-                    width,
-                    height,
-                    ImageUsage::SAMPLED
-                        | ImageUsage::COLOR_ATTACHMENT
-                        | ImageUsage::TRANSFER_DST
-                        | ImageUsage::TRANSFER_SRC,
-                    ImageAspect::COLOR,
-                    Samples::X1,
-                )
-                .unwrap();
-            self.test_data.test_pixel_buffer = Arc::new(pixel_buffer);
-            self.test_data.test_pixel_format = format;
-        }
-    }
-
-    fn stage_incoming_images(&mut self) {
-        let next_image = {
-            let mut pending = self.pending_images.lock().unwrap();
-            let image = pending.pop_back();
-            pending.clear();
-            image
-        };
-
-        if let Some(io_image) = next_image {
-            let upload_buffer = self.acquire_upload_buffer(io_image.data.len());
-            upload_buffer.write(&io_image.data);
-
-            self.ensure_test_pixel_buffer(io_image.width, io_image.height, io_image.format);
-
-            self.test_data.pending_upload = Some(PendingUpload {
-                buffer: upload_buffer,
-                width: io_image.width,
-                height: io_image.height,
-                format: io_image.format,
-            });
-        }
-    }
-
-    pub fn create_image(&mut self, io_image: io::Image) -> Image {
-        let image = Image {
-            width: io_image.width,
-            height: io_image.height,
-            id: self.next_image_id,
-        };
-        self.next_image_id += 1;
-        if let Ok(mut pending) = self.pending_images.lock() {
-            pending.push_back(io_image);
-        }
-        self.pixel_buffers.insert(image.id, None);
-        image
-    }
-
     pub fn initialize_swapchain(&mut self, parameters: presentation::Parameters) {
         let swapchain_size = Vector2u::new(parameters.width, parameters.height);
 
@@ -472,120 +273,130 @@ impl Core {
         Pipeline::new(self.device.clone(), &parameters).unwrap()
     }
 
-    fn push_image(&mut self, image: Image, rect: Rectangle, fit: Fit, color: u32) {
-        let image_extent = Vector2f::new(image.width as f32, image.height as f32);
-        let mut uv0 = Vector2f::new(0.0, 0.0);
-        let mut uv1 = Vector2f::new(1.0, 1.0);
+    pub fn create_image(&mut self, io_image: io::Image) -> Image {
+        let image_id = self.next_image_id;
+        self.next_image_id += 1;
 
-        let final_image_position;
-        let mut final_image_extent;
-
-        match fit {
-            Fit::NONE => {
-                final_image_position = rect.position();
-                final_image_extent = rect.extent();
-
-                uv0.x = rect.x / image_extent.x;
-                uv0.y = rect.y / image_extent.y;
-                uv1.x = (rect.x + rect.w) / image_extent.x;
-                uv1.y = (rect.y + rect.h) / image_extent.y;
-            }
-            Fit::FILL => {
-                final_image_position = rect.position();
-                final_image_extent = rect.extent();
-            }
-            Fit::FILL_KEEP_ASPECT_RATIO => {
-                let horizontal = image_extent.x > image_extent.y;
-                let scale = if horizontal {
-                    rect.h / image_extent.y
-                } else {
-                    rect.w / image_extent.x
-                };
-                final_image_extent = image_extent * scale;
-                
-                // Calculate UV coordinates to crop the oversized dimension
-                let overflow = Vector2f::new(
-                    (final_image_extent.x - rect.extent().x) / final_image_extent.x,
-                    (final_image_extent.y - rect.extent().y) / final_image_extent.y,
-                );
-                uv0 = overflow * 0.5;
-                uv1 = Vector2f::new(1.0, 1.0) - overflow * 0.5;
-                
-                final_image_extent = rect.extent();
-                final_image_position = rect.position();
-            }
-            Fit::FIT_KEEP_ASPECT_RATIO => {
-                let horizontal = image_extent.x > image_extent.y;
-                let scale = if horizontal {
-                    rect.w / image_extent.x
-                } else {
-                    rect.h / image_extent.y
-                };
-                final_image_extent = image_extent * scale;
-                let offset = (rect.extent() - final_image_extent) * 0.5;
-                final_image_position = rect.position() + offset;
-            }
-            Fit::CENTER => {
-                let offset = (rect.extent() - image_extent) * 0.5;
-                final_image_position = rect.position() + offset;
-                final_image_extent = image_extent;
-            }
-        }
-
-        self.push_quad(
-            final_image_position,
-            final_image_position + final_image_extent,
-            uv0,
-            uv1,
-            color,
+        let image = Image::new(
+            image_id,
+            io_image.width,
+            io_image.height,
+            Arc::downgrade(&self.released_images),
         );
+
+        self.create_pixel_buffer_for(image_id, &io_image);
+        self.pending_image_uploads.push_back((image_id, io_image));
+
+        image
     }
 
-    fn push_quad(&mut self, a: Vector2f, c: Vector2f, a_uv: Vector2f, c_uv: Vector2f, color: u32) {
-        let vertices = &mut self.test_data.test_vertex_data;
-        let indices = &mut self.test_data.test_index_data;
+    pub fn create_dynamic_image(&mut self) -> Image {
+        let image_id = self.next_image_id;
+        self.next_image_id += 1;
 
-        let start_index = vertices.len() as u32;
-        indices.push(start_index + 0);
-        indices.push(start_index + 1);
-        indices.push(start_index + 2);
-        indices.push(start_index + 0);
-        indices.push(start_index + 2);
-        indices.push(start_index + 3);
+        Image::new(image_id, 0, 0, Arc::downgrade(&self.released_images))
+    }
 
-        let b = Vector2f::new(c.x, a.y);
-        let d = Vector2f::new(a.x, c.y);
-        let b_uv = Vector2f::new(c_uv.x, a_uv.y);
-        let d_uv = Vector2f::new(a_uv.x, c_uv.y);
+    pub fn image_mailbox(&self) -> Arc<Mutex<VecDeque<(u32, io::Image)>>> {
+        Arc::clone(&self.pending_images)
+    }
 
-        vertices.push(GpuVertex {
-            position: a,
-            texture: a_uv,
-            color,
-        });
-        vertices.push(GpuVertex {
-            position: b,
-            texture: b_uv,
-            color,
-        });
-        vertices.push(GpuVertex {
-            position: c,
-            texture: c_uv,
-            color,
-        });
-        vertices.push(GpuVertex {
-            position: d,
-            texture: d_uv,
-            color,
-        });
+    pub fn submit_image(&self, image_id: u32, io_image: io::Image) {
+        if let Ok(mut pending) = self.pending_images.lock() {
+            pending.push_back((image_id, io_image));
+        }
+    }
+
+    pub fn render_mailbox(&self) -> Arc<Mutex<VecDeque<RenderFrame>>> {
+        Arc::clone(&self.render_commands)
+    }
+
+    pub fn submit_render_frame(&self, frame: RenderFrame) {
+        if let Ok(mut pending) = self.render_commands.lock() {
+            pending.push_back(frame);
+        }
+    }
+
+    pub fn clear_render_commands(&mut self) {
+        self.cached_render_frame = None;
+        if let Ok(mut pending) = self.render_commands.lock() {
+            pending.clear();
+        }
+    }
+
+    fn acquire_upload_buffer(&mut self, required_size: usize) -> Arc<MemoryBuffer> {
+        let buffer = self
+            .allocator
+            .create_memory_buffer(
+                required_size,
+                buffer::MemoryUsage::TRANSFER_SRC,
+                buffer::MemoryAccess::WRITE,
+            )
+            .unwrap();
+        Arc::new(buffer)
+    }
+
+    fn drain_released_images(&mut self) {
+        if let Ok(mut released) = self.released_images.lock() {
+            while let Some(image_id) = released.pop_front() {
+                warning!("Releasing image: {}", image_id);
+
+                self.pixel_buffers.remove(&image_id);
+                // Also remove from pending uploads if not yet staged
+                self.pending_image_uploads.retain(|(id, _)| *id != image_id);
+            }
+        }
+    }
+
+    fn stage_incoming_images(&mut self) {
+        // Consume paired image submissions and stage uploads
+        if let Some((image_id, io_image)) = {
+            let mut pending = self.pending_images.lock().unwrap();
+            pending.pop_front()
+        } {
+            self.create_pixel_buffer_for(image_id, &io_image);
+            self.pending_image_uploads.push_back((image_id, io_image));
+        }
+
+        if let Some((image_id, io_image)) = self.pending_image_uploads.pop_front() {
+            let upload_buffer = self.acquire_upload_buffer(io_image.data.len());
+            upload_buffer.write(&io_image.data);
+
+            if let Some(target_buffer) = self.pixel_buffers.get(&image_id) {
+                self.test_data.pending_upload = Some(PendingUpload {
+                    buffer: upload_buffer,
+                    target: Arc::clone(target_buffer),
+                    image_id,
+                });
+            }
+        }
+    }
+
+    fn create_pixel_buffer_for(&mut self, image_id: u32, io_image: &io::Image) {
+        let pixel_buffer = self
+            .allocator
+            .create_pixel_buffer(
+                io_image.format,
+                io_image.width,
+                io_image.height,
+                ImageUsage::SAMPLED
+                    | ImageUsage::COLOR_ATTACHMENT
+                    | ImageUsage::TRANSFER_DST
+                    | ImageUsage::TRANSFER_SRC,
+                ImageAspect::COLOR,
+                Samples::X1,
+            )
+            .unwrap();
+
+        let pixel_buffer = Arc::new(pixel_buffer);
+        self.pixel_buffers.insert(image_id, pixel_buffer);
     }
 
     pub fn render(&mut self, _t: f64, _dt: f32) {
         let frame_start = std::time::Instant::now();
 
-        self.next_frame();
-        self.test_data.test_vertex_data.clear();
-        self.test_data.test_index_data.clear();
+        // Drain any released images before staging new ones
+        self.drain_released_images();
 
         let target_frame = match self.test_data.target_frame.as_ref() {
             Some(frame) => Arc::clone(frame),
@@ -604,42 +415,19 @@ impl Core {
             }
         }
 
-        if let Some(frame) = &self.cached_render_frame {
-            // Update vertex and index buffers with pre-computed data from UI
-            if !frame.vertices.is_empty() {
-                self.test_data.test_vertex_buffer.write(&frame.vertices);
-            }
-            if !frame.indices.is_empty() {
-                self.test_data.test_index_buffer.write(&frame.indices);
-            }
-        } else {
-            // Fallback: render the dynamic image (compute vertices on the fly)
-            self.test_data.test_vertex_data.clear();
-            self.test_data.test_index_data.clear();
-            self.push_image(
-                Image {
-                    width: self.test_data.test_pixel_buffer.width(),
-                    height: self.test_data.test_pixel_buffer.height(),
-                    id: 0,
-                },
-                Rectangle {
-                    x: 0.0,
-                    y: 0.0,
-                    w: target_frame.width() as f32,
-                    h: target_frame.height() as f32,
-                },
-                Fit::FIT_KEEP_ASPECT_RATIO,
-                0xFFFFFFFFu32,
-            );
-            self.test_data
-                .test_vertex_buffer
-                .write(&self.test_data.test_vertex_data);
-            self.test_data
-                .test_index_buffer
-                .write(&self.test_data.test_index_data);
+        let frame = match &self.cached_render_frame {
+            Some(f) => f,
+            None => return,
+        };
+
+        // Update vertex and index buffers with pre-computed data from UI
+        if !frame.vertices.is_empty() {
+            self.test_data.test_vertex_buffer.write(&frame.vertices);
+        }
+        if !frame.indices.is_empty() {
+            self.test_data.test_index_buffer.write(&frame.indices);
         }
 
-        let test_pixel_buffer = Arc::clone(&self.test_data.test_pixel_buffer);
         let pending_upload = self.test_data.pending_upload.take();
         let test_pipeline = Arc::clone(&self.test_data.test_pipeline);
         let test_vertex_buffer = Arc::clone(&self.test_data.test_vertex_buffer);
@@ -647,21 +435,17 @@ impl Core {
         let test_sampler = Arc::clone(&self.test_data.test_sampler);
         let cached_frame = self.cached_render_frame.clone();
         let target_frame_clone = Arc::clone(&target_frame);
+        let pixel_buffers = self.pixel_buffers.clone();
 
         self.queue.enqueue(move |cmd| {
+            // Handle pending uploads to their target buffers
             if let Some(upload) = &pending_upload {
-                cmd.layout_barrier(&test_pixel_buffer, Layout::UNDEFINED, Layout::TRANSFER_DST);
-                cmd.copy_buffer_to_image(&upload.buffer, &test_pixel_buffer);
+                cmd.layout_barrier(&upload.target, Layout::UNDEFINED, Layout::TRANSFER_DST);
+                cmd.copy_buffer_to_image(&upload.buffer, &upload.target);
 
                 cmd.layout_barrier(
-                    &test_pixel_buffer,
+                    &upload.target,
                     Layout::TRANSFER_DST,
-                    Layout::SHADER_READ_ONLY,
-                );
-            } else {
-                cmd.layout_barrier(
-                    &test_pixel_buffer,
-                    Layout::SHADER_READ_ONLY,
                     Layout::SHADER_READ_ONLY,
                 );
             }
@@ -707,16 +491,21 @@ impl Core {
             if let Some(frame) = &cached_frame {
                 for batch in &frame.batches {
                     for draw_cmd in &batch.commands {
-                        let scissor = draw_cmd.scissor.clone().unwrap_or_else(|| render_area.clone());
+                        let scissor = draw_cmd
+                            .scissor
+                            .clone()
+                            .unwrap_or_else(|| render_area.clone());
                         cmd.set_scissor(&scissor);
-                        
-                        cmd.push_pixel_descriptor(&test_pipeline, 0, &test_pixel_buffer, 1, &test_sampler);
+
+                        // Bind texture if available; simply draw without binding if missing
+                        let texture = draw_cmd.image_id.and_then(|id| pixel_buffers.get(&id));
+
+                        if let Some(tex) = texture {
+                            cmd.push_pixel_descriptor(&test_pipeline, 0, tex, 1, &test_sampler);
+                        }
                         cmd.draw_indexed(draw_cmd.index_count, 1, draw_cmd.index_offset, 0, 0);
                     }
                 }
-            } else {
-                // Fallback: no batches (shouldn't happen with current logic, but safe)
-                cmd.set_scissor(&render_area);
             }
 
             cmd.end_rendering();
@@ -737,6 +526,8 @@ impl Core {
         let frame_end = std::time::Instant::now();
         let frame_duration = frame_end.duration_since(frame_start).as_secs_f64();
         self.frame_cpu_times.push(frame_duration);
+
+        self.next_frame();
     }
 }
 
