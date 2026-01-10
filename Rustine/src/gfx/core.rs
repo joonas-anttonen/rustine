@@ -11,7 +11,8 @@ struct TestData {
     test_vertex_buffer: Arc<MemoryBuffer>,
     test_index_buffer: Arc<MemoryBuffer>,
     pending_uploads: VecDeque<PendingUpload>,
-    test_sampler: Arc<Sampler>,
+    linear_sampler: Arc<Sampler>,
+    nearest_sampler: Arc<Sampler>,
     test_pipeline: Arc<Pipeline>,
     fallback_texture: Arc<PixelBuffer>,
 }
@@ -69,11 +70,19 @@ impl Core {
         device: Arc<Device>,
         allocator: Arc<allocator::Allocator>,
     ) -> Self {
-        let test_sampler = Sampler::new(
+        let linear_sampler = Sampler::new(
             device.clone(),
             Filter::Linear,
-            SamplerAddressMode::Repeat,
-            SamplerBorderColor::FloatOpaqueBlack,
+            SamplerAddressMode::ClampToBorder,
+            SamplerBorderColor::FloatTransparentBlack,
+        )
+        .unwrap();
+
+        let nearest_sampler = Sampler::new(
+            device.clone(),
+            Filter::Nearest,
+            SamplerAddressMode::ClampToBorder,
+            SamplerBorderColor::FloatOpaqueWhite,
         )
         .unwrap();
 
@@ -155,7 +164,7 @@ impl Core {
                 Descriptor::new(1, DescriptorType::Sampler, Stage::FRAGMENT),
             ],
             attachments: vec![Attachment::new(
-                Format::B8G8R8A8_UNORM,
+                Format::R8G8B8A8_UNORM,
                 AttachmentBlend::straight_alpha_blend(),
             )],
         };
@@ -213,7 +222,8 @@ impl Core {
 
         let test_data = TestData {
             target_frame: None,
-            test_sampler: Arc::new(test_sampler),
+            linear_sampler: Arc::new(linear_sampler),
+            nearest_sampler: Arc::new(nearest_sampler),
             test_pipeline: Arc::new(test_pipeline),
             test_vertex_buffer: Arc::new(test_vertex_buffer),
             test_index_buffer: Arc::new(test_index_buffer),
@@ -298,7 +308,7 @@ impl Core {
         let target_frame = self
             .allocator
             .create_pixel_buffer(
-                Format::B8G8R8A8_UNORM,
+                Format::R8G8B8A8_UNORM,
                 swapchain_size.x,
                 swapchain_size.y,
                 ImageUsage::SAMPLED
@@ -424,12 +434,17 @@ impl Core {
 
     fn create_pixel_buffer_for(&mut self, image_id: u32, io_image: &io::Image) {
         // Check if we already have a pixel buffer with the same dimensions and format
-        if let Some(existing) = self
+        if self
             .pixel_buffers
-            .values()
-            .find(|pb| pb.width() == io_image.width && pb.height() == io_image.height)
+            .iter()
+            .find(|(id, pb)| {
+                *id == &image_id
+                    && pb.width() == io_image.width
+                    && pb.height() == io_image.height
+                    && pb.format() == io_image.format
+            })
+            .is_some()
         {
-            self.pixel_buffers.insert(image_id, Arc::clone(existing));
             return;
         }
 
@@ -518,7 +533,8 @@ impl Core {
         let test_pipeline = Arc::clone(&self.test_data.test_pipeline);
         let test_vertex_buffer = Arc::clone(&self.test_data.test_vertex_buffer);
         let test_index_buffer = Arc::clone(&self.test_data.test_index_buffer);
-        let test_sampler = Arc::clone(&self.test_data.test_sampler);
+        let linear_sampler = Arc::clone(&self.test_data.linear_sampler);
+        let nearest_sampler = Arc::clone(&self.test_data.nearest_sampler);
         let cached_frame = Some(frame);
         let target_frame_clone = Arc::clone(&target_frame);
         let pixel_buffers = self.pixel_buffers.clone();
@@ -575,6 +591,8 @@ impl Core {
                             .unwrap_or_else(|| render_area.clone());
                         cmd.set_scissor(&scissor);
 
+                        let mut sampler = linear_sampler.clone();
+
                         // In short, image_id being Some indicates intention that this is
                         // a textured draw. If no image with that id exists (or otherwise invalid),
                         // try the fallback in the same manner.
@@ -591,13 +609,14 @@ impl Core {
                                     })
                                 })
                         } else {
+                            sampler = nearest_sampler.clone();
                             pixel_buffers
                                 .get(&FALLBACK_TEXTURE_ID)
                                 .and_then(|t| t.is_defined().then(|| t))
                         };
 
                         if let Some(texture) = texture {
-                            cmd.push_pixel_descriptor(&test_pipeline, 0, texture, 1, &test_sampler);
+                            cmd.push_pixel_descriptor(&test_pipeline, 0, texture, 1, &sampler);
                             cmd.draw_indexed(draw_cmd.index_count, 1, draw_cmd.index_offset, 0, 0);
                         }
                     }
@@ -791,10 +810,10 @@ struct fragment_input
 
 float4 UnpackColor(uint packed)
 {
-    float r = (float)(packed & 0xFF) / 255.0f;
-    float g = (float)((packed >> 8) & 0xFF) / 255.0f;
-    float b = (float)((packed >> 16) & 0xFF) / 255.0f;
-    float a = (float)((packed >> 24) & 0xFF) / 255.0f;
+    float a = (float)(packed & 0xFF) / 255.0f;
+    float b = (float)((packed >> 8) & 0xFF) / 255.0f;
+    float g = (float)((packed >> 16) & 0xFF) / 255.0f;
+    float r = (float)((packed >> 24) & 0xFF) / 255.0f;
     return float4(r, g, b, a);
 }
 

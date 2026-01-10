@@ -377,6 +377,102 @@ impl RenderFrame {
 
         self.push_quad(positions, uvs, color, Some(image.id), fallback_id);
     }
+
+    /// Draw a filled rectangle with the given color.
+    ///
+    /// The rectangle is defined by its outer corners. Draws a single quad covering the entire area.
+    pub fn fill_rectangle(&mut self, rect: &Rectangle, color: u32) {
+        if rect.w <= 0.0 || rect.h <= 0.0 {
+            return;
+        }
+
+        let positions = [
+            Vector2f::new(rect.x, rect.y),
+            Vector2f::new(rect.x + rect.w, rect.y),
+            Vector2f::new(rect.x + rect.w, rect.y + rect.h),
+            Vector2f::new(rect.x, rect.y + rect.h),
+        ];
+
+        let uvs = [
+            Vector2f::new(0.0, 0.0),
+            Vector2f::new(0.0, 0.0),
+            Vector2f::new(0.0, 0.0),
+            Vector2f::new(0.0, 0.0),
+        ];
+
+        self.push_quad(positions, uvs, color, None, None);
+    }
+
+    /// Draw a rectangle outline with the given color and thickness.
+    ///
+    /// The rectangle is defined by its outer corners. The thickness grows inward, meaning the input
+    /// rectangle defines the outer boundary and the stroke is drawn on the interior.
+    ///
+    /// The rectangle is decomposed into 4 quads representing the edges:
+    /// - Top edge covers both top corners
+    /// - Bottom edge covers both bottom corners
+    /// - Left and right edges fill the space between top and bottom
+    ///
+    /// This ensures no overlap at corners, which is important when using transparent colors.
+    pub fn draw_rectangle(&mut self, rect: &Rectangle, thickness: f32, color: u32) {
+        if rect.w <= 0.0 || rect.h <= 0.0 || thickness <= 0.0 {
+            return;
+        }
+
+        let thickness = thickness.min(rect.w / 2.0).min(rect.h / 2.0);
+
+        let x0 = rect.x;
+        let y0 = rect.y;
+        let x1 = rect.x + rect.w;
+        let y1 = rect.y + rect.h;
+        let xi0 = x0 + thickness;
+        let yi0 = y0 + thickness;
+        let xi1 = x1 - thickness;
+        let yi1 = y1 - thickness;
+
+        let uvs = [
+            Vector2f::new(0.0, 0.0),
+            Vector2f::new(0.0, 0.0),
+            Vector2f::new(0.0, 0.0),
+            Vector2f::new(0.0, 0.0),
+        ];
+
+        // Top edge (covers both top corners)
+        let top_positions = [
+            Vector2f::new(x0, y0),
+            Vector2f::new(x1, y0),
+            Vector2f::new(x1, yi0),
+            Vector2f::new(x0, yi0),
+        ];
+        self.push_quad(top_positions, uvs, color, None, None);
+
+        // Bottom edge (covers both bottom corners)
+        let bottom_positions = [
+            Vector2f::new(x0, yi1),
+            Vector2f::new(x1, yi1),
+            Vector2f::new(x1, y1),
+            Vector2f::new(x0, y1),
+        ];
+        self.push_quad(bottom_positions, uvs, color, None, None);
+
+        // Left edge (between top and bottom)
+        let left_positions = [
+            Vector2f::new(x0, yi0),
+            Vector2f::new(xi0, yi0),
+            Vector2f::new(xi0, yi1),
+            Vector2f::new(x0, yi1),
+        ];
+        self.push_quad(left_positions, uvs, color, None, None);
+
+        // Right edge (between top and bottom)
+        let right_positions = [
+            Vector2f::new(xi1, yi0),
+            Vector2f::new(x1, yi0),
+            Vector2f::new(x1, yi1),
+            Vector2f::new(xi1, yi1),
+        ];
+        self.push_quad(right_positions, uvs, color, None, None);
+    }
 }
 
 #[derive(Debug)]

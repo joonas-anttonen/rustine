@@ -667,7 +667,7 @@ impl AttachmentBlend {
     pub fn straight_alpha_blend() -> Self {
         Self {
             blend_enable: 1,
-            src_color_blend_factor: BlendFactor::One,
+            src_color_blend_factor: BlendFactor::SrcAlpha,
             dst_color_blend_factor: BlendFactor::OneMinusSrcAlpha,
             color_blend_op: BlendOp::Add,
             src_alpha_blend_factor: BlendFactor::One,

@@ -174,20 +174,71 @@ fn generate_render_frame(
 ) -> gfx::RenderFrame {
     let mut frame = gfx::RenderFrame::new();
 
-    // Build two fullscreen quads: static on left, dynamic on right
     let w = frame_size.x as f32;
     let h = frame_size.y as f32;
-    let half_w = w / 2.0;
-    let color = 0xFFFF_FFFFu32;
 
+    const TOP_BAR_HEIGHT: f32 = 48.0;
+    const SIDE_BAR_WIDTH: f32 = 48.0;
+    const ADDRESS_BAR_HEIGHT: f32 = 32.0;
+    const ADDRESS_BAR_MARGIN: f32 = 8.0;
+
+    let content_x = SIDE_BAR_WIDTH;
+    let content_y = TOP_BAR_HEIGHT;
+    let content_w = w - SIDE_BAR_WIDTH;
+    let content_h = h - TOP_BAR_HEIGHT;
+    let half_content_w = content_w / 2.0;
+
+    let color = 0xFFFFFF_FFu32;
+    let bar_color = 0x1B232F_FFu32;
+    let address_bar_color = 0xFFFFFF7Fu32;
+
+    // Draw top bar (48 pixels tall)
+    frame.fill_rectangle(
+        &gfx::Rectangle {
+            x: 0.0,
+            y: 0.0,
+            w,
+            h: TOP_BAR_HEIGHT,
+        },
+        bar_color,
+    );
+
+    // Draw side bar (48 pixels wide)
+    frame.fill_rectangle(
+        &gfx::Rectangle {
+            x: 0.0,
+            y: TOP_BAR_HEIGHT,
+            w: SIDE_BAR_WIDTH,
+            h: content_h,
+        },
+        bar_color,
+    );
+
+    // Draw address bar (32 pixels tall, centered on top bar with margin)
+    let address_bar_x = content_x + ADDRESS_BAR_MARGIN;
+    let address_bar_y = (TOP_BAR_HEIGHT - ADDRESS_BAR_HEIGHT) / 2.0;
+    let address_bar_w = content_w - ADDRESS_BAR_MARGIN * 2.0;
+
+    frame.draw_rectangle(
+        &gfx::Rectangle {
+            x: address_bar_x,
+            y: address_bar_y,
+            w: address_bar_w,
+            h: ADDRESS_BAR_HEIGHT,
+        },
+        2.0,
+        address_bar_color,
+    );
+
+    // Draw images in content area (avoiding the edge bars)
     frame.push_image(
         static_image,
         None,
         gfx::Rectangle {
-            x: 0.0,
-            y: 0.0,
-            w: half_w,
-            h,
+            x: content_x,
+            y: content_y,
+            w: half_content_w,
+            h: content_h,
         },
         gfx::Fit::FIT_KEEP_ASPECT,
         color,
@@ -197,14 +248,15 @@ fn generate_render_frame(
         dynamic_image,
         Some(fallback_image),
         gfx::Rectangle {
-            x: half_w,
-            y: 0.0,
-            w: half_w,
-            h,
+            x: content_x + half_content_w,
+            y: content_y,
+            w: half_content_w,
+            h: content_h,
         },
         gfx::Fit::FIT_KEEP_ASPECT,
         color,
     );
+
     frame
 }
 
