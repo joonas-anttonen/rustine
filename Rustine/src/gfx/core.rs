@@ -4,13 +4,16 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+const FALLBACK_TEXTURE_ID: u32 = u32::MAX;
+
 struct TestData {
     target_frame: Option<Arc<PixelBuffer>>,
     test_vertex_buffer: Arc<MemoryBuffer>,
     test_index_buffer: Arc<MemoryBuffer>,
-    pending_upload: Option<PendingUpload>,
+    pending_uploads: VecDeque<PendingUpload>,
     test_sampler: Arc<Sampler>,
     test_pipeline: Arc<Pipeline>,
+    fallback_texture: Arc<PixelBuffer>,
 }
 
 struct PendingUpload {
@@ -46,6 +49,7 @@ pub struct Core {
     instance: Instance,
     frame_n: u64,
     frame_cpu_times: RingBuffer<f64>,
+    max_uploads_per_frame: usize,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -173,16 +177,54 @@ impl Core {
             )
             .unwrap();
 
+        // Create fallback texture: 1x1 white pixel
+        let fallback_pixel_data = [0xFFu8, 0xFFu8, 0xFFu8, 0xFFu8]; // RGBA white
+        let fallback_upload = allocator
+            .create_memory_buffer(
+                4,
+                buffer::MemoryUsage::TRANSFER_SRC,
+                buffer::MemoryAccess::WRITE,
+            )
+            .unwrap();
+        fallback_upload.write(&fallback_pixel_data);
+
+        let fallback_texture_buffer = allocator
+            .create_pixel_buffer(
+                Format::R8G8B8A8_UNORM,
+                1,
+                1,
+                ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+                ImageAspect::COLOR,
+                Samples::X1,
+            )
+            .unwrap();
+        let fallback_texture = Arc::new(fallback_texture_buffer);
+
+        // Set up fallback texture to be uploaded in first render
+        let fallback_texture_clone = Arc::clone(&fallback_texture);
+        let pending_fallback = PendingUpload {
+            buffer: Arc::new(fallback_upload),
+            target: fallback_texture_clone,
+            image_id: FALLBACK_TEXTURE_ID,
+        };
+
+        let mut pending_uploads = VecDeque::new();
+        pending_uploads.push_back(pending_fallback);
+
         let test_data = TestData {
             target_frame: None,
             test_sampler: Arc::new(test_sampler),
             test_pipeline: Arc::new(test_pipeline),
             test_vertex_buffer: Arc::new(test_vertex_buffer),
             test_index_buffer: Arc::new(test_index_buffer),
-            pending_upload: None,
+            pending_uploads,
+            fallback_texture,
         };
 
         let command_queue = Queue::new(&device, 4);
+
+        let mut pixel_buffers = HashMap::new();
+        pixel_buffers.insert(FALLBACK_TEXTURE_ID, Arc::clone(&test_data.fallback_texture));
 
         Core {
             instance,
@@ -191,7 +233,7 @@ impl Core {
             test_data,
             frame_n: 0,
             queue: command_queue,
-            pixel_buffers: HashMap::new(),
+            pixel_buffers,
             pending_images: Arc::new(Mutex::new(VecDeque::new())),
             pending_image_uploads: VecDeque::new(),
             render_commands: Arc::new(Mutex::new(VecDeque::new())),
@@ -199,6 +241,7 @@ impl Core {
             next_image_id: 0,
             released_images: Arc::new(Mutex::new(VecDeque::new())),
             frame_cpu_times: RingBuffer::new(120),
+            max_uploads_per_frame: 4,
         }
     }
 
@@ -358,25 +401,34 @@ impl Core {
             self.pending_image_uploads.push_back((image_id, io_image));
         }
 
-        if let Some((image_id, io_image)) = self.pending_image_uploads.pop_front() {
-            let upload_buffer = self.acquire_upload_buffer(io_image.data.len());
-            upload_buffer.write(&io_image.data);
+        // Process pending uploads up to max_uploads_per_frame
+        let mut uploads_processed = 0;
+        while uploads_processed < self.max_uploads_per_frame {
+            if let Some((image_id, io_image)) = self.pending_image_uploads.pop_front() {
+                let upload_buffer = self.acquire_upload_buffer(io_image.data.len());
+                upload_buffer.write(&io_image.data);
 
-            if let Some(target_buffer) = self.pixel_buffers.get(&image_id) {
-                self.test_data.pending_upload = Some(PendingUpload {
-                    buffer: upload_buffer,
-                    target: Arc::clone(target_buffer),
-                    image_id,
-                });
+                if let Some(target_buffer) = self.pixel_buffers.get(&image_id) {
+                    self.test_data.pending_uploads.push_back(PendingUpload {
+                        buffer: upload_buffer,
+                        target: Arc::clone(target_buffer),
+                        image_id,
+                    });
+                }
+                uploads_processed += 1;
+            } else {
+                break;
             }
         }
     }
 
     fn create_pixel_buffer_for(&mut self, image_id: u32, io_image: &io::Image) {
         // Check if we already have a pixel buffer with the same dimensions and format
-        if let Some(existing) = self.pixel_buffers.values().find(|pb| {
-            pb.width() == io_image.width && pb.height() == io_image.height
-        }) {
+        if let Some(existing) = self
+            .pixel_buffers
+            .values()
+            .find(|pb| pb.width() == io_image.width && pb.height() == io_image.height)
+        {
             self.pixel_buffers.insert(image_id, Arc::clone(existing));
             return;
         }
@@ -436,7 +488,7 @@ impl Core {
             self.test_data.test_index_buffer.write(&frame.indices);
         }
 
-        let pending_upload = self.test_data.pending_upload.take();
+        let pending_uploads = std::mem::take(&mut self.test_data.pending_uploads);
         let test_pipeline = Arc::clone(&self.test_data.test_pipeline);
         let test_vertex_buffer = Arc::clone(&self.test_data.test_vertex_buffer);
         let test_index_buffer = Arc::clone(&self.test_data.test_index_buffer);
@@ -446,27 +498,19 @@ impl Core {
         let pixel_buffers = self.pixel_buffers.clone();
 
         self.queue.enqueue(move |cmd| {
-            // Handle pending uploads to their target buffers
-            if let Some(upload) = &pending_upload {
-                cmd.layout_barrier(&upload.target, Layout::UNDEFINED, Layout::TRANSFER_DST);
+            // Handle all pending uploads to their target buffers
+            for upload in &pending_uploads {
+                cmd.layout_barrier(&upload.target, Layout::TRANSFER_DST);
                 cmd.copy_buffer_to_image(&upload.buffer, &upload.target);
 
-                cmd.layout_barrier(
-                    &upload.target,
-                    Layout::TRANSFER_DST,
-                    Layout::SHADER_READ_ONLY,
-                );
+                cmd.layout_barrier(&upload.target, Layout::SHADER_READ_ONLY);
             }
 
-            cmd.layout_barrier(&target_frame, Layout::UNDEFINED, Layout::TRANSFER_DST);
+            cmd.layout_barrier(&target_frame, Layout::TRANSFER_DST);
 
             cmd.clear_pixel_buffer(&target_frame, &[0f32, 0f32, 0f32, 0f32]);
 
-            cmd.layout_barrier(
-                &target_frame,
-                Layout::TRANSFER_DST,
-                Layout::COLOR_ATTACHMENT,
-            );
+            cmd.layout_barrier(&target_frame, Layout::COLOR_ATTACHMENT);
 
             let render_area = Rectangle {
                 x: 0.0,
@@ -505,30 +549,40 @@ impl Core {
                             .unwrap_or_else(|| render_area.clone());
                         cmd.set_scissor(&scissor);
 
-                        // Bind texture if available; simply draw without binding if missing
-                        let texture = draw_cmd.image_id.and_then(|id| pixel_buffers.get(&id));
-
-                        if let Some(tex) = texture {
-                            cmd.push_pixel_descriptor(&test_pipeline, 0, tex, 1, &test_sampler);
+                        // Get texture, use fallback if not available
+                        let texture_id = draw_cmd.image_id.unwrap_or(FALLBACK_TEXTURE_ID);
+                        if let Some(texture) = pixel_buffers.get(&texture_id) {
+                            if texture.layout() != Layout::UNDEFINED {
+                                cmd.push_pixel_descriptor(
+                                    &test_pipeline,
+                                    0,
+                                    texture,
+                                    1,
+                                    &test_sampler,
+                                );
+                                cmd.draw_indexed(
+                                    draw_cmd.index_count,
+                                    1,
+                                    draw_cmd.index_offset,
+                                    0,
+                                    0,
+                                );
+                            }
                         }
-                        cmd.draw_indexed(draw_cmd.index_count, 1, draw_cmd.index_offset, 0, 0);
                     }
                 }
             }
 
             cmd.end_rendering();
 
-            cmd.layout_barrier(
-                &target_frame,
-                Layout::COLOR_ATTACHMENT,
-                Layout::TRANSFER_SRC,
-            );
+            cmd.layout_barrier(&target_frame, Layout::TRANSFER_SRC);
         });
 
         self.queue.enqueue_present(move |cmd, present_image| {
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
             cmd.blit_to_present(&target_frame_clone, present_image, Filter::Linear);
             cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
+            target_frame_clone.set_layout(Layout::PRESENT_SRC_KHR);
         });
 
         let frame_end = std::time::Instant::now();

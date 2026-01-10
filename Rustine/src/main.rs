@@ -252,8 +252,8 @@ fn image_loader_thread(
     Log::global().set_current_thread_name("image-loader");
 
     let pictures_root = std::env::var("HOME")
-        .map(|h| PathBuf::from(h).join("pictures"))
-        .unwrap_or_else(|_| PathBuf::from("/home/jant/pictures"));
+        .map(|h| PathBuf::from(h).join("pictures").join("hmm"))
+        .unwrap_or_else(|_| PathBuf::from("/home/jant/pictures/nsfw"));
 
     let images = collect_webp_images(&pictures_root);
     if images.is_empty() {
@@ -266,11 +266,7 @@ fn image_loader_thread(
     let mut index = 0usize;
     while !exit_flag.load(atomic::Ordering::Relaxed) {
         let path = &images[index % images.len()];
-        if let Some(image) = load_webp_image(path) {
-            if let Ok(mut pending) = mailbox.lock() {
-                pending.push_back((target_image_id, image));
-            }
-        }
+        load_and_display_webp(path, target_image_id, &mailbox, &EXIT_FLAG);
 
         index = index.wrapping_add(1);
 
@@ -281,6 +277,108 @@ fn image_loader_thread(
             slept += step;
         }
     }
+}
+
+fn load_and_display_webp(
+    path: &Path,
+    target_image_id: u32,
+    mailbox: &Arc<Mutex<std::collections::VecDeque<(u32, io::Image)>>>,
+    exit_flag: &atomic::AtomicBool,
+) {
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+
+    let mut decoder = match rustine::io::webp::WebPDecoder::new(&data) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+
+    let width = decoder.width();
+    let height = decoder.height();
+    let frame_count = decoder.frame_count();
+
+    if frame_count == 0 {
+        return;
+    }
+
+    // If single frame, load it normally
+    if frame_count == 1 {
+        let mut frame = vec![0u8; (width * height * 4) as usize];
+        if decoder.next_frame(&mut frame).is_ok() {
+            if let Ok(mut pending) = mailbox.lock() {
+                pending.push_back((
+                    target_image_id,
+                    io::Image {
+                        width,
+                        height,
+                        format: gfx::Format::R8G8B8A8_UNORM,
+                        data: frame,
+                    },
+                ));
+            }
+        }
+        return;
+    }
+
+    // Multi-frame animation: present all frames with their timings
+    let mut prev_timestamp = 0u32;
+    loop {
+        let mut frame = vec![0u8; (width * height * 4) as usize];
+        match decoder.next_frame(&mut frame) {
+            Ok(timestamp_ms) => {
+                if let Ok(mut pending) = mailbox.lock() {
+                    pending.push_back((
+                        target_image_id,
+                        io::Image {
+                            width,
+                            height,
+                            format: gfx::Format::R8G8B8A8_UNORM,
+                            data: frame,
+                        },
+                    ));
+                }
+
+                // Calculate frame duration and sleep
+                let frame_duration = timestamp_ms.saturating_sub(prev_timestamp);
+                if frame_duration > 0 {
+                    let duration = std::time::Duration::from_millis(frame_duration as u64);
+                    let mut remaining = duration;
+                    while remaining > std::time::Duration::from_millis(0)
+                        && !exit_flag.load(atomic::Ordering::Relaxed)
+                    {
+                        let step = std::time::Duration::from_millis(50).min(remaining);
+                        std::thread::sleep(step);
+                        remaining = remaining.saturating_sub(step);
+                    }
+                }
+
+                prev_timestamp = timestamp_ms;
+
+                if exit_flag.load(atomic::Ordering::Relaxed) {
+                    return;
+                }
+            }
+            Err(_) => break, // End of frames
+        }
+    }
+}
+
+fn load_webp_image(path: &Path) -> Option<io::Image> {
+    let data = std::fs::read(path).ok()?;
+    let mut decoder = rustine::io::webp::WebPDecoder::new(&data).ok()?;
+    let width = decoder.width();
+    let height = decoder.height();
+    let mut frame = vec![0u8; (width * height * 4) as usize];
+    decoder.next_frame(&mut frame).ok()?;
+
+    Some(io::Image {
+        width,
+        height,
+        format: gfx::Format::R8G8B8A8_UNORM,
+        data: frame,
+    })
 }
 
 fn collect_webp_images(root: &Path) -> Vec<PathBuf> {
@@ -304,22 +402,6 @@ fn collect_webp_images(root: &Path) -> Vec<PathBuf> {
     recurse(&mut files, root);
     files.sort();
     files
-}
-
-fn load_webp_image(path: &Path) -> Option<io::Image> {
-    let data = std::fs::read(path).ok()?;
-    let mut decoder = rustine::io::webp::WebPDecoder::new(&data).ok()?;
-    let width = decoder.width();
-    let height = decoder.height();
-    let mut frame = vec![0u8; (width * height * 4) as usize];
-    decoder.next_frame(&mut frame).ok()?;
-
-    Some(io::Image {
-        width,
-        height,
-        format: gfx::Format::R8G8B8A8_UNORM,
-        data: frame,
-    })
 }
 
 fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, exit_flag: &atomic::AtomicBool) {

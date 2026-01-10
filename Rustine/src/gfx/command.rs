@@ -723,11 +723,12 @@ impl CommandBuffer {
     pub fn layout_barrier(
         &mut self,
         buffer: &Arc<PixelBuffer>,
-        old_layout: Layout,
         new_layout: Layout,
     ) {
+        let old_layout = buffer.layout();
         self.pixel_buffers_in_use.insert(buffer.clone());
         self.raw_image_barrier(buffer.image(), old_layout, new_layout);
+        buffer.set_layout(new_layout);
     }
 
     fn raw_image_barrier(&self, image: vk::VkImage, old_layout: Layout, new_layout: Layout) {

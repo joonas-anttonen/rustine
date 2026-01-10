@@ -241,6 +241,18 @@ impl Format {
 }
 
 pub struct Layout(vk::VkImageLayout);
+impl Copy for Layout {}
+impl Clone for Layout {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl PartialEq for Layout {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl Eq for Layout {}
 impl Layout {
     /// Careful with this layout: when transitioning from UNDEFINED, the contents of the image are not guaranteed to be preserved.
     pub const UNDEFINED: Self = Self(vk::VkImageLayout::UNDEFINED);
@@ -257,6 +269,35 @@ impl Layout {
     }
     pub fn from_vk(layout: vk::VkImageLayout) -> Self {
         Self(layout)
+    }
+    /// Returns the raw u32 value for atomic storage.
+    pub fn to_raw_u32(&self) -> u32 {
+        // VkImageLayout is VkImageLayout(u32), so we need to reconstruct from the vk::VkImageLayout
+        match self.0 {
+            vk::VkImageLayout::UNDEFINED => 0,
+            vk::VkImageLayout::GENERAL => 1,
+            vk::VkImageLayout::COLOR_ATTACHMENT_OPTIMAL => 2,
+            vk::VkImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => 3,
+            vk::VkImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL => 4,
+            vk::VkImageLayout::SHADER_READ_ONLY_OPTIMAL => 5,
+            vk::VkImageLayout::TRANSFER_SRC_OPTIMAL => 6,
+            vk::VkImageLayout::TRANSFER_DST_OPTIMAL => 7,
+            _ => 0,
+        }
+    }
+    /// Converts a raw u32 value back to Layout (from atomic storage).
+    pub fn from_raw_u32(val: u32) -> Self {
+        match val {
+            0 => Self::UNDEFINED,
+            1 => Self::GENERAL,
+            2 => Self::COLOR_ATTACHMENT,
+            3 => Self::DEPTH_ATTACHMENT,
+            4 => Self(vk::VkImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL),
+            5 => Self::SHADER_READ_ONLY,
+            6 => Self::TRANSFER_SRC,
+            7 => Self::TRANSFER_DST,
+            _ => Self::UNDEFINED,
+        }
     }
 }
 

@@ -5,6 +5,7 @@ use crate::warning;
 use crate::{gfx::allocator, gfx::vulkan as vk};
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct PixelBuffer {
     width: u32,
@@ -14,6 +15,7 @@ pub struct PixelBuffer {
     image_view: vk::VkImageView,
     allocation: allocator::VmaAllocation,
     allocator: Arc<allocator::Allocator>,
+    layout: AtomicU32,
 }
 
 impl Eq for PixelBuffer {}
@@ -60,6 +62,7 @@ impl PixelBuffer {
             width,
             height,
             format,
+            layout: AtomicU32::new(crate::gfx::Layout::UNDEFINED.to_raw_u32()),
         }
     }
 
@@ -77,6 +80,17 @@ impl PixelBuffer {
 
     pub fn height(&self) -> u32 {
         self.height
+    }
+
+    /// Returns the current layout of the image.
+    pub fn layout(&self) -> crate::gfx::Layout {
+        let raw = self.layout.load(Ordering::Acquire);
+        crate::gfx::Layout::from_raw_u32(raw)
+    }
+
+    /// Sets the current layout of the image. Called after barrier operations.
+    pub fn set_layout(&self, layout: crate::gfx::Layout) {
+        self.layout.store(layout.to_raw_u32(), Ordering::Release);
     }
 }
 
