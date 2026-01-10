@@ -139,15 +139,13 @@ fn gui_thread_function(
     gui: &gui::Gui,
     render_mailbox: Arc<Mutex<VecDeque<gfx::RenderFrame>>>,
     static_image: gfx::Image,
-    mut dynamic_image: gfx::Image,
+    dynamic_image: gfx::Image,
     fallback_image: gfx::Image,
     exit_flag: &atomic::AtomicBool,
 ) {
     Log::global().set_current_thread_name("gui-render");
 
     info!("GUI START");
-
-    let mut soft_drop_instant = std::time::Instant::now();
 
     while !exit_flag.load(atomic::Ordering::Relaxed) && !gui.should_close() {
         gui.wait_events_timeout(16);
@@ -159,11 +157,6 @@ fn gui_thread_function(
             &dynamic_image,
             &fallback_image,
         );
-
-        if soft_drop_instant.elapsed() >= std::time::Duration::from_secs(2) {
-            dynamic_image.soft_drop();
-            soft_drop_instant = std::time::Instant::now();
-        }
 
         if let Ok(mut pending) = render_mailbox.lock() {
             pending.push_back(frame);
@@ -196,7 +189,7 @@ fn generate_render_frame(
             w: half_w,
             h,
         },
-        gfx::Fit::FIT_KEEP_ASPECT_RATIO,
+        gfx::Fit::FIT_KEEP_ASPECT,
         color,
     );
 
@@ -209,7 +202,7 @@ fn generate_render_frame(
             w: half_w,
             h,
         },
-        gfx::Fit::FIT_KEEP_ASPECT_RATIO,
+        gfx::Fit::FIT_KEEP_ASPECT,
         color,
     );
     frame
@@ -249,9 +242,6 @@ fn image_loader_thread(
     }
 
     const SLIDE_DELAY: std::time::Duration = std::time::Duration::from_millis(1500);
-
-    // TESTING: Delay several seconds on purpose
-    std::thread::sleep(std::time::Duration::from_secs(3));
 
     let mut index = 0usize;
     while !exit_flag.load(atomic::Ordering::Relaxed) {

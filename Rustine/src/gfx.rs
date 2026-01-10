@@ -93,9 +93,9 @@ pub enum Fit {
     /// Fits the content such that it fills the container, preserving aspect ratio.
     ///
     /// Will crop the content if necessary.
-    FILL_KEEP_ASPECT_RATIO,
+    FILL_KEEP_ASPECT,
     /// Fits the content such that it is fully visible within the container, preserving aspect ratio.
-    FIT_KEEP_ASPECT_RATIO,
+    FIT_KEEP_ASPECT,
     CENTER,
 }
 
@@ -179,12 +179,87 @@ pub struct GpuVertex {
     pub color: u32,
 }
 
+/// Descriptor for an image quad that requires dynamic fitting based on actual pixel buffer size.
+#[derive(Debug, Clone)]
+pub struct ImageDescriptor {
+    pub image_id: u32,
+    pub fallback_id: Option<u32>,
+    pub layout: Rectangle,
+    pub fit: Fit,
+    pub color: u32,
+    /// Index into vertices where this quad starts (4 vertices per quad).
+    pub vertex_offset: u32,
+}
+
+/// Computes fitted quad positions and UVs based on image dimensions, layout, and fit mode.
+/// Returns (positions, uvs) where positions are the 4 corners and uvs are texture coordinates.
+fn compute_fit(
+    img_w: f32,
+    img_h: f32,
+    layout: &Rectangle,
+    fit: Fit,
+) -> ([Vector2f; 4], [Vector2f; 4]) {
+    let layout_w = layout.w;
+    let layout_h = layout.h;
+
+    let mut pos_origin = Vector2f::new(layout.x, layout.y);
+    let mut size = Vector2f::new(layout_w, layout_h);
+    let mut uv_min = Vector2f::new(0.0, 0.0);
+    let mut uv_max = Vector2f::new(1.0, 1.0);
+
+    match fit {
+        Fit::NONE => {}
+        Fit::CENTER => {
+            size = Vector2f::new(img_w, img_h);
+            pos_origin.x += (layout_w - size.x) * 0.5;
+            pos_origin.y += (layout_h - size.y) * 0.5;
+        }
+        Fit::FIT_KEEP_ASPECT => {
+            let scale = (layout_w / img_w).min(layout_h / img_h);
+            size = Vector2f::new(img_w * scale, img_h * scale);
+            pos_origin.x += (layout_w - size.x) * 0.5;
+            pos_origin.y += (layout_h - size.y) * 0.5;
+        }
+        Fit::FILL_KEEP_ASPECT => {
+            let scale = (layout_w / img_w).max(layout_h / img_h);
+            let scaled_w = img_w * scale;
+            let scaled_h = img_h * scale;
+
+            let excess_w = (scaled_w - layout_w).max(0.0) * 0.5;
+            let excess_h = (scaled_h - layout_h).max(0.0) * 0.5;
+
+            uv_min.x = (excess_w / scaled_w).clamp(0.0, 0.5);
+            uv_max.x = 1.0 - uv_min.x;
+            uv_min.y = (excess_h / scaled_h).clamp(0.0, 0.5);
+            uv_max.y = 1.0 - uv_min.y;
+        }
+    }
+
+    let positions = [
+        pos_origin,
+        Vector2f::new(pos_origin.x + size.x, pos_origin.y),
+        Vector2f::new(pos_origin.x + size.x, pos_origin.y + size.y),
+        Vector2f::new(pos_origin.x, pos_origin.y + size.y),
+    ];
+
+    let uvs = [
+        Vector2f::new(uv_min.x, uv_min.y),
+        Vector2f::new(uv_max.x, uv_min.y),
+        Vector2f::new(uv_max.x, uv_max.y),
+        Vector2f::new(uv_min.x, uv_max.y),
+    ];
+
+    (positions, uvs)
+}
+
 /// Pre-computed render frame: all vertices and indices are pre-built by UI thread.
 #[derive(Clone)]
 pub struct RenderFrame {
     pub vertices: Vec<GpuVertex>,
     pub indices: Vec<u32>,
     pub batches: Vec<DrawBatch>,
+    /// Descriptors for quads that need dynamic refitting based on pixel buffer dimensions.
+    pub image_descriptors: Vec<ImageDescriptor>,
 }
 
 impl RenderFrame {
@@ -193,6 +268,7 @@ impl RenderFrame {
             vertices: Vec::with_capacity(65536),
             indices: Vec::with_capacity(65536),
             batches: Vec::with_capacity(16),
+            image_descriptors: Vec::with_capacity(64),
         }
     }
 
@@ -281,65 +357,22 @@ impl RenderFrame {
             return;
         }
 
+        let vertex_offset = self.vertices.len() as u32;
+
+        // Store descriptor for dynamic fitting during render
+        self.image_descriptors.push(ImageDescriptor {
+            image_id: image.id,
+            fallback_id: fallback_image.map(|f| f.id),
+            layout: layout.clone(),
+            fit,
+            color,
+            vertex_offset,
+        });
+
         let img_w = image.width.max(1) as f32;
         let img_h = image.height.max(1) as f32;
 
-        let layout_w = layout.w;
-        let layout_h = layout.h;
-
-        // Default: stretch to fill
-        let mut pos_origin = Vector2f::new(layout.x, layout.y);
-        let mut size = Vector2f::new(layout_w, layout_h);
-        let mut uv_min = Vector2f::new(0.0, 0.0);
-        let mut uv_max = Vector2f::new(1.0, 1.0);
-
-        match fit {
-            Fit::NONE => {
-                // already set to layout
-            }
-            Fit::CENTER => {
-                size = Vector2f::new(img_w, img_h);
-                pos_origin.x += (layout_w - size.x) * 0.5;
-                pos_origin.y += (layout_h - size.y) * 0.5;
-            }
-            Fit::FIT_KEEP_ASPECT_RATIO => {
-                let scale = (layout_w / img_w).min(layout_h / img_h);
-                size = Vector2f::new(img_w * scale, img_h * scale);
-                pos_origin.x += (layout_w - size.x) * 0.5;
-                pos_origin.y += (layout_h - size.y) * 0.5;
-            }
-            Fit::FILL_KEEP_ASPECT_RATIO => {
-                let scale = (layout_w / img_w).max(layout_h / img_h);
-                let scaled_w = img_w * scale;
-                let scaled_h = img_h * scale;
-
-                // Crop by adjusting UVs while using full layout as target
-                let excess_w = (scaled_w - layout_w).max(0.0) * 0.5;
-                let excess_h = (scaled_h - layout_h).max(0.0) * 0.5;
-
-                uv_min.x = (excess_w / scaled_w).clamp(0.0, 0.5);
-                uv_max.x = 1.0 - uv_min.x;
-                uv_min.y = (excess_h / scaled_h).clamp(0.0, 0.5);
-                uv_max.y = 1.0 - uv_min.y;
-
-                // keep pos/size to layout
-            }
-        }
-
-        let positions = [
-            pos_origin,
-            Vector2f::new(pos_origin.x + size.x, pos_origin.y),
-            Vector2f::new(pos_origin.x + size.x, pos_origin.y + size.y),
-            Vector2f::new(pos_origin.x, pos_origin.y + size.y),
-        ];
-
-        let uvs = [
-            Vector2f::new(uv_min.x, uv_min.y),
-            Vector2f::new(uv_max.x, uv_min.y),
-            Vector2f::new(uv_max.x, uv_max.y),
-            Vector2f::new(uv_min.x, uv_max.y),
-        ];
-
+        let (positions, uvs) = compute_fit(img_w, img_h, &layout, Fit::NONE); // No fitting during push_image
         let fallback_id = fallback_image.map(|f| f.id);
 
         self.push_quad(positions, uvs, color, Some(image.id), fallback_id);

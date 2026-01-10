@@ -452,6 +452,29 @@ impl Core {
         self.pixel_buffers.insert(image_id, pixel_buffer);
     }
 
+    fn preprocess_render_frame(&self, frame: &mut RenderFrame) {
+        for desc in &frame.image_descriptors {
+            let pixel_buffer = self.pixel_buffers.get(&desc.image_id);
+            let (img_w, img_h) = if let Some(pb) = pixel_buffer {
+                (pb.width().max(1) as f32, pb.height().max(1) as f32)
+            } else {
+                // Fallback or default size
+                (1.0, 1.0)
+            };
+
+            let (positions, uvs) = compute_fit(img_w, img_h, &desc.layout, desc.fit);
+
+            let offset = desc.vertex_offset as usize;
+            if offset + 3 < frame.vertices.len() {
+                for i in 0..4 {
+                    frame.vertices[offset + i].position = positions[i];
+                    frame.vertices[offset + i].texture = uvs[i];
+                    frame.vertices[offset + i].color = desc.color;
+                }
+            }
+        }
+    }
+
     pub fn render(&mut self, _t: f64, _dt: f32) {
         let frame_start = std::time::Instant::now();
 
@@ -475,10 +498,13 @@ impl Core {
             }
         }
 
-        let frame = match &self.cached_render_frame {
+        let mut frame = match self.cached_render_frame.clone() {
             Some(f) => f,
             None => return,
         };
+
+        // Preprocess: update vertices for images with dynamic fitting based on actual pixel buffer sizes
+        self.preprocess_render_frame(&mut frame);
 
         // Update vertex and index buffers with pre-computed data from UI
         if !frame.vertices.is_empty() {
@@ -493,7 +519,7 @@ impl Core {
         let test_vertex_buffer = Arc::clone(&self.test_data.test_vertex_buffer);
         let test_index_buffer = Arc::clone(&self.test_data.test_index_buffer);
         let test_sampler = Arc::clone(&self.test_data.test_sampler);
-        let cached_frame = self.cached_render_frame.clone();
+        let cached_frame = Some(frame);
         let target_frame_clone = Arc::clone(&target_frame);
         let pixel_buffers = self.pixel_buffers.clone();
 
