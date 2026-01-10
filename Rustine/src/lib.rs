@@ -2,6 +2,7 @@ pub mod gfx;
 pub mod gui;
 pub mod io;
 pub mod log;
+pub mod alloc;
 mod ringbuffer;
 pub use ringbuffer::RingBuffer;
 pub mod version;

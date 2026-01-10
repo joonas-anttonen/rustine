@@ -276,6 +276,23 @@ fn format_duration(seconds: f64) -> String {
     }
 }
 
+fn format_bytes_iec(bytes: usize) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut idx = 0usize;
+    while value >= 1024.0 && idx < UNITS.len() - 1 {
+        value /= 1024.0;
+        idx += 1;
+    }
+    if idx == 0 {
+        format!("{:.0} {}", value, UNITS[idx])
+    } else if value < 10.0 {
+        format!("{:.1} {}", value, UNITS[idx])
+    } else {
+        format!("{:.0} {}", value, UNITS[idx])
+    }
+}
+
 fn image_loader_thread(
     mailbox: Arc<Mutex<std::collections::VecDeque<(u32, io::Image)>>>,
     target_image_id: u32,
@@ -481,6 +498,27 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, exit_flag: &atomic::AtomicBoo
                         format_duration(max as f64),
                         format_duration(mean as f64)
                     );
+                }
+                let (allocs, deallocs) = rustine::alloc::counts();
+                let current = rustine::alloc::current_bytes();
+                let peak = rustine::alloc::peak_bytes();
+                let rss = rustine::alloc::rss_bytes();
+                match rss {
+                    Some(rss_b) => debug!(
+                        "Heap -> current: {}, peak: {}, allocs: {}, deallocs: {} | RSS: {}",
+                        format_bytes_iec(current),
+                        format_bytes_iec(peak),
+                        allocs,
+                        deallocs,
+                        format_bytes_iec(rss_b)
+                    ),
+                    None => debug!(
+                        "Heap -> current: {}, peak: {}, allocs: {}, deallocs: {}",
+                        format_bytes_iec(current),
+                        format_bytes_iec(peak),
+                        allocs,
+                        deallocs
+                    ),
                 }
                 last_stat_instant = stat_now;
             }
