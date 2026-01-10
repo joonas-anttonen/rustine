@@ -257,6 +257,15 @@ fn generate_render_frame(
         color,
     );
 
+    frame.push_text(
+        gfx::fonts::LATIN1_CHARSET,
+        address_bar_x,
+        address_bar_y + 16.0,
+        1.0,
+        color,
+        gfx::FONT_TEXTURE_ID,
+    );
+
     frame
 }
 

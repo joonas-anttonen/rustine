@@ -8,6 +8,7 @@ mod device;
 pub use device::*;
 pub mod vulkan;
 pub use core::Core;
+pub use core::FONT_TEXTURE_ID;
 use std::collections;
 use std::sync;
 pub mod presentation;
@@ -25,6 +26,8 @@ pub mod compiler;
 pub use compiler::*;
 pub mod pipeline;
 pub use pipeline::*;
+
+pub mod fonts;
 
 use crate::*;
 
@@ -376,6 +379,58 @@ impl RenderFrame {
         let fallback_id = fallback_image.map(|f| f.id);
 
         self.push_quad(positions, uvs, color, Some(image.id), fallback_id);
+    }
+
+    /// Render text using the embedded bitmap font.
+    ///
+    /// The text is rendered at the specified position using the given color and scale factor.
+    /// Supports newlines. The font atlas texture must be loaded as an image and passed as `font_image_id`.
+    pub fn push_text(&mut self, text: &str, x: f32, y: f32, scale: f32, color: u32, font_image_id: u32) {
+        let mut cursor_x = x;
+        let mut cursor_y = y;
+        
+        for ch in text.chars() {
+            if ch == '\n' {
+                cursor_x = x;
+                cursor_y += 16.0 * scale;
+                continue;
+            }
+            
+            if let Some(metrics) = fonts::get_glyph(ch) {
+                let glyph_w = metrics.width as f32;
+                let glyph_h = metrics.height as f32;
+                
+                let u0 = metrics.u0;
+                let v0 = metrics.v0;
+                let u1 = metrics.u1;
+                let v1 = metrics.v1;
+                
+                // offset_y is the distance from baseline to top of glyph (negative means above baseline)
+                // We want to position glyphs so cursor_y is the baseline
+                let x0 = cursor_x + metrics.offset_x as f32 * scale;
+                let y1 = cursor_y - metrics.offset_y as f32 * scale;
+                let x1 = x0 + glyph_w * scale;
+                let y0 = y1 - glyph_h * scale;
+                
+                let positions = [
+                    Vector2f::new(x0, y0),
+                    Vector2f::new(x1, y0),
+                    Vector2f::new(x1, y1),
+                    Vector2f::new(x0, y1),
+                ];
+                
+                let uvs = [
+                    Vector2f::new(u0, v0),
+                    Vector2f::new(u1, v0),
+                    Vector2f::new(u1, v1),
+                    Vector2f::new(u0, v1),
+                ];
+                
+                self.push_quad(positions, uvs, color, Some(font_image_id), None);
+                
+                cursor_x += metrics.advance_width as f32 * scale;
+            }
+        }
     }
 
     /// Draw a filled rectangle with the given color.

@@ -38,6 +38,7 @@
 				"Clean",
 				"Build"
 			],
+			"dependsOrder": "sequence",
 			"problemMatcher": [
 				"$rustc"
 			]
