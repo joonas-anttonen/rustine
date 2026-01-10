@@ -10,8 +10,33 @@ pub use version::Version;
 use crate::gfx::Status;
 use std::{sync::Arc, sync::Mutex, sync::atomic};
 
-pub type Vector2u = nalgebra::Vector2<u32>;
-pub type Vector2f = nalgebra::Vector2<f32>;
+pub type Vector2u = Vector2<u32>;
+pub type Vector2f = Vector2<f32>;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Vector2<T> {
+    pub x: T,
+    pub y: T,
+}
+
+impl<T> Vector2<T> {
+    pub fn new(x: T, y: T) -> Self {
+        Self { x, y }
+    }
+}
+
+impl Default for Vector2<u32> {
+    fn default() -> Self {
+        Self { x: 0, y: 0 }
+    }
+}
+
+impl Default for Vector2<f32> {
+    fn default() -> Self {
+        Self { x: 0.0, y: 0.0 }
+    }
+}
 
 /// Internal library state
 struct State {

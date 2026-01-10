@@ -225,6 +225,19 @@ impl Format {
             Format::D32_SFLOAT_S8_UINT => vk::VkFormat::D32_SFLOAT_S8_UINT,
         }
     }
+    pub fn from_vk(format: vk::VkFormat) -> Self {
+        match format {
+            vk::VkFormat::R32_UINT => Format::U32,
+            vk::VkFormat::R32G32_SFLOAT => Format::R32G32_SFLOAT,
+            vk::VkFormat::R32G32B32_SFLOAT => Format::R32G32B32_SFLOAT,
+            vk::VkFormat::R8G8B8A8_UNORM => Format::R8G8B8A8_UNORM,
+            vk::VkFormat::B8G8R8A8_UNORM => Format::B8G8R8A8_UNORM,
+            vk::VkFormat::D32_SFLOAT => Format::D32_SFLOAT,
+            vk::VkFormat::D24_UNORM_S8_UINT => Format::D24_UNORM_S8_UINT,
+            vk::VkFormat::D32_SFLOAT_S8_UINT => Format::D32_SFLOAT_S8_UINT,
+            _ => panic!("Unsupported VkFormat: {:?}", format),
+        }
+    }
 }
 
 pub struct Layout(vk::VkImageLayout);

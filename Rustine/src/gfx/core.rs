@@ -373,6 +373,14 @@ impl Core {
     }
 
     fn create_pixel_buffer_for(&mut self, image_id: u32, io_image: &io::Image) {
+        // Check if we already have a pixel buffer with the same dimensions and format
+        if let Some(existing) = self.pixel_buffers.values().find(|pb| {
+            pb.width() == io_image.width && pb.height() == io_image.height
+        }) {
+            self.pixel_buffers.insert(image_id, Arc::clone(existing));
+            return;
+        }
+
         let pixel_buffer = self
             .allocator
             .create_pixel_buffer(

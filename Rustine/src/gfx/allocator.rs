@@ -233,6 +233,7 @@ impl Allocator {
         Ok(PixelBuffer::new(
             image_create_info.extent.width,
             image_create_info.extent.height,
+            Format::from_vk(image_create_info.format),
             image,
             image_view,
             allocation,
@@ -247,7 +248,7 @@ impl Allocator {
         image_view_create_info: &mut vk::VkImageViewCreateInfo,
     ) -> Result<PixelBuffer> {
         let external_image_create_info = vk::VkExternalMemoryImageCreateInfo {
-            sType: vk::VkStructureType::EXTERNAL_MEMORY_IMAGE_CREATE_INFO as u32,
+            sType: vk::VkStructureType::EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
             pNext: std::ptr::null(),
             handleTypes: vk::VkExternalMemoryHandleTypeFlags::D3D11_TEXTURE_BIT as u32,
         };
@@ -256,7 +257,7 @@ impl Allocator {
             as *const std::ffi::c_void;
 
         let import_memory_win32_info = vk::VkImportMemoryWin32HandleInfoKHR {
-            sType: vk::VkStructureType::IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR as u32,
+            sType: vk::VkStructureType::IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR,
             pNext: std::ptr::null(),
             handleType: vk::VkExternalMemoryHandleTypeFlags::D3D11_TEXTURE_BIT as u32,
             handle: handle as *mut std::ffi::c_void,
@@ -310,6 +311,7 @@ impl Allocator {
         Ok(PixelBuffer::new(
             image_create_info.extent.width,
             image_create_info.extent.height,
+            Format::from_vk(image_create_info.format),
             image,
             image_view,
             allocation,

@@ -2138,7 +2138,7 @@ impl VkClearColorValue {
 
 #[repr(C)]
 pub struct VkImportMemoryWin32HandleInfoKHR {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub handleType: u32,
     pub handle: *const std::ffi::c_void,
@@ -2147,7 +2147,7 @@ pub struct VkImportMemoryWin32HandleInfoKHR {
 
 #[repr(C)]
 pub struct VkMemoryDedicatedAllocateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub image: VkImage,
     pub buffer: VkBuffer,
@@ -2155,7 +2155,7 @@ pub struct VkMemoryDedicatedAllocateInfo {
 
 #[repr(C)]
 pub struct VkExternalMemoryImageCreateInfo {
-    pub sType: u32,
+    pub sType: VkStructureType,
     pub pNext: *const std::ffi::c_void,
     pub handleTypes: u32,
 }

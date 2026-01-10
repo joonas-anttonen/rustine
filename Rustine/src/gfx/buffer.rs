@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub struct PixelBuffer {
     width: u32,
     height: u32,
+    format: crate::gfx::Format,
     image: vk::VkImage,
     image_view: vk::VkImageView,
     allocation: allocator::VmaAllocation,
@@ -45,6 +46,7 @@ impl PixelBuffer {
     pub fn new(
         width: u32,
         height: u32,
+        format: crate::gfx::Format,
         image: vk::VkImage,
         image_view: vk::VkImageView,
         allocation: allocator::VmaAllocation,
@@ -57,6 +59,7 @@ impl PixelBuffer {
             allocator,
             width,
             height,
+            format,
         }
     }
 
