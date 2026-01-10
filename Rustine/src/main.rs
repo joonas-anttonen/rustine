@@ -187,72 +187,31 @@ fn generate_render_frame(
     let half_w = w / 2.0;
     let color = 0xFFFF_FFFFu32;
 
-    // Left side: static image
-    let left_vertices: Vec<gfx::GpuVertex> = vec![
-        gfx::GpuVertex {
-            position: Vector2f::new(0.0, 0.0),
-            texture: Vector2f::new(0.0, 0.0),
-            color,
+    frame.push_image(
+        static_image,
+        None,
+        gfx::Rectangle {
+            x: 0.0,
+            y: 0.0,
+            w: half_w,
+            h,
         },
-        gfx::GpuVertex {
-            position: Vector2f::new(half_w, 0.0),
-            texture: Vector2f::new(1.0, 0.0),
-            color,
-        },
-        gfx::GpuVertex {
-            position: Vector2f::new(half_w, h),
-            texture: Vector2f::new(1.0, 1.0),
-            color,
-        },
-        gfx::GpuVertex {
-            position: Vector2f::new(0.0, h),
-            texture: Vector2f::new(0.0, 1.0),
-            color,
-        },
-    ];
+        gfx::Fit::FIT_KEEP_ASPECT_RATIO,
+        color,
+    );
 
-    // Right side: dynamic image
-    let right_vertices: Vec<gfx::GpuVertex> = vec![
-        gfx::GpuVertex {
-            position: Vector2f::new(half_w, 0.0),
-            texture: Vector2f::new(0.0, 0.0),
-            color,
+    frame.push_image(
+        dynamic_image,
+        Some(fallback_image),
+        gfx::Rectangle {
+            x: half_w,
+            y: 0.0,
+            w: half_w,
+            h,
         },
-        gfx::GpuVertex {
-            position: Vector2f::new(w, 0.0),
-            texture: Vector2f::new(1.0, 0.0),
-            color,
-        },
-        gfx::GpuVertex {
-            position: Vector2f::new(w, h),
-            texture: Vector2f::new(1.0, 1.0),
-            color,
-        },
-        gfx::GpuVertex {
-            position: Vector2f::new(half_w, h),
-            texture: Vector2f::new(0.0, 1.0),
-            color,
-        },
-    ];
-
-    let mut vertices = left_vertices;
-    vertices.extend(right_vertices);
-    let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
-
-    frame.vertices = vertices;
-    frame.indices = indices;
-
-    // Create a batch with two draw commands
-    let mut batch = gfx::DrawBatch::new();
-    batch.push_command(gfx::DrawCommand::new(0, 6, Some(static_image.id), None));
-    batch.push_command(gfx::DrawCommand::new(
-        6,
-        6,
-        Some(dynamic_image.id),
-        Some(fallback_image.id),
-    ));
-
-    frame.push_batch(batch);
+        gfx::Fit::FIT_KEEP_ASPECT_RATIO,
+        color,
+    );
     frame
 }
 
@@ -292,7 +251,7 @@ fn image_loader_thread(
     const SLIDE_DELAY: std::time::Duration = std::time::Duration::from_millis(1500);
 
     // TESTING: Delay several seconds on purpose
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    std::thread::sleep(std::time::Duration::from_secs(3));
 
     let mut index = 0usize;
     while !exit_flag.load(atomic::Ordering::Relaxed) {

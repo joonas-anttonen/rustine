@@ -8,6 +8,8 @@ mod device;
 pub use device::*;
 pub mod vulkan;
 pub use core::Core;
+use std::collections;
+use std::sync;
 pub mod presentation;
 pub mod queue;
 pub use presentation::AcquireStatus;
@@ -34,7 +36,7 @@ pub struct Image {
     pub width: u32,
     pub height: u32,
     pub id: u32,
-    released_images: std::sync::Weak<std::sync::Mutex<std::collections::VecDeque<u32>>>,
+    released_images: sync::Weak<sync::Mutex<collections::VecDeque<u32>>>,
 }
 
 impl Drop for Image {
@@ -53,7 +55,7 @@ impl Default for Image {
             width: 0,
             height: 0,
             id: u32::MAX,
-            released_images: std::sync::Weak::new(),
+            released_images: sync::Weak::new(),
         }
     }
 }
@@ -63,7 +65,7 @@ impl Image {
         id: u32,
         width: u32,
         height: u32,
-        released_images: std::sync::Weak<std::sync::Mutex<std::collections::VecDeque<u32>>>,
+        released_images: sync::Weak<sync::Mutex<collections::VecDeque<u32>>>,
     ) -> Self {
         Self {
             width,
@@ -88,7 +90,6 @@ impl Image {
 #[allow(non_camel_case_types)]
 pub enum Fit {
     NONE,
-    FILL,
     /// Fits the content such that it fills the container, preserving aspect ratio.
     ///
     /// Will crop the content if necessary.
@@ -131,7 +132,12 @@ pub struct DrawCommand {
 }
 
 impl DrawCommand {
-    pub fn new(index_offset: u32, index_count: u32, image_id: Option<u32>, image_fallback_id: Option<u32>) -> Self {
+    pub fn new(
+        index_offset: u32,
+        index_count: u32,
+        image_id: Option<u32>,
+        image_fallback_id: Option<u32>,
+    ) -> Self {
         Self {
             index_offset,
             index_count,
@@ -192,6 +198,151 @@ impl RenderFrame {
 
     pub fn push_batch(&mut self, batch: DrawBatch) {
         self.batches.push(batch);
+    }
+
+    pub fn push_quad(
+        &mut self,
+        positions: [Vector2f; 4],
+        uvs: [Vector2f; 4],
+        color: u32,
+        image_id: Option<u32>,
+        image_fallback_id: Option<u32>,
+    ) {
+        let vertex_base = self.vertices.len() as u32;
+        let index_offset = self.indices.len() as u32;
+
+        self.vertices.extend_from_slice(&[
+            GpuVertex {
+                position: positions[0],
+                texture: uvs[0],
+                color,
+            },
+            GpuVertex {
+                position: positions[1],
+                texture: uvs[1],
+                color,
+            },
+            GpuVertex {
+                position: positions[2],
+                texture: uvs[2],
+                color,
+            },
+            GpuVertex {
+                position: positions[3],
+                texture: uvs[3],
+                color,
+            },
+        ]);
+
+        self.indices.extend_from_slice(&[
+            vertex_base,
+            vertex_base + 1,
+            vertex_base + 2,
+            vertex_base,
+            vertex_base + 2,
+            vertex_base + 3,
+        ]);
+
+        if self.batches.is_empty() {
+            self.batches.push(DrawBatch::new());
+        }
+
+        let batch = self.batches.last_mut().expect("batch exists");
+
+        let can_merge = batch
+            .commands
+            .last()
+            .map(|cmd| cmd.image_id == image_id && cmd.image_fallback_id == image_fallback_id)
+            .unwrap_or(false);
+
+        if can_merge {
+            if let Some(cmd) = batch.commands.last_mut() {
+                cmd.index_count += 6;
+            }
+        } else {
+            batch.push_command(DrawCommand::new(
+                index_offset,
+                6,
+                image_id,
+                image_fallback_id,
+            ));
+        }
+    }
+
+    pub fn push_image(
+        &mut self,
+        image: &Image,
+        fallback_image: Option<&Image>,
+        layout: Rectangle,
+        fit: Fit,
+        color: u32,
+    ) {
+        if layout.w <= 0.0 || layout.h <= 0.0 {
+            return;
+        }
+
+        let img_w = image.width.max(1) as f32;
+        let img_h = image.height.max(1) as f32;
+
+        let layout_w = layout.w;
+        let layout_h = layout.h;
+
+        // Default: stretch to fill
+        let mut pos_origin = Vector2f::new(layout.x, layout.y);
+        let mut size = Vector2f::new(layout_w, layout_h);
+        let mut uv_min = Vector2f::new(0.0, 0.0);
+        let mut uv_max = Vector2f::new(1.0, 1.0);
+
+        match fit {
+            Fit::NONE => {
+                // already set to layout
+            }
+            Fit::CENTER => {
+                size = Vector2f::new(img_w, img_h);
+                pos_origin.x += (layout_w - size.x) * 0.5;
+                pos_origin.y += (layout_h - size.y) * 0.5;
+            }
+            Fit::FIT_KEEP_ASPECT_RATIO => {
+                let scale = (layout_w / img_w).min(layout_h / img_h);
+                size = Vector2f::new(img_w * scale, img_h * scale);
+                pos_origin.x += (layout_w - size.x) * 0.5;
+                pos_origin.y += (layout_h - size.y) * 0.5;
+            }
+            Fit::FILL_KEEP_ASPECT_RATIO => {
+                let scale = (layout_w / img_w).max(layout_h / img_h);
+                let scaled_w = img_w * scale;
+                let scaled_h = img_h * scale;
+
+                // Crop by adjusting UVs while using full layout as target
+                let excess_w = (scaled_w - layout_w).max(0.0) * 0.5;
+                let excess_h = (scaled_h - layout_h).max(0.0) * 0.5;
+
+                uv_min.x = (excess_w / scaled_w).clamp(0.0, 0.5);
+                uv_max.x = 1.0 - uv_min.x;
+                uv_min.y = (excess_h / scaled_h).clamp(0.0, 0.5);
+                uv_max.y = 1.0 - uv_min.y;
+
+                // keep pos/size to layout
+            }
+        }
+
+        let positions = [
+            pos_origin,
+            Vector2f::new(pos_origin.x + size.x, pos_origin.y),
+            Vector2f::new(pos_origin.x + size.x, pos_origin.y + size.y),
+            Vector2f::new(pos_origin.x, pos_origin.y + size.y),
+        ];
+
+        let uvs = [
+            Vector2f::new(uv_min.x, uv_min.y),
+            Vector2f::new(uv_max.x, uv_min.y),
+            Vector2f::new(uv_max.x, uv_max.y),
+            Vector2f::new(uv_min.x, uv_max.y),
+        ];
+
+        let fallback_id = fallback_image.map(|f| f.id);
+
+        self.push_quad(positions, uvs, color, Some(image.id), fallback_id);
     }
 }
 
