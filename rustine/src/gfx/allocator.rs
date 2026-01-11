@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic};
 
 use crate::gfx::vulkan as vk;
 use crate::gfx::*;
-use crate::{vk_call, warning};
+use crate::{debug, vk_call, warning};
 
 pub use ffi::VmaAllocation;
 pub use ffi::VmaAllocationInfo;
@@ -12,6 +12,29 @@ pub use ffi::vmaCopyMemoryToAllocation;
 pub use ffi::vmaDestroyBuffer;
 pub use ffi::vmaDestroyImage;
 pub use ffi::vmaGetAllocationInfo;
+
+static ALLOCATED_BYTES: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
+
+unsafe extern "C" fn vma_allocate_callback(
+    _allocator: ffi::VmaAllocator,
+    _memory_type: u32,
+    _memory: vk::VkDeviceMemory,
+    size: vk::VkDeviceSize,
+    _p_user_data: *mut std::ffi::c_void,
+) {
+    ALLOCATED_BYTES.fetch_add(size.0 as usize, atomic::Ordering::Relaxed);
+    debug!("vma::alloc {}", utilities::format_bytes_iec(size.0 as usize));
+}
+unsafe extern "C" fn vma_free_callback(
+    _allocator: ffi::VmaAllocator,
+    _memory_type: u32,
+    _memory: vk::VkDeviceMemory,
+    size: vk::VkDeviceSize,
+    _p_user_data: *mut std::ffi::c_void,
+) {
+    ALLOCATED_BYTES.fetch_sub(size.0 as usize, atomic::Ordering::Relaxed);
+    debug!("vma::free {}", utilities::format_bytes_iec(size.0 as usize));
+}
 
 pub struct Allocator {
     handle: ffi::VmaAllocator,
@@ -28,6 +51,10 @@ impl Drop for Allocator {
 }
 
 impl Allocator {
+    pub fn current_allocated_bytes() -> usize {
+        ALLOCATED_BYTES.load(atomic::Ordering::Relaxed)
+    }
+
     pub fn handle(&self) -> ffi::VmaAllocator {
         self.handle
     }
@@ -43,13 +70,19 @@ impl Allocator {
             flags = flags | ffi::VmaAllocatorCreateFlags::KHR_EXTERNAL_MEMORY_WIN32_BIT as u32;
         }
 
+        let callbacks = ffi::VmaDeviceMemoryCallbacks {
+            pfnAllocate: Some(vma_allocate_callback),
+            pfnFree: Some(vma_free_callback),
+            pUserData: std::ptr::null_mut(),
+        };
+
         let create_info = ffi::VmaAllocatorCreateInfo {
             flags: flags,
             physicalDevice: device.physical_device().handle(),
             device: device.handle(),
             preferredLargeHeapBlockSize: vk::VkDeviceSize(0),
             pAllocationCallbacks: std::ptr::null(),
-            pDeviceMemoryCallbacks: std::ptr::null(),
+            pDeviceMemoryCallbacks: &callbacks,
             pHeapSizeLimit: std::ptr::null(),
             pVulkanFunctions: std::ptr::null(),
             instance: instance.handle(),

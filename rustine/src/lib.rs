@@ -55,3 +55,38 @@ pub(crate) struct Parameters {
     pub app_name: String,
     pub device_selector: gfx::DeviceSelector,
 }
+
+pub mod utilities {
+    pub fn format_duration(seconds: f64) -> String {
+        if seconds >= 3600.0 {
+            format!("{:.0} h", seconds / 3600.0)
+        } else if seconds >= 60.0 {
+            format!("{:.0} m", seconds / 60.0)
+        } else if seconds >= 1.0 {
+            format!("{:.0} s", seconds)
+        } else if seconds >= 1e-3 {
+            format!("{:.0} ms", seconds * 1e3)
+        } else if seconds >= 1e-6 {
+            format!("{:.0} us", seconds * 1e6)
+        } else {
+            format!("{:.0} ns", seconds * 1e9)
+        }
+    }
+
+    pub fn format_bytes_iec(bytes: usize) -> String {
+        const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+        let mut value = bytes as f64;
+        let mut idx = 0usize;
+        while value >= 1024.0 && idx < UNITS.len() - 1 {
+            value /= 1024.0;
+            idx += 1;
+        }
+        if idx == 0 {
+            format!("{:.0} {}", value, UNITS[idx])
+        } else if value < 10.0 {
+            format!("{:.1} {}", value, UNITS[idx])
+        } else {
+            format!("{:.0} {}", value, UNITS[idx])
+        }
+    }
+}

@@ -47,7 +47,7 @@ impl Event {
 
     /// Formats the event as a short string with thread, origin, and message.
     pub fn to_short_string(&self) -> String {
-        format!("[{}] {} {}", self.thread, &self.origin, self.message)
+        format!("[{}] {}", self.thread, self.message)
     }
 
     /// Formats the event as a full string including timestamp and severity.

@@ -139,8 +139,6 @@ fn gui_thread_function(
     fallback_image: gfx::Image,
     exit_flag: &atomic::AtomicBool,
 ) {
-    Log::global().set_current_thread_name("gui-render");
-
     info!("GUI START");
 
     while !exit_flag.load(atomic::Ordering::Relaxed) && !gui.should_close() {
@@ -291,39 +289,6 @@ fn generate_render_frame(
     //frame.draw_rectangle(&text_area, 1.0, color);
 
     frame
-}
-
-fn format_duration(seconds: f64) -> String {
-    if seconds >= 3600.0 {
-        format!("{:.0} h", seconds / 3600.0)
-    } else if seconds >= 60.0 {
-        format!("{:.0} m", seconds / 60.0)
-    } else if seconds >= 1.0 {
-        format!("{:.0} s", seconds)
-    } else if seconds >= 1e-3 {
-        format!("{:.0} ms", seconds * 1e3)
-    } else if seconds >= 1e-6 {
-        format!("{:.0} us", seconds * 1e6)
-    } else {
-        format!("{:.0} ns", seconds * 1e9)
-    }
-}
-
-fn format_bytes_iec(bytes: usize) -> String {
-    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
-    let mut value = bytes as f64;
-    let mut idx = 0usize;
-    while value >= 1024.0 && idx < UNITS.len() - 1 {
-        value /= 1024.0;
-        idx += 1;
-    }
-    if idx == 0 {
-        format!("{:.0} {}", value, UNITS[idx])
-    } else if value < 10.0 {
-        format!("{:.1} {}", value, UNITS[idx])
-    } else {
-        format!("{:.0} {}", value, UNITS[idx])
-    }
 }
 
 fn image_loader_thread(
@@ -519,38 +484,37 @@ fn gfx_thread_function(gfx: Arc<Mutex<gfx::Gfx>>, exit_flag: &atomic::AtomicBool
                 if let Some((min, max, mean)) = frame_cpu_times.min_max_mean() {
                     debug!(
                         "Frame CPU -> min: {}, max: {}, mean: {}",
-                        format_duration(min),
-                        format_duration(max),
-                        format_duration(mean)
+                        utilities::format_duration(min),
+                        utilities::format_duration(max),
+                        utilities::format_duration(mean)
                     );
                 }
                 if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
                     debug!(
                         "Frame Delta -> min: {}, max: {}, mean: {}",
-                        format_duration(min as f64),
-                        format_duration(max as f64),
-                        format_duration(mean as f64)
+                        utilities::format_duration(min as f64),
+                        utilities::format_duration(max as f64),
+                        utilities::format_duration(mean as f64)
                     );
                 }
-                let (allocs, deallocs) = rustine::alloc::counts();
+
                 let current = rustine::alloc::current_bytes();
                 let peak = rustine::alloc::peak_bytes();
+                let vram = gfx::Gfx::current_allocated_vram_bytes();
                 let rss = rustine::alloc::rss_bytes();
                 match rss {
                     Some(rss_b) => debug!(
-                        "Heap -> current: {}, peak: {}, allocs: {}, deallocs: {} | RSS: {}",
-                        format_bytes_iec(current),
-                        format_bytes_iec(peak),
-                        allocs,
-                        deallocs,
-                        format_bytes_iec(rss_b)
+                        "Memory -> {}, peak: {} | VRAM: {} | RAM: {}",
+                        utilities::format_bytes_iec(current),
+                        utilities::format_bytes_iec(peak),
+                        utilities::format_bytes_iec(vram),
+                        utilities::format_bytes_iec(rss_b)
                     ),
                     None => debug!(
-                        "Heap -> current: {}, peak: {}, allocs: {}, deallocs: {}",
-                        format_bytes_iec(current),
-                        format_bytes_iec(peak),
-                        allocs,
-                        deallocs
+                        "Memory -> {}, peak: {} | VRAM: {}",
+                        utilities::format_bytes_iec(current),
+                        utilities::format_bytes_iec(peak),
+                        utilities::format_bytes_iec(vram),
                     ),
                 }
                 last_stat_instant = stat_now;

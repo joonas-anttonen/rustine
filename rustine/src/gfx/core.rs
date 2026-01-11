@@ -66,6 +66,10 @@ impl Drop for Gfx {
 }
 
 impl Gfx {
+    pub fn current_allocated_vram_bytes() -> usize {
+        allocator::Allocator::current_allocated_bytes()
+    }
+
     pub fn new(
         instance: Instance,
         device: Arc<Device>,
