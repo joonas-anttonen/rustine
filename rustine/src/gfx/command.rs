@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::{error, vk_call, warning};
-use crate::{gfx::vulkan as vk, gfx::*};
+use crate::{gfx::vulkan as vk, gfx::*, gfx::pipeline::*};
 
 use std::collections::HashSet;
 use std::sync::Arc;

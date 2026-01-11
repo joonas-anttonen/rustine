@@ -230,6 +230,19 @@ impl Log {
     }
 }
 
+/// Sets the name of the current thread to the global logger instance.
+pub fn set_current_thread_name(name: impl Into<String>) {
+    Log::global().set_current_thread_name(name);
+}
+
+/// Adds a new listener to the global logger instance.
+pub fn add_listener<L: LogListener + 'static>(listener: L) -> sync::Arc<dyn LogListener> {
+    Log::global().add_listener(listener)
+}
+
+// Re-export macros into this module's namespace
+pub use crate::{debug, error, info, warning};
+
 #[macro_export]
 macro_rules! debug {
     ($($arg:tt)*) => {{

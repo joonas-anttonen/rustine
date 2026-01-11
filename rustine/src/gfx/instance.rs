@@ -95,7 +95,7 @@ impl Instance {
     }
 
     /// Creates a Vulkan instance based on the provided parameters.
-    pub fn new(parameters: &super::StartupParameters) -> Result<Instance> {
+    pub fn new(parameters: &crate::Parameters) -> Result<Instance> {
         // 1. Get available instance layers and extensions
         let available_layers: collections::HashSet<std::ffi::CString> =
             enumerate_instance_layers()?.into_iter().collect();
@@ -109,7 +109,7 @@ impl Instance {
         warning!("Enabling VK_KHR_surface");
         enabled_extensions.push(std::ffi::CString::new("VK_KHR_surface").unwrap());
 
-        match parameters.host_platform {
+        match parameters.platform {
             Platform::Windows => {
                 warning!("Enabling VK_KHR_win32_surface");
                 enabled_extensions.push(std::ffi::CString::new("VK_KHR_win32_surface").unwrap());
@@ -137,7 +137,7 @@ impl Instance {
         let debug_utils_present = available_extensions.contains(debug_utils_name);
 
         let enable_debugging =
-            parameters.enable_debugging && validation_present && debug_utils_present;
+            parameters.debugging && validation_present && debug_utils_present;
         if enable_debugging {
             warning!("Enabling VK_LAYER_KHRONOS_validation");
             warning!("Enabling VK_EXT_debug_utils");
@@ -146,7 +146,7 @@ impl Instance {
         }
 
         // 4. Create the Vulkan instance
-        let app_name_cstring = std::ffi::CString::new(parameters.host_name.as_str()).unwrap();
+        let app_name_cstring = std::ffi::CString::new(parameters.app_name.as_str()).unwrap();
         let engine_name_cstring = std::ffi::CString::new("Rustine").unwrap();
         let enabled_layers_ptrs: Vec<*const std::ffi::c_char> =
             enabled_layers.iter().map(|cs| cs.as_ptr()).collect();
@@ -157,7 +157,7 @@ impl Instance {
             sType: vk::VkStructureType::APPLICATION_INFO,
             pNext: ptr::null(),
             pApplicationName: app_name_cstring.as_ptr(),
-            applicationVersion: parameters.host_version.to_vk_version(),
+            applicationVersion: parameters.app_version.to_vk_version(),
             pEngineName: engine_name_cstring.as_ptr(),
             engineVersion: Version::new(1, 0, 0).to_vk_version(),
             apiVersion: MINIMUM_VULKAN_API_VERSION.to_vk_version(),

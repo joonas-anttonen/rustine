@@ -42,7 +42,7 @@ fn install_signal_handlers() {}
 
 fn main() {
     let platform = if cfg!(target_os = "linux") {
-        gfx::Platform::Wayland
+        Platform::Wayland
     } else {
         panic!("Unsupported platform");
     };
@@ -56,14 +56,15 @@ fn main() {
     info!("STARTUP");
 
     {
-        let params = gfx::StartupParameters {
-            enable_debugging: true,
-            host_platform: platform,
-            host_version: Version::new(0, 1, 0),
-            host_name: "rustine-app".to_string(),
+        let params = Parameters {
+            debugging: true,
+            platform,
+            app_version: Version::new(0, 1, 0),
+            app_name: "rustine-app".to_string(),
+            device_selector: gfx::DeviceSelector::Optimal,
         };
 
-        let mut gfx_core = match gfx::Core::builder(params).select_optimal_device().build() {
+        let mut gfx_core = match gfx::Core::builder(params).build() {
             Ok(core) => core,
             Err(e) => {
                 error!("Failed to build gfx::Core: {}", e);

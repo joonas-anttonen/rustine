@@ -9,3 +9,4 @@ path = "src/main.rs"
 
 [dependencies]
 rustine = { path = "../rustine" }
+libc = "0.2"

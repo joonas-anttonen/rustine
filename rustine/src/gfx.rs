@@ -2,6 +2,7 @@
 
 mod allocator;
 mod core;
+pub use core::DeviceSelector;
 mod instance;
 pub use instance::Instance;
 mod device;
@@ -24,7 +25,6 @@ pub use buffer::PixelBuffer;
 pub mod compiler;
 pub use compiler::*;
 pub mod pipeline;
-pub use pipeline::*;
 
 pub mod fonts;
 
@@ -615,15 +615,6 @@ pub struct Extent2D {
     pub height: u32,
 }
 
-/// Parameters for initializing the graphics API.
-#[derive(Debug)]
-pub struct StartupParameters {
-    pub enable_debugging: bool,
-    pub host_platform: Platform,
-    pub host_version: Version,
-    pub host_name: String,
-}
-
 use vulkan as vk;
 
 #[allow(non_snake_case, non_camel_case_types)]
@@ -782,15 +773,6 @@ impl std::ops::BitOr for ImageUsage {
     fn bitor(self, rhs: Self) -> Self {
         Self(self.0 | rhs.0)
     }
-}
-
-/// Represents the target platform for graphics API initialization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Platform {
-    Windows,
-    Wayland,
-    X11,
-    MacOS,
 }
 
 /// Represents the result of a graphics operation.

@@ -92,12 +92,11 @@
 		},
 		{
 			"label": "Run rustine-desktop",
-			"detail": "Run rustine-desktop in release mode",
+			"detail": "Run rustine-desktop in debug mode",
 			"type": "process",
 			"command": "cargo",
 			"args": [
 				"run",
-				"--release"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}/rustine-desktop"

@@ -1,4 +1,5 @@
-use crate::{RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
+use crate::gfx::pipeline::*;
+use crate::{Parameters, RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -298,7 +299,7 @@ impl Core {
     }
 
     /// Creates a new `CoreBuilder` to configure and build a `Core` instance.
-    pub fn builder(params: StartupParameters) -> CoreBuilder {
+    pub fn builder(params: Parameters) -> CoreBuilder {
         CoreBuilder::new(params)
     }
 
@@ -699,50 +700,15 @@ pub enum DeviceSelector {
 /// API parameter configuration and physical device selection strategy.
 #[derive(Debug)]
 pub struct CoreBuilder {
-    params: StartupParameters,
-    selector: DeviceSelector,
+    params: Parameters,
 }
 
 impl CoreBuilder {
     /// Creates a new `CoreBuilder` with the given API parameters.
-    pub fn new(params: StartupParameters) -> Self {
+    pub fn new(params: Parameters) -> Self {
         Self {
             params,
-            selector: DeviceSelector::Optimal,
         }
-    }
-
-    /// Selects the optimal physical device based on device type and API/driver versions.
-    ///
-    /// Discrete GPUs are preferred over integrated, virtual, and CPU devices.
-    /// Ties are broken by higher API and driver versions.
-    pub fn select_optimal_device(mut self) -> Self {
-        self.selector = DeviceSelector::Optimal;
-        self
-    }
-
-    /// Selects a specific device by its index in the enumerated list.
-    pub fn select_device_by_index(mut self, index: usize) -> Self {
-        self.selector = DeviceSelector::ByIndex(index);
-        self
-    }
-
-    /// Selects a specific device by its UUID.
-    pub fn select_device_by_id(mut self, id: u128) -> Self {
-        self.selector = DeviceSelector::ById(id);
-        self
-    }
-
-    /// Selects a specific device by its LUID (Windows-specific identifier).
-    pub fn select_device_by_luid(mut self, luid: u64) -> Self {
-        self.selector = DeviceSelector::ByLuid(luid);
-        self
-    }
-
-    /// Selects a specific device by its name.
-    pub fn select_device_by_name<S: Into<String>>(mut self, name: S) -> Self {
-        self.selector = DeviceSelector::ByName(name.into());
-        self
     }
 
     /// Builds the `Core` instance.
@@ -764,14 +730,14 @@ impl CoreBuilder {
                 }
             };
 
-            let selected = match self.selector {
+            let selected = match &self.params.device_selector {
                 DeviceSelector::Optimal => devices
                     .into_iter()
                     .max_by_key(|d| (pick_type_score(&d.device_type), d.api, d.driver)),
-                DeviceSelector::ByIndex(i) => devices.into_iter().nth(i),
-                DeviceSelector::ById(id) => devices.into_iter().find(|d| d.id == id),
-                DeviceSelector::ByLuid(luid) => devices.into_iter().find(|d| d.luid == luid),
-                DeviceSelector::ByName(name) => devices.into_iter().find(|d| d.name == name),
+                DeviceSelector::ByIndex(i) => devices.into_iter().nth(*i),
+                DeviceSelector::ById(id) => devices.into_iter().find(|d| d.id == *id),
+                DeviceSelector::ByLuid(luid) => devices.into_iter().find(|d| d.luid == *luid),
+                DeviceSelector::ByName(name) => devices.into_iter().find(|d| d.name == *name),
             };
 
             match selected {

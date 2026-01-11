@@ -216,7 +216,7 @@ impl Device {
     }
 
     pub fn new(
-        parameters: &super::StartupParameters,
+        parameters: &crate::Parameters,
         physical_device: PhysicalDevice,
     ) -> Result<Device> {
         let available_device_extensions: collections::HashSet<std::ffi::CString> =
@@ -225,7 +225,7 @@ impl Device {
         let mut enabled_extensions_cstrings: Vec<std::ffi::CString> = Vec::new();
         enabled_extensions_cstrings.push(std::ffi::CString::new("VK_KHR_swapchain").unwrap());
 
-        if parameters.host_platform == Platform::Windows {
+        if parameters.platform == Platform::Windows {
             let external_memory_win32_name = c"VK_KHR_external_memory_win32";
             let keyed_mutex_win32_name = c"VK_KHR_win32_keyed_mutex";
             if available_device_extensions.contains(external_memory_win32_name) {

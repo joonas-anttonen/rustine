@@ -10,7 +10,7 @@ use crate::{debug, warning};
 use std::sync::{Arc, Mutex};
 
 pub struct StartupParameters {
-    pub platform: gfx::Platform,
+    pub platform: Platform,
     pub window_title: String,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
@@ -42,7 +42,7 @@ impl Drop for Gui {
 
 impl Gui {
     pub fn new(gfx: Arc<Mutex<gfx::Core>>, parameters: StartupParameters) -> Arc<Self> {
-        if parameters.platform != gfx::Platform::Wayland {
+        if parameters.platform != Platform::Wayland {
             panic!("Unsupported platform");
         }
 
