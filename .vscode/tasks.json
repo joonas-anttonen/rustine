@@ -2,8 +2,8 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Clean",
-			"detail": "Clean the project",
+			"label": "Clean rustine",
+			"detail": "Clean rustine",
 			"type": "process",
 			"command": "cargo",
 			"args": [
@@ -17,8 +17,37 @@
 			]
 		},
 		{
-			"label": "Build",
-			"detail": "Build the project",
+			"label": "Clean rustine-desktop",
+			"detail": "Clean rustine-desktop",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"clean"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-desktop"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Rebuild",
+			"detail": "Rebuild the whole project",
+			"dependsOn": [
+				"Clean rustine",
+				"Clean rustine-desktop",
+				"Build rustine",
+				"Build rustine-desktop"
+			],
+			"dependsOrder": "sequence",
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Build rustine",
+			"detail": "Build rustine in debug mode",
 			"type": "process",
 			"command": "cargo",
 			"args": [
@@ -32,20 +61,8 @@
 			]
 		},
 		{
-			"label": "Rebuild",
-			"detail": "Rebuild the project",
-			"dependsOn": [
-				"Clean",
-				"Build"
-			],
-			"dependsOrder": "sequence",
-			"problemMatcher": [
-				"$rustc"
-			]
-		},
-		{
-			"label": "Run",
-			"detail": "Run the application in debug mode",
+			"label": "Run rustine",
+			"detail": "Run rustine in debug mode",
 			"type": "process",
 			"command": "cargo",
 			"args": [
@@ -59,8 +76,23 @@
 			]
 		},
 		{
-			"label": "Run (Release)",
-			"detail": "Run the application in release mode",
+			"label": "Build rustine-desktop",
+			"detail": "Build rustine-desktop in debug mode",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"build"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-desktop"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Run rustine-desktop",
+			"detail": "Run rustine-desktop in release mode",
 			"type": "process",
 			"command": "cargo",
 			"args": [
@@ -68,28 +100,10 @@
 				"--release"
 			],
 			"options": {
-				"cwd": "${workspaceFolder}/rustine"
+				"cwd": "${workspaceFolder}/rustine-desktop"
 			},
 			"problemMatcher": [
 				"$rustc"
-			]
-		},
-		{
-			"label": "Run Wpf",
-			"detail": "Run the WPF application in debug mode",
-			"type": "process",
-			"command": "dotnet",
-			"options": {
-				"cwd": "Rustine.Wpf"
-			},
-			"args": [
-				"run"
-			],
-			"problemMatcher": [
-				"$msCompile"
-			],
-			"dependsOn": [
-				"Build"
 			]
 		}
 	]
