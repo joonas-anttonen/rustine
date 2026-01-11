@@ -215,7 +215,7 @@ impl Device {
         Arc::clone(&self.transfer_queue_handle)
     }
 
-    pub fn new(
+    pub(crate) fn new(
         parameters: &crate::Parameters,
         physical_device: PhysicalDevice,
     ) -> Result<Device> {

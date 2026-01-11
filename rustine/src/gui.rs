@@ -16,6 +16,50 @@ pub struct StartupParameters {
     pub window_height: Option<u32>,
 }
 
+pub struct GuiBuilder {
+    params: StartupParameters,
+}
+
+impl GuiBuilder {
+    /// Creates a new `GuiBuilder` with the given platform.
+    pub fn new(platform: Platform) -> Self {
+        Self {
+            params: StartupParameters {
+                platform,
+                window_title: String::from("Rustine"),
+                window_width: None,
+                window_height: None,
+            },
+        }
+    }
+
+    pub fn window_title(mut self, title: impl Into<String>) -> Self {
+        self.params.window_title = title.into();
+        self
+    }
+
+    pub fn window_width(mut self, width: u32) -> Self {
+        self.params.window_width = Some(width);
+        self
+    }
+
+    pub fn window_height(mut self, height: u32) -> Self {
+        self.params.window_height = Some(height);
+        self
+    }
+
+    pub fn window_size(mut self, width: u32, height: u32) -> Self {
+        self.params.window_width = Some(width);
+        self.params.window_height = Some(height);
+        self
+    }
+
+    /// Builds the `Gui` instance.
+    pub fn build(self, gfx: Arc<Mutex<gfx::Gfx>>) -> Arc<Gui> {
+        Gui::new(gfx, self.params)
+    }
+}
+
 pub struct Gui {
     gfx: Arc<Mutex<gfx::Gfx>>,
     gfx_surface: vk::VkSurfaceKHR,
@@ -41,6 +85,11 @@ impl Drop for Gui {
 }
 
 impl Gui {
+    /// Creates a new `GuiBuilder` to configure and build a `Gui` instance.
+    pub fn builder(platform: Platform) -> GuiBuilder {
+        GuiBuilder::new(platform)
+    }
+
     pub fn new(gfx: Arc<Mutex<gfx::Gfx>>, parameters: StartupParameters) -> Arc<Self> {
         if parameters.platform != Platform::Wayland {
             panic!("Unsupported platform");

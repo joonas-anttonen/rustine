@@ -56,18 +56,16 @@ fn main() {
     info!("STARTUP");
 
     {
-        let params = Parameters {
-            debugging: true,
-            platform,
-            app_version: Version::new(0, 1, 0),
-            app_name: "rustine-app".to_string(),
-            device_selector: gfx::DeviceSelector::Optimal,
-        };
-
-        let mut gfx_core = match gfx::Gfx::builder(params).build() {
+        let mut gfx_core = match gfx::Gfx::builder(platform)
+            .debugging(true)
+            .app_version(Version::new(0, 1, 0))
+            .app_name("rustine-app")
+            .device_selector(gfx::DeviceSelector::Optimal)
+            .build()
+        {
             Ok(core) => core,
             Err(e) => {
-                error!("Failed to build gfx::Core: {}", e);
+                error!("Failed to build gfx::Gfx: {}", e);
                 return;
             }
         };
@@ -101,13 +99,10 @@ fn main() {
 
         let gfx = Arc::new(Mutex::new(gfx_core));
 
-        let gui_params = gui::StartupParameters {
-            platform,
-            window_title: "Rustine".to_string(),
-            window_width: Some(1920),
-            window_height: Some(1080),
-        };
-        let gui = gui::Gui::new(Arc::clone(&gfx), gui_params);
+        let gui = gui::Gui::builder(platform)
+            .window_title("Rustine")
+            .window_size(1920, 1080)
+            .build(gfx.clone());
 
         thread::scope(|s| {
             s.spawn(|| {

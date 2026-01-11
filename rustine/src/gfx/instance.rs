@@ -95,7 +95,7 @@ impl Instance {
     }
 
     /// Creates a Vulkan instance based on the provided parameters.
-    pub fn new(parameters: &crate::Parameters) -> Result<Instance> {
+    pub(crate) fn new(parameters: &crate::Parameters) -> Result<Instance> {
         // 1. Get available instance layers and extensions
         let available_layers: collections::HashSet<std::ffi::CString> =
             enumerate_instance_layers()?.into_iter().collect();

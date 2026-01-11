@@ -298,9 +298,9 @@ impl Gfx {
         Ok(devices)
     }
 
-    /// Creates a new `CoreBuilder` to configure and build a `Core` instance.
-    pub fn builder(params: Parameters) -> GfxBuilder {
-        GfxBuilder::new(params)
+    /// Creates a new `GfxBuilder` to configure and build a `Gfx` instance.
+    pub fn builder(platform: Platform) -> GfxBuilder {
+        GfxBuilder::new(platform)
     }
 
     /// Returns a reference to the selected physical device.
@@ -701,14 +701,40 @@ pub struct GfxBuilder {
 }
 
 impl GfxBuilder {
-    /// Creates a new `CoreBuilder` with the given API parameters.
-    pub fn new(params: Parameters) -> Self {
+    /// Creates a new `GfxBuilder` with the given platform.
+    pub fn new(platform: Platform) -> Self {
         Self {
-            params,
+            params: Parameters {
+                debugging: false,
+                platform,
+                app_version: Version::new(0, 1, 0),
+                app_name: String::from("rustine"),
+                device_selector: DeviceSelector::Optimal,
+            },
         }
     }
 
-    /// Builds the `Core` instance.
+    pub fn debugging(mut self, enabled: bool) -> Self {
+        self.params.debugging = enabled;
+        self
+    }
+
+    pub fn app_version(mut self, version: Version) -> Self {
+        self.params.app_version = version;
+        self
+    }
+
+    pub fn app_name(mut self, name: impl Into<String>) -> Self {
+        self.params.app_name = name.into();
+        self
+    }
+
+    pub fn device_selector(mut self, selector: DeviceSelector) -> Self {
+        self.params.device_selector = selector;
+        self
+    }
+
+    /// Builds the `Gfx` instance.
     pub fn build(self) -> Result<Gfx> {
         // 1. Create Vulkan instance
         let vk_instance = Instance::new(&self.params)?;

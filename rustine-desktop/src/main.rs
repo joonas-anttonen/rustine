@@ -51,13 +51,11 @@ fn main() -> std::process::ExitCode {
     log::debug!("STARTUP");
 
     {
-        let _rparameters = rustine::Parameters {
-            debugging: true,
-            platform: rustine::Platform::Wayland,
-            app_version: Version::new(0, 1, 0),
-            app_name: "rustine-desktop".to_string(),
-            device_selector: rustine::gfx::DeviceSelector::Optimal,
-        };
+        let _builder = rustine::gfx::Gfx::builder(rustine::Platform::Wayland)
+            .app_name("rustine-desktop")
+            .app_version(Version::new(0, 1, 0))
+            .debugging(true)
+            .device_selector(rustine::gfx::DeviceSelector::Optimal);
     }
 
     log::debug!("SHUTDOWN");

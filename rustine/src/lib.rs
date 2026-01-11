@@ -48,7 +48,7 @@ pub enum Platform {
 
 /// Parameters for initializing the library.
 #[derive(Debug)]
-pub struct Parameters {
+pub(crate) struct Parameters {
     pub debugging: bool,
     pub platform: Platform,
     pub app_version: Version,
