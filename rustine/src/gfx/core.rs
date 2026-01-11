@@ -3,7 +3,7 @@ use crate::{Parameters, RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 const FALLBACK_TEXTURE_ID: u32 = u32::MAX;
 
@@ -52,6 +52,7 @@ pub struct Gfx {
     frame_n: u64,
     frame_cpu_times: RingBuffer<f64>,
     max_uploads_per_frame: usize,
+    work_available: Arc<(Mutex<bool>, Condvar)>,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -66,8 +67,23 @@ impl Drop for Gfx {
 }
 
 impl Gfx {
-    pub fn run(gfx: Arc<Mutex<gfx::Gfx>>, exit_flag: &std::sync::atomic::AtomicBool) {
-        Log::global().set_current_thread_name("gfx");
+    /// Signals that work is available, waking up the GFX thread if it's waiting
+    /// in event-driven mode. This is a no-op in continuous mode.
+    pub fn signal_work_available(&self) {
+        let (work_flag, condvar) = &*self.work_available;
+        if let Ok(mut flag) = work_flag.lock() {
+            *flag = true;
+            drop(flag);
+            condvar.notify_one();
+        }
+    }
+
+    pub fn run(
+        gfx: Arc<Mutex<gfx::Gfx>>,
+        exit_flag: &std::sync::atomic::AtomicBool,
+        mode: LoopMode,
+    ) {
+        log::set_current_thread_name("gfx");
 
         info!("GFX START");
 
@@ -80,17 +96,47 @@ impl Gfx {
         let mut last_stat_instant = std::time::Instant::now();
         let mut frame_delta_times: RingBuffer<f64> = RingBuffer::new(120);
 
-        while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+        loop {
+            // Check for exit signal
+            if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+
+            // Handle event-driven mode: wait for work notification
+            if let LoopMode::Event = mode {
+                // Clone notifier without holding the core (gfx) lock while waiting
+                let work_notifier = {
+                    let core = gfx.lock().unwrap();
+                    std::sync::Arc::clone(&core.work_available)
+                };
+
+                let (work_flag, condvar) = &*work_notifier;
+                let mut work_ready = work_flag.lock().unwrap();
+
+                // Wait until work is available or exit flag is set
+                while !*work_ready && !exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    work_ready = condvar.wait(work_ready).unwrap();
+                }
+
+                // Reset the work flag after waking up
+                *work_ready = false;
+                drop(work_ready);
+
+                if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+            }
+
             let frame_start = std::time::Instant::now();
 
             {
                 let mut core = gfx.lock().unwrap();
 
                 let now = std::time::Instant::now();
-                let t = now.duration_since(start_instant).as_secs_f64();
-                let dt = now.duration_since(last_instant).as_secs_f32();
-                frame_delta_times.push(dt as f64);
-                core.render(t, dt);
+                let _t = now.duration_since(start_instant).as_secs_f64();
+                let _dt = now.duration_since(last_instant).as_secs_f32();
+                frame_delta_times.push(_dt as f64);
+                core.render();
                 last_instant = now;
 
                 let stat_now = std::time::Instant::now();
@@ -98,7 +144,7 @@ impl Gfx {
                     let frame_cpu_times = core.frame_cpu_times();
                     if let Some((min, max, mean)) = frame_cpu_times.min_max_mean() {
                         debug!(
-                            "Frame CPU -> min: {}, max: {}, mean: {}",
+                            "GFX frame CPU -> min: {}, max: {}, mean: {}",
                             utilities::format_duration(min),
                             utilities::format_duration(max),
                             utilities::format_duration(mean)
@@ -106,7 +152,7 @@ impl Gfx {
                     }
                     if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
                         debug!(
-                            "Frame Delta -> min: {}, max: {}, mean: {}",
+                            "GFX frame dt -> min: {}, max: {}, mean: {}",
                             utilities::format_duration(min as f64),
                             utilities::format_duration(max as f64),
                             utilities::format_duration(mean as f64)
@@ -136,20 +182,22 @@ impl Gfx {
                 }
             }
 
-            // Adaptive spin-sleep frame rate limiting
-            let elapsed = frame_start.elapsed();
-            if elapsed < target_frame_time {
-                let mut remaining = target_frame_time - elapsed;
+            // Frame rate limiting only in continuous mode
+            if let LoopMode::Continuous = mode {
+                let elapsed = frame_start.elapsed();
+                if elapsed < target_frame_time {
+                    let mut remaining = target_frame_time - elapsed;
 
-                // Sleep for bulk of remaining time
-                while remaining > SPIN_THRESHOLD {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                    remaining = target_frame_time.saturating_sub(frame_start.elapsed());
-                }
+                    // Sleep for bulk of remaining time
+                    while remaining > SPIN_THRESHOLD {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                        remaining = target_frame_time.saturating_sub(frame_start.elapsed());
+                    }
 
-                // Spin for precise timing
-                while frame_start.elapsed() < target_frame_time {
-                    std::hint::spin_loop();
+                    // Spin for precise timing
+                    while frame_start.elapsed() < target_frame_time {
+                        std::hint::spin_loop();
+                    }
                 }
             }
         }
@@ -384,6 +432,7 @@ impl Gfx {
             released_images: Arc::new(Mutex::new(VecDeque::new())),
             frame_cpu_times: RingBuffer::new(120),
             max_uploads_per_frame: 4,
+            work_available: Arc::new((Mutex::new(false), Condvar::new())),
         }
     }
 
@@ -453,13 +502,7 @@ impl Gfx {
             .unwrap();
         self.test_data.target_frame = Some(Arc::new(target_frame));
 
-        self.render_empty();
-    }
-
-    fn render_empty(&mut self) {
-        self.queue.enqueue_present(move |cmd, present_image| {
-            cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::PRESENT_SRC_KHR);
-        });
+        self.render();
     }
 
     pub fn create_pipeline(&self, parameters: pipeline::Parameters) -> Pipeline {
@@ -630,7 +673,13 @@ impl Gfx {
         }
     }
 
-    pub fn render(&mut self, _t: f64, _dt: f32) {
+    fn render_empty(&mut self) {
+        self.queue.enqueue_present(move |cmd, present_image| {
+            cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::PRESENT_SRC_KHR);
+        });
+    }
+
+    pub fn render(&mut self) {
         let frame_start = std::time::Instant::now();
 
         // Drain any released images before staging new ones

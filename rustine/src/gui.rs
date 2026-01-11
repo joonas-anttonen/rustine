@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 mod input;
-//use input::{Action, Key, KeyEvent, Mods};
+pub use input::*;
 
 use crate::gfx::{self, presentation, vulkan as vk};
 use crate::*;
@@ -68,15 +68,23 @@ impl GuiBuilder {
     }
 
     /// Builds the `Gui` instance.
-    pub fn build(self, gfx: Arc<Mutex<gfx::Gfx>>) -> Arc<Gui> {
-        Gui::new(gfx, self.params)
+    pub fn build(self, gfx: Arc<Mutex<gfx::Gfx>>, application: Box<dyn Application>) -> Arc<Gui> {
+        Gui::new(gfx, application, self.params)
     }
+}
+
+pub trait Application {
+    fn startup(&self);
+    fn on_key(&self, key: input::KeyEvent);
+    fn render(&self, frame: &mut gfx::RenderFrame);
 }
 
 pub struct Gui {
     gfx: Arc<Mutex<gfx::Gfx>>,
     gfx_surface: vk::VkSurfaceKHR,
     rwl_window: ffi::RwlWindow,
+
+    application: Box<dyn Application>,
 }
 
 impl Drop for Gui {
@@ -98,14 +106,69 @@ impl Drop for Gui {
 }
 
 impl Gui {
-    pub fn run(
-        gui: &gui::Gui,
-        exit_flag: &std::sync::atomic::AtomicBool,
-    ) {
+    pub fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: gfx::LoopMode) {
         info!("GUI START");
 
+        //let start_instant = std::time::Instant::now();
+        let mut last_instant = std::time::Instant::now();
+        let mut last_stat_instant = std::time::Instant::now();
+        let mut frame_delta_times: RingBuffer<f64> = RingBuffer::new(120);
+
+        const TARGET_FPS: f64 = 120.0;
+        let target_frame_time = std::time::Duration::from_secs_f64(1.0 / TARGET_FPS);
+        const CLOSE_ENOUGH: std::time::Duration = std::time::Duration::from_micros(500);
+
+        gui.application.startup();
+
         while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) && !gui.should_close() {
-            gui.wait_events_timeout(16);
+            gui.process_events();
+
+            let frame_start = std::time::Instant::now();
+            //let t = now.duration_since(start_instant).as_secs_f64();
+            let dt = frame_start.duration_since(last_instant).as_secs_f32();
+            frame_delta_times.push(dt as f64);
+            last_instant = frame_start;
+
+            let mut frame = gfx::RenderFrame::new(gui.pixel_size());
+            gui.application.render(&mut frame);
+
+            {
+                let gfx = gui.gfx.lock().unwrap();
+
+                if let Ok(mut pending) = gfx.render_mailbox().lock() {
+                    pending.push_back(frame);
+
+                    if let gfx::LoopMode::Event = mode {
+                        gfx.signal_work_available();
+                    }
+                }
+            }
+
+            if frame_start.duration_since(last_stat_instant).as_secs_f64() >= 1.0 {
+                if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
+                    debug!(
+                        "GUI frame dt -> min: {}, max: {}, mean: {}",
+                        utilities::format_duration(min as f64),
+                        utilities::format_duration(max as f64),
+                        utilities::format_duration(mean as f64)
+                    );
+                }
+
+                last_stat_instant = frame_start;
+            }
+
+            let elapsed = frame_start.elapsed();
+            if elapsed < target_frame_time {
+                let mut remaining = target_frame_time - elapsed;
+
+                // Sleep for bulk of remaining time
+                while remaining > CLOSE_ENOUGH {
+                    gui.wait_events_timeout_ms(1);
+                    remaining = target_frame_time.saturating_sub(frame_start.elapsed());
+                }
+
+                gui.wait_events_timeout_ms(1000);
+            }
         }
 
         info!("GUI STOP");
@@ -116,7 +179,11 @@ impl Gui {
         GuiBuilder::new(platform)
     }
 
-    pub fn new(gfx: Arc<Mutex<gfx::Gfx>>, parameters: Parameters) -> Arc<Self> {
+    pub fn new(
+        gfx: Arc<Mutex<gfx::Gfx>>,
+        application: Box<dyn Application>,
+        parameters: Parameters,
+    ) -> Arc<Self> {
         if parameters.platform != Platform::Wayland {
             panic!("Unsupported platform");
         }
@@ -234,6 +301,7 @@ impl Gui {
             gfx,
             gfx_surface: gfx_surface,
             rwl_window,
+            application,
         });
 
         unsafe {
@@ -267,7 +335,13 @@ impl Gui {
         }
     }
 
-    pub fn wait_events_timeout(&self, timeout_ms: u32) {
+    pub fn wait_events(&self) {
+        unsafe {
+            ffi::panic_if_error(ffi::rwlWaitEvents());
+        }
+    }
+
+    pub fn wait_events_timeout_ms(&self, timeout_ms: u32) {
         unsafe {
             ffi::panic_if_error(ffi::rwlWaitEventsTimeout(
                 timeout_ms as u64 * 1000u64 * 1000u64,
@@ -327,16 +401,27 @@ impl Gui {
     }
 
     unsafe extern "C" fn rwl_key_callback(
-        _window: ffi::RwlWindow,
+        window: ffi::RwlWindow,
         key: ffi::RwlKey,
         scancode: i32,
         action: ffi::RwlAction,
         mods: ffi::RwlMod,
     ) {
-        debug!(
-            "Key event: key={:?}, scancode={}, action={:?}, mods={:?}",
-            key, scancode, action, mods
-        );
+        unsafe {
+            let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                let key_event = input::KeyEvent {
+                    key: key.to_input(),
+                    action: action.to_input(),
+                    mods: mods.to_input(),
+                    scancode: scancode as u32,
+                };
+
+                let gui = &mut *gui_ptr;
+
+                gui.application.on_key(key_event);
+            }
+        }
     }
 
     unsafe extern "C" fn rwl_log_callback(severity: u32, message: *const std::ffi::c_char) {
@@ -387,6 +472,14 @@ mod ffi {
     impl RwlAction {
         pub const RELEASE: u32 = 0;
         pub const PRESS: u32 = 1;
+
+        pub fn to_input(&self) -> crate::gui::input::Action {
+            match self.0 {
+                Self::RELEASE => crate::gui::input::Action::RELEASE,
+                Self::PRESS => crate::gui::input::Action::PRESS,
+                _ => crate::gui::input::Action::RELEASE,
+            }
+        }
     }
 
     /// Modifier key flags
@@ -405,6 +498,10 @@ mod ffi {
         pub const CTRL: u32 = 1 << 1;
         pub const ALT: u32 = 1 << 2;
         pub const SUPER: u32 = 1 << 3;
+
+        pub fn to_input(&self) -> crate::gui::input::Mods {
+            crate::gui::input::Mods(self.0 as i32)
+        }
     }
 
     /// Keyboard key codes
@@ -535,6 +632,13 @@ mod ffi {
         pub const RIGHT_SUPER: i32 = 347;
         pub const MENU: i32 = 348;
         pub const COUNT: i32 = 349;
+
+        pub fn to_input(&self) -> crate::gui::input::Key {
+            match self.0 {
+                Self::SPACE => crate::gui::input::Key::SPACE,
+                _ => crate::gui::input::Key::UNKNOWN,
+            }
+        }
     }
 
     /// Output information structure

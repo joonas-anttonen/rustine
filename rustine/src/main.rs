@@ -99,14 +99,14 @@ fn main() {
 
         let gfx = Arc::new(Mutex::new(gfx_core));
 
+        let application = Box::new(MyApplication);
         let gui = gui::Gui::builder(platform)
             .window_title("Rustine")
             .window_size(1920, 1080)
-            .build(gfx.clone());
-
+            .build(gfx.clone(), application);
         thread::scope(|s| {
             s.spawn(|| {
-                gfx::Gfx::run(Arc::clone(&gfx), &EXIT_FLAG);
+                gfx::Gfx::run(Arc::clone(&gfx), &EXIT_FLAG, gfx::LoopMode::Continuous);
             });
 
             let image_mailbox_cloned = Arc::clone(&image_mailbox);
@@ -131,6 +131,20 @@ fn main() {
     info!("SHUTDOWN");
 }
 
+struct MyApplication;
+
+impl rustine::gui::Application for MyApplication {
+    fn startup(&self) {
+        // Initialization code here
+    }
+
+    fn on_key(&self, _key: rustine::gui::KeyEvent) {}
+
+    fn render(&self, _frame: &mut gfx::RenderFrame) {
+        // Rendering code here
+    }
+}
+
 fn gui_thread_function(
     gui: &gui::Gui,
     render_mailbox: Arc<Mutex<VecDeque<gfx::RenderFrame>>>,
@@ -142,7 +156,7 @@ fn gui_thread_function(
     info!("GUI START");
 
     while !exit_flag.load(atomic::Ordering::Relaxed) && !gui.should_close() {
-        gui.wait_events_timeout(16);
+        gui.wait_events_timeout_ms(16);
 
         // Generate a render frame with pre-computed vertices and draw commands
         let frame = generate_render_frame(
@@ -166,7 +180,7 @@ fn generate_render_frame(
     dynamic_image: &gfx::Image,
     fallback_image: &gfx::Image,
 ) -> gfx::RenderFrame {
-    let mut frame = gfx::RenderFrame::new();
+    let mut frame = gfx::RenderFrame::new(frame_size);
 
     let w = frame_size.x as f32;
     let h = frame_size.y as f32;
@@ -255,7 +269,9 @@ fn generate_render_frame(
         .expect("Font metrics exist");
     let text_font_height = text_font_metrics.ascender - text_font_metrics.descender;
 
-    let text_y = address_bar_y + ADDRESS_BAR_HEIGHT - ((ADDRESS_BAR_HEIGHT - text_font_height) / 2.0) + text_font_metrics.descender;
+    let text_y = address_bar_y + ADDRESS_BAR_HEIGHT
+        - ((ADDRESS_BAR_HEIGHT - text_font_height) / 2.0)
+        + text_font_metrics.descender;
 
     let text_area = frame.push_text(
         "rustine q | code = [",

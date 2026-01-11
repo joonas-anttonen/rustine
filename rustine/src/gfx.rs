@@ -34,6 +34,15 @@ use crate::version::Version;
 
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
 
+/// Controls how the GFX main loop handles timing and synchronization.
+pub enum LoopMode {
+    /// Continuous loop with frame rate limiting via spin-sleep.
+    Continuous,
+    /// Wait on a condition variable until work is signaled.
+    /// Useful for on-demand rendering or reducing CPU usage.
+    Event,
+}
+
 pub struct Image {
     pub width: u32,
     pub height: u32,
@@ -276,17 +285,19 @@ pub struct RenderFrame {
     pub vertices: Vec<GpuVertex>,
     pub indices: Vec<u32>,
     pub batches: Vec<DrawBatch>,
+    pub size: Vector2u,
     /// Descriptors for quads that need dynamic refitting based on pixel buffer dimensions.
     pub image_descriptors: Vec<ImageDescriptor>,
 }
 
 impl RenderFrame {
-    pub fn new() -> Self {
+    pub fn new(size: Vector2u) -> Self {
         Self {
             vertices: Vec::with_capacity(65536),
             indices: Vec::with_capacity(65536),
             batches: Vec::with_capacity(16),
             image_descriptors: Vec::with_capacity(64),
+            size,
         }
     }
 
