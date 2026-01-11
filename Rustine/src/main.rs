@@ -257,14 +257,42 @@ fn generate_render_frame(
         color,
     );
 
-    frame.push_text(
-        "J{oo}nas [A]nttonen -> (@_åäö)\nAnother row !!! | ??? /\\ ^ ~* '",
+    let text_font_metrics = gfx::fonts::get_font_metrics(gfx::fonts::DEPARTUREMONO_FONT_ID)
+        .expect("Font metrics exist");
+    let text_font_height = text_font_metrics.ascender - text_font_metrics.descender;
+
+    let text_y = address_bar_y + ADDRESS_BAR_HEIGHT - ((ADDRESS_BAR_HEIGHT - text_font_height) / 2.0) + text_font_metrics.descender;
+
+    let text_area = frame.push_text(
+        "rustine q | code = [",
         address_bar_x,
-        address_bar_y + gfx::fonts::get_font_size(gfx::fonts::DEPARTUREMONO_FONT_ID),
+        text_y,
         1.0,
         color,
         gfx::fonts::DEPARTUREMONO_FONT_ID,
     );
+
+    //frame.draw_rectangle(&text_area, 1.0, color);
+
+    let text_area = frame.push_text(
+        "\u{e8da}",
+        text_area.right(),
+        text_y,
+        1.0,
+        color,
+        gfx::fonts::NERDSYMBOLSMONO_FONT_ID,
+    );
+
+    let _text_area = frame.push_text(
+        "] It's me, <Joonas>",
+        text_area.right(),
+        text_y,
+        1.0,
+        color,
+        gfx::fonts::DEPARTUREMONO_FONT_ID,
+    );
+
+    //frame.draw_rectangle(&text_area, 1.0, color);
 
     frame
 }
@@ -310,7 +338,7 @@ fn image_loader_thread(
     Log::global().set_current_thread_name("image-loader");
 
     let pictures_root = std::env::var("HOME")
-        .map(|h| PathBuf::from(h).join("pictures").join("hmm"))
+        .map(|h| PathBuf::from(h).join("pictures").join("gif"))
         .unwrap_or_else(|_| PathBuf::from("/home/jant/pictures/nsfw"));
 
     let images = collect_webp_images(&pictures_root);

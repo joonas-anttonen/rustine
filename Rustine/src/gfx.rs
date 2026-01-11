@@ -117,6 +117,22 @@ impl Rectangle {
     pub fn extent(&self) -> Vector2f {
         Vector2f::new(self.w, self.h)
     }
+
+    pub fn left(&self) -> f32 {
+        self.x
+    }
+
+    pub fn right(&self) -> f32 {
+        self.x + self.w
+    }
+
+    pub fn top(&self) -> f32 {
+        self.y
+    }
+
+    pub fn bottom(&self) -> f32 {
+        self.y + self.h
+    }
 }
 
 /// A single draw command: draw a range of indices from the vertex/index buffer with optional scissor.
@@ -380,56 +396,119 @@ impl RenderFrame {
         self.push_quad(positions, uvs, color, Some(image.id), fallback_id);
     }
 
-    /// Render text using the embedded bitmap font.
+    /// Render text using the embedded bitmap fonts.
     ///
-    /// The text is rendered at the specified position using the given color and scale factor.
-    /// Supports newlines. The font ID determines which font to use.
-    pub fn push_text(&mut self, text: &str, x: f32, y: f32, scale: f32, color: u32, font_id: u32) {
+    /// Returns the final area occupied by the text.
+    pub fn push_text(
+        &mut self,
+        text: &str,
+        x: f32,
+        y: f32,
+        scale: f32,
+        color: u32,
+        font_id: u32,
+    ) -> Rectangle {
         let font_size = fonts::get_font_size(font_id);
         let mut cursor_x = x;
         let mut cursor_y = y;
-        
+        let mut min_x = x;
+        let mut max_x = x;
+        let mut min_y = y;
+        let mut max_y = y;
+
         for ch in text.chars() {
             if ch == '\n' {
                 cursor_x = x;
                 cursor_y += font_size * scale;
                 continue;
             }
-            
+
             if let Some(metrics) = fonts::get_glyph_metrics(font_id, ch) {
                 let glyph_w = metrics.width as f32;
                 let glyph_h = metrics.height as f32;
-                
+
                 let u0 = metrics.u0;
                 let v0 = metrics.v0;
                 let u1 = metrics.u1;
                 let v1 = metrics.v1;
-                
+
                 // offset_y is the distance from baseline to top of glyph (negative means above baseline)
                 // We want to position glyphs so cursor_y is the baseline
                 let x0 = cursor_x + metrics.offset_x as f32 * scale;
                 let y1 = cursor_y - metrics.offset_y as f32 * scale;
                 let x1 = x0 + glyph_w * scale;
                 let y0 = y1 - glyph_h * scale;
-                
+
+                min_x = min_x.min(x0);
+                max_x = max_x.max(x1);
+                min_y = min_y.min(y0);
+                max_y = max_y.max(y1);
+
                 let positions = [
                     Vector2f::new(x0, y0),
                     Vector2f::new(x1, y0),
                     Vector2f::new(x1, y1),
                     Vector2f::new(x0, y1),
                 ];
-                
+
                 let uvs = [
                     Vector2f::new(u0, v0),
                     Vector2f::new(u1, v0),
                     Vector2f::new(u1, v1),
                     Vector2f::new(u0, v1),
                 ];
-                
+
                 self.push_quad(positions, uvs, color, Some(font_id), None);
-                
+
                 cursor_x += metrics.advance_width as f32 * scale;
+            } else {
+                // Invalid character, take the first character in the font and push_quad filling that space
+                if let Some(all_metrics) = fonts::get_all_metrics(font_id) {
+                    if let Some((_, first_metrics)) = all_metrics.first() {
+                        let glyph_w = first_metrics.width as f32;
+                        let glyph_h = first_metrics.height as f32;
+
+                        let x0 = cursor_x + first_metrics.offset_x as f32 * scale;
+                        let y1 = cursor_y - first_metrics.offset_y as f32 * scale;
+                        let x1 = x0 + glyph_w * scale;
+                        let y0 = y1 - glyph_h * scale;
+
+                        min_x = min_x.min(x0);
+                        max_x = max_x.max(x1);
+                        min_y = min_y.min(y0);
+                        max_y = max_y.max(y1);
+
+                        let padding = 1.0 * scale;
+                        let positions = [
+                            Vector2f::new(x0 + padding, y0 + padding),
+                            Vector2f::new(x1 - padding, y0 + padding),
+                            Vector2f::new(x1 - padding, y1 - padding),
+                            Vector2f::new(x0 + padding, y1 - padding),
+                        ];
+
+                        let uvs = [
+                            Vector2f::new(0.0, 0.0),
+                            Vector2f::new(0.0, 0.0),
+                            Vector2f::new(0.0, 0.0),
+                            Vector2f::new(0.0, 0.0),
+                        ];
+
+                        let error_color = 0xFF0000FFu32;
+                        self.push_quad(positions, uvs, error_color, None, None);
+
+                        cursor_x += first_metrics.advance_width as f32 * scale;
+                    }
+                }
             }
+        }
+
+        max_x = max_x.max(cursor_x);
+
+        Rectangle {
+            x: min_x,
+            y: min_y,
+            w: max_x - min_x,
+            h: max_y - min_y,
         }
     }
 

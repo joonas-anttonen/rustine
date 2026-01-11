@@ -6,6 +6,34 @@ fn rerun_if_changed<P: AsRef<Path>>(path: P) {
     println!("cargo:rerun-if-changed={}", path.as_ref().display());
 }
 
+/// Parse codepoint specification strings like "0x1234-0x5678" or "0xabcd"
+fn parse_codepoint_spec(spec: &str, codepoints: &mut Vec<char>) {
+    let spec = spec.trim();
+    if spec.contains('-') {
+        // Range specification
+        let parts: Vec<&str> = spec.split('-').collect();
+        if parts.len() == 2 {
+            if let (Ok(start), Ok(end)) = (
+                u32::from_str_radix(parts[0].trim_start_matches("0x"), 16),
+                u32::from_str_radix(parts[1].trim_start_matches("0x"), 16),
+            ) {
+                for cp in start..=end {
+                    if let Some(ch) = char::from_u32(cp) {
+                        codepoints.push(ch);
+                    }
+                }
+            }
+        }
+    } else {
+        // Single codepoint
+        if let Ok(cp) = u32::from_str_radix(spec.trim_start_matches("0x"), 16) {
+            if let Some(ch) = char::from_u32(cp) {
+                codepoints.push(ch);
+            }
+        }
+    }
+}
+
 /// println!("cargo:rustc-link-lib=static={}"...
 fn link_static(lib: &str) {
     println!("cargo:rustc-link-lib=static={}", lib);
@@ -169,20 +197,64 @@ fn build_rustine_dxc(project_dir: &Path, out_dir: &Path, generator: &'static str
     rerun_if_changed(rustine_dxc_dir.join("rustine-dxc.hpp"));
 }
 
+/// Character set specification for a font
+#[derive(Clone)]
+struct CharsetSpec {
+    charset_type: CharsetType,
+}
+
+#[derive(Clone)]
+enum CharsetType {
+    /// Latin-1: characters 32-255
+    Latin1,
+    /// Unicode: specific codepoints defined by ranges or individual values
+    Unicode(Vec<char>),
+}
+
 fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     let fonts_dir = project_dir.join("src/gfx/fonts");
     let config_path = fonts_dir.join("fonts.toml");
 
     // Load font configuration
-    let mut font_sizes: HashMap<String, f32> = HashMap::new();
+    let mut font_configs: HashMap<String, (f32, CharsetSpec)> = HashMap::new();
     if config_path.exists() {
         let config_content = fs::read_to_string(&config_path)
             .expect("Failed to read fonts.toml");
         if let Ok(config) = toml::from_str::<toml::Value>(&config_content) {
             if let Some(fonts_table) = config.get("fonts").and_then(|v| v.as_table()) {
-                for (name, value) in fonts_table {
-                    if let Some(size) = value.as_float() {
-                        font_sizes.insert(name.clone(), size as f32);
+                for (name, font_config) in fonts_table {
+                    if let Some(table) = font_config.as_table() {
+                        let size = table.get("size").and_then(|v| v.as_float()).unwrap_or(16.0) as f32;
+                        let charset_str = table.get("charset").and_then(|v| v.as_str()).unwrap_or("latin1");
+                        
+                        let charset_spec = match charset_str {
+                            "latin1" => CharsetSpec {
+                                charset_type: CharsetType::Latin1,
+                            },
+                            "unicode" => {
+                                let mut codepoints = Vec::new();
+                                if let Some(codepoints_array) = table.get("codepoints").and_then(|v| v.as_array()) {
+                                    for cp_value in codepoints_array {
+                                        if let Some(cp_str) = cp_value.as_str() {
+                                            parse_codepoint_spec(cp_str, &mut codepoints);
+                                        }
+                                    }
+                                }
+                                CharsetSpec {
+                                    charset_type: CharsetType::Unicode(codepoints),
+                                }
+                            },
+                            _ => CharsetSpec {
+                                charset_type: CharsetType::Latin1,
+                            },
+                        };
+                        
+                        font_configs.insert(name.clone(), (size, charset_spec));
+                    } else if let Some(size) = font_config.as_float() {
+                        // Backwards compatibility: simple float value defaults to latin1
+                        font_configs.insert(name.clone(), (size as f32, CharsetSpec {
+                            charset_type: CharsetType::Latin1,
+                        }));
                     }
                 }
             }
@@ -223,6 +295,12 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     module_code.push_str("    pub u1: f32,\n");
     module_code.push_str("    pub v1: f32,\n");
     module_code.push_str("}\n\n");
+    
+    module_code.push_str("pub struct FontMetrics {\n");
+    module_code.push_str("    pub ascender: f32,\n");
+    module_code.push_str("    pub descender: f32,\n");
+    module_code.push_str("    pub line_gap: f32,\n");
+    module_code.push_str("}\n\n");
 
     // Generate font IDs starting from u32::MAX - 2 and going down
     let mut font_id = u32::MAX - 2u32;
@@ -234,10 +312,14 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
             .and_then(|stem| stem.to_str())
             .expect("Invalid font filename");
 
-        // Get font size from config, default to 16.0
-        let font_size = font_sizes.get(font_name).copied().unwrap_or(16.0);
+        // Get font config from config, default to latin1 at 16.0
+        let (font_size, charset_spec) = font_configs.get(font_name).cloned().unwrap_or_else(|| {
+            (16.0, CharsetSpec {
+                charset_type: CharsetType::Latin1,
+            })
+        });
 
-        build_bitmap_font(&font_path, font_name, font_size, out_dir);
+        build_bitmap_font(&font_path, font_name, font_size, &charset_spec, out_dir);
         
         module_code.push_str(&format!("include!(concat!(env!(\"OUT_DIR\"), \"/{}.rs\"));\n", font_name));
         
@@ -258,7 +340,11 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     // Generate font size constants
     module_code.push_str("\n// Auto-generated font sizes\n");
     for (font_name, _id) in font_info.iter() {
-        let font_size = font_sizes.get(font_name).copied().unwrap_or(16.0);
+        let (font_size, _) = font_configs.get(font_name).cloned().unwrap_or_else(|| {
+            (16.0, CharsetSpec {
+                charset_type: CharsetType::Latin1,
+            })
+        });
         let const_name = format!("{}_FONT_SIZE", font_name.to_uppercase());
         module_code.push_str(&format!("pub const {}: f32 = {}f32;\n", const_name, font_size));
     }
@@ -300,6 +386,20 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     module_code.push_str("    }\n");
     module_code.push_str("}\n\n");
 
+    // Generate function to get all metrics for a font
+    module_code.push_str("pub fn get_all_metrics(font_id: u32) -> Option<&'static [(char, GlyphMetrics)]> {\n");
+    module_code.push_str("    match font_id {\n");
+    for (font_name, id) in font_info.iter() {
+        let metrics_const = format!("{}_METRICS", font_name.to_uppercase());
+        module_code.push_str(&format!(
+            "        {} => Some(&{}),\n",
+            id, metrics_const
+        ));
+    }
+    module_code.push_str("        _ => None,\n");
+    module_code.push_str("    }\n");
+    module_code.push_str("}\n\n");
+
     // Generate font size accessor function
     module_code.push_str("pub fn get_font_size(font_id: u32) -> f32 {\n");
     module_code.push_str("    match font_id {\n");
@@ -308,6 +408,22 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
         module_code.push_str(&format!("        {} => {},\n", id, size_const));
     }
     module_code.push_str("        _ => 16.0,\n");
+    module_code.push_str("    }\n");
+    module_code.push_str("}\n\n");
+
+    // Generate font metrics accessor function
+    module_code.push_str("pub fn get_font_metrics(font_id: u32) -> Option<FontMetrics> {\n");
+    module_code.push_str("    match font_id {\n");
+    for (font_name, id) in font_info.iter() {
+        let ascender_const = format!("{}_ASCENDER", font_name.to_uppercase());
+        let descender_const = format!("{}_DESCENDER", font_name.to_uppercase());
+        let line_gap_const = format!("{}_LINE_GAP", font_name.to_uppercase());
+        module_code.push_str(&format!(
+            "        {} => Some(FontMetrics {{ ascender: {}, descender: {}, line_gap: {} }}),\n",
+            id, ascender_const, descender_const, line_gap_const
+        ));
+    }
+    module_code.push_str("        _ => None,\n");
     module_code.push_str("    }\n");
     module_code.push_str("}\n\n");
 
@@ -326,27 +442,41 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     fs::write(&output_path, module_code).expect("Failed to write generated fonts file");
 }
 
-fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, out_dir: &Path) {
+fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, charset_spec: &CharsetSpec, out_dir: &Path) {
     let font_data = fs::read(font_path).expect("Failed to read font file");
     let font =
         Font::from_bytes(font_data.as_slice(), Default::default()).expect("Failed to load font");
 
-    // Generate glyph metrics and bitmaps
+    // Capture vertical metrics from the font
+    let horizontal_line_metrics = font.horizontal_line_metrics(font_size).expect("Failed to get horizontal line metrics");
+    let ascender = horizontal_line_metrics.ascent;
+    let descender = horizontal_line_metrics.descent;
+    let line_gap = horizontal_line_metrics.line_gap;
+
+    // Generate glyph metrics and bitmaps based on charset
     let mut glyph_code = String::new();
     glyph_code.push_str("// Auto-generated bitmap font data\n\n");
 
-    // Rasterize full Latin-1 character set (0-255)
-    // Skip control characters (0-31) to save space
+    // Determine which characters to rasterize
+    let chars_to_rasterize: Vec<char> = match &charset_spec.charset_type {
+        CharsetType::Latin1 => {
+            // Skip control characters (0-31) to save space
+            (32u8..=255u8).map(|b| b as char).collect()
+        },
+        CharsetType::Unicode(codepoints) => codepoints.clone(),
+    };
+
+    // Rasterize characters
     let mut metrics = Vec::new();
     let mut bitmaps = Vec::new();
     let mut max_height = 0u32;
 
-    for ch in 32u8..=255u8 {
-        let (metrics_local, bitmap) = font.rasterize(ch as char, font_size);
+    for ch in chars_to_rasterize {
+        let (metrics_local, bitmap) = font.rasterize(ch, font_size);
 
         // Include all characters, even those with empty bitmaps (like space)
         max_height = max_height.max(metrics_local.height as u32);
-        metrics.push((ch as char, metrics_local));
+        metrics.push((ch, metrics_local));
         bitmaps.push(bitmap);
     }
 
@@ -400,7 +530,9 @@ fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, out_dir:
     let atlas_height_const = format!("{}_ATLAS_HEIGHT", font_name.to_uppercase());
     let atlas_data_const = format!("{}_ATLAS", font_name.to_uppercase());
     let metrics_const = format!("{}_METRICS", font_name.to_uppercase());
-    let charset_const = format!("{}_CHARSET", font_name.to_uppercase());
+    let ascender_const = format!("{}_ASCENDER", font_name.to_uppercase());
+    let descender_const = format!("{}_DESCENDER", font_name.to_uppercase());
+    let line_gap_const = format!("{}_LINE_GAP", font_name.to_uppercase());
 
     // Generate Rust code
     glyph_code.push_str("pub const ");
@@ -412,6 +544,23 @@ fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, out_dir:
     glyph_code.push_str(&atlas_height_const);
     glyph_code.push_str(": u32 = ");
     glyph_code.push_str(&atlas_height.to_string());
+    glyph_code.push_str(";\n\n");
+
+    // Generate vertical metrics constants
+    glyph_code.push_str("pub const ");
+    glyph_code.push_str(&ascender_const);
+    glyph_code.push_str(": f32 = ");
+    glyph_code.push_str(&format!("{}f32", ascender));
+    glyph_code.push_str(";\n");
+    glyph_code.push_str("pub const ");
+    glyph_code.push_str(&descender_const);
+    glyph_code.push_str(": f32 = ");
+    glyph_code.push_str(&format!("{}f32", descender));
+    glyph_code.push_str(";\n");
+    glyph_code.push_str("pub const ");
+    glyph_code.push_str(&line_gap_const);
+    glyph_code.push_str(": f32 = ");
+    glyph_code.push_str(&format!("{}f32", line_gap));
     glyph_code.push_str(";\n\n");
 
     glyph_code.push_str("pub static ");
@@ -469,21 +618,6 @@ fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, out_dir:
     glyph_code.push_str("        map\n");
     glyph_code.push_str("    })\n");
     glyph_code.push_str("}\n\n");
-
-    // Generate full Latin-1 character set for testing
-    glyph_code.push_str("/// Full Latin-1 character set (characters 32-255)\n");
-    glyph_code.push_str("pub const ");
-    glyph_code.push_str(&charset_const);
-    glyph_code.push_str(": &str = \"\\\n");
-    for ch in 32u8..=255u8 {
-        let c = ch as char;
-        match c {
-            '\\' => glyph_code.push_str("\\\\"),
-            '"' => glyph_code.push_str("\\\""),
-            _ => glyph_code.push(c),
-        }
-    }
-    glyph_code.push_str("\";\n");
 
     let output_path = out_dir.join(format!("{}.rs", font_name));
     fs::write(&output_path, glyph_code).expect("Failed to write generated font file");

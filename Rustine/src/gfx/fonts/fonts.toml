@@ -1,4 +1,42 @@
-# Font render sizes (in points)
-[fonts]
-ProggyClean = 16.0
-DepartureMono = 22.0
+# Font render sizes (in points) and character sets
+# 
+# Each font can specify:
+#   size     - Font render size in points (default: 16.0)
+#   charset  - Character set type: "latin1" or "unicode" (default: "latin1")
+#   codepoints - For unicode charset, list of hex ranges or individual codes
+#              Example ranges: "0xe000-0xe00f", "0xf100", "0x1234-0x5678"
+
+[fonts.ProggyClean]
+size = 16.0
+charset = "latin1"
+
+[fonts.DepartureMono]
+size = 22.0
+charset = "latin1"
+
+[fonts.NerdSymbolsMono]
+size = 22.0
+charset = "unicode"
+codepoints = [
+    "0xf1eb", # nf-fa-wifi
+    "0xf293", # nf-fa-bluetooth
+    "0xec19", # nf-cod-chip
+    "0xe745", # nf-dev-firefox
+    "0xe8da", # nf-dev-vscode
+    "0xe702", # nf-dev-git
+    "0xea68", # nf-cod-source_control
+    "0xea85", # nf-cod-terminal
+    "0xe843", # nf-dev-nixos
+    "0xf1b6", # nf-fa-steam
+    "0xe725", # nf-dev-git_branch
+    "0xeb51", # nf-cod-settings_gear
+    "0xf01d8", # nf-md-dots_horizontal
+    "0xf104", # nf-fa-angle_left
+    "0xf105", # nf-fa-angle_right
+    "0xf106", # nf-fa-angle_up
+    "0xf107", # nf-fa-angle_down
+    "0xf021", # nf-fa-refresh
+    "0xeb94", # nf-cod-menu
+    "0xea76", # nf-cod-close
+    "0xea60", # nf-cod-add
+]
