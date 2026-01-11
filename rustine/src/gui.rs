@@ -17,7 +17,7 @@ pub struct StartupParameters {
 }
 
 pub struct Gui {
-    gfx: Arc<Mutex<gfx::Core>>,
+    gfx: Arc<Mutex<gfx::Gfx>>,
     gfx_surface: vk::VkSurfaceKHR,
     rwl_window: ffi::RwlWindow,
 }
@@ -41,7 +41,7 @@ impl Drop for Gui {
 }
 
 impl Gui {
-    pub fn new(gfx: Arc<Mutex<gfx::Core>>, parameters: StartupParameters) -> Arc<Self> {
+    pub fn new(gfx: Arc<Mutex<gfx::Gfx>>, parameters: StartupParameters) -> Arc<Self> {
         if parameters.platform != Platform::Wayland {
             panic!("Unsupported platform");
         }

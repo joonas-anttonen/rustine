@@ -36,7 +36,7 @@ struct PerCommand {
 /// `Core` encapsulates a Vulkan instance and a selected physical device.
 /// It is responsible for creating and maintaining the graphics pipeline.
 /// `Core` is thread-safe and can be shared across threads.
-pub struct Core {
+pub struct Gfx {
     test_data: TestData,
     pending_images: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
     pending_image_uploads: VecDeque<(u32, io::Image)>,
@@ -56,16 +56,16 @@ pub struct Core {
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
 // The Vulkan instance itself is thread-safe for most operations.
-unsafe impl Send for Core {}
-unsafe impl Sync for Core {}
+unsafe impl Send for Gfx {}
+unsafe impl Sync for Gfx {}
 
-impl Drop for Core {
+impl Drop for Gfx {
     fn drop(&mut self) {
-        warning!("Core::drop");
+        warning!("Gfx::drop");
     }
 }
 
-impl Core {
+impl Gfx {
     pub fn new(
         instance: Instance,
         device: Arc<Device>,
@@ -273,7 +273,7 @@ impl Core {
 
         let command_queue = Queue::new(&device, 4);
 
-        Core {
+        Gfx {
             instance,
             device: device,
             allocator,
@@ -299,8 +299,8 @@ impl Core {
     }
 
     /// Creates a new `CoreBuilder` to configure and build a `Core` instance.
-    pub fn builder(params: Parameters) -> CoreBuilder {
-        CoreBuilder::new(params)
+    pub fn builder(params: Parameters) -> GfxBuilder {
+        GfxBuilder::new(params)
     }
 
     /// Returns a reference to the selected physical device.
@@ -694,16 +694,13 @@ pub enum DeviceSelector {
     ByName(String),
 }
 
-/// Builder for creating and configuring a `Core` graphics instance.
-///
-/// `CoreBuilder` allows fine-grained control over graphics initialization, including
-/// API parameter configuration and physical device selection strategy.
+/// Builder for creating and configuring a `Gfx` graphics instance.
 #[derive(Debug)]
-pub struct CoreBuilder {
+pub struct GfxBuilder {
     params: Parameters,
 }
 
-impl CoreBuilder {
+impl GfxBuilder {
     /// Creates a new `CoreBuilder` with the given API parameters.
     pub fn new(params: Parameters) -> Self {
         Self {
@@ -712,7 +709,7 @@ impl CoreBuilder {
     }
 
     /// Builds the `Core` instance.
-    pub fn build(self) -> Result<Core> {
+    pub fn build(self) -> Result<Gfx> {
         // 1. Create Vulkan instance
         let vk_instance = Instance::new(&self.params)?;
 
@@ -752,7 +749,7 @@ impl CoreBuilder {
         // 4. Create VMA
         let allocator = allocator::Allocator::new(&vk_instance, Arc::clone(&vk_device))?;
 
-        Ok(Core::new(vk_instance, vk_device, allocator))
+        Ok(Gfx::new(vk_instance, vk_device, allocator))
     }
 }
 

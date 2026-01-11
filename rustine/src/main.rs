@@ -64,7 +64,7 @@ fn main() {
             device_selector: gfx::DeviceSelector::Optimal,
         };
 
-        let mut gfx_core = match gfx::Core::builder(params).build() {
+        let mut gfx_core = match gfx::Gfx::builder(params).build() {
             Ok(core) => core,
             Err(e) => {
                 error!("Failed to build gfx::Core: {}", e);
@@ -491,7 +491,7 @@ fn collect_webp_images(root: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn gfx_thread_function(gfx: Arc<Mutex<gfx::Core>>, exit_flag: &atomic::AtomicBool) {
+fn gfx_thread_function(gfx: Arc<Mutex<gfx::Gfx>>, exit_flag: &atomic::AtomicBool) {
     Log::global().set_current_thread_name("gfx");
 
     info!("GFX START");

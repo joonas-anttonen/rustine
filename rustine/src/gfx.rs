@@ -8,7 +8,7 @@ pub use instance::Instance;
 mod device;
 pub use device::*;
 pub mod vulkan;
-pub use core::Core;
+pub use core::Gfx;
 use std::collections;
 use std::sync;
 pub mod presentation;
