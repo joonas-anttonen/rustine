@@ -1,4 +1,4 @@
-use std::sync::atomic;
+use std::sync::{Arc, Mutex, atomic};
 
 use rustine::{Version, log};
 
@@ -51,11 +51,28 @@ fn main() -> std::process::ExitCode {
     log::debug!("STARTUP");
 
     {
-        let _builder = rustine::gfx::Gfx::builder(rustine::Platform::Wayland)
+        let gfx_builder = rustine::gfx::Gfx::builder(rustine::Platform::Wayland)
             .app_name("rustine-desktop")
             .app_version(Version::new(0, 1, 0))
             .debugging(true)
             .device_selector(rustine::gfx::DeviceSelector::Optimal);
+
+        let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
+            .window_title("rustine-desktop")
+            .window_type(rustine::gui::WindowType::Normal);
+
+        let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
+        let gui = gui_builder.build(gfx.clone());
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                rustine::gfx::Gfx::run(gfx.clone(), &SHUTDOWN_FLAG);
+            });
+
+            rustine::gui::Gui::run(&gui, &SHUTDOWN_FLAG);
+
+            SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
+        });
     }
 
     log::debug!("SHUTDOWN");

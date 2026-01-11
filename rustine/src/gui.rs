@@ -3,32 +3,40 @@
 mod input;
 //use input::{Action, Key, KeyEvent, Mods};
 
-use crate::*;
 use crate::gfx::{self, presentation, vulkan as vk};
+use crate::*;
 use crate::{debug, warning};
 
 use std::sync::{Arc, Mutex};
 
-pub struct StartupParameters {
+pub struct Parameters {
     pub platform: Platform,
     pub window_title: String,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
+    pub window_type: WindowType,
+}
+
+pub enum WindowType {
+    Normal,
+    Background,
+    Taskbar,
 }
 
 pub struct GuiBuilder {
-    params: StartupParameters,
+    params: Parameters,
 }
 
 impl GuiBuilder {
     /// Creates a new `GuiBuilder` with the given platform.
     pub fn new(platform: Platform) -> Self {
         Self {
-            params: StartupParameters {
+            params: Parameters {
                 platform,
-                window_title: String::from("Rustine"),
+                window_title: String::from("rustine::gui"),
                 window_width: None,
                 window_height: None,
+                window_type: WindowType::Normal,
             },
         }
     }
@@ -51,6 +59,11 @@ impl GuiBuilder {
     pub fn window_size(mut self, width: u32, height: u32) -> Self {
         self.params.window_width = Some(width);
         self.params.window_height = Some(height);
+        self
+    }
+
+    pub fn window_type(mut self, window_type: WindowType) -> Self {
+        self.params.window_type = window_type;
         self
     }
 
@@ -85,12 +98,25 @@ impl Drop for Gui {
 }
 
 impl Gui {
+    pub fn run(
+        gui: &gui::Gui,
+        exit_flag: &std::sync::atomic::AtomicBool,
+    ) {
+        info!("GUI START");
+
+        while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) && !gui.should_close() {
+            gui.wait_events_timeout(16);
+        }
+
+        info!("GUI STOP");
+    }
+
     /// Creates a new `GuiBuilder` to configure and build a `Gui` instance.
     pub fn builder(platform: Platform) -> GuiBuilder {
         GuiBuilder::new(platform)
     }
 
-    pub fn new(gfx: Arc<Mutex<gfx::Gfx>>, parameters: StartupParameters) -> Arc<Self> {
+    pub fn new(gfx: Arc<Mutex<gfx::Gfx>>, parameters: Parameters) -> Arc<Self> {
         if parameters.platform != Platform::Wayland {
             panic!("Unsupported platform");
         }
@@ -135,7 +161,7 @@ impl Gui {
             }
 
             // DEBUG: Select eDP-1 or nothing
-            let output = {
+            let _output = {
                 outputs
                     .iter()
                     .find(|o| std::ffi::CStr::from_ptr(o.name).to_string_lossy() == "asdasd")
@@ -143,12 +169,33 @@ impl Gui {
                     .unwrap_or(std::ptr::null_mut())
             };
 
+            let rwl_window_params = match parameters.window_type {
+                WindowType::Normal => (
+                    ffi::RwlWindowType::Normal,
+                    std::ptr::null_mut(),
+                    parameters.window_width.unwrap_or(1280),
+                    parameters.window_height.unwrap_or(720),
+                ),
+                WindowType::Background => (
+                    ffi::RwlWindowType::Background,
+                    std::ptr::null_mut(),
+                    parameters.window_width.unwrap_or(0),
+                    parameters.window_height.unwrap_or(0),
+                ),
+                WindowType::Taskbar => (
+                    ffi::RwlWindowType::Taskbar,
+                    std::ptr::null_mut(),
+                    parameters.window_width.unwrap_or(0),
+                    parameters.window_height.unwrap_or(48),
+                ),
+            };
+
             let mut rwl_window = std::ptr::null_mut();
             ffi::panic_if_error(ffi::rwlCreateWindow(
-                ffi::RwlWindowType::Normal,
-                output,
-                1280,
-                720,
+                rwl_window_params.0,
+                rwl_window_params.1,
+                rwl_window_params.2,
+                rwl_window_params.3,
                 &mut rwl_window,
             ));
 
@@ -231,7 +278,7 @@ impl Gui {
     pub fn pixel_size(&self) -> Vector2u {
         let mut width: u32 = 0;
         let mut height: u32 = 0;
-        
+
         unsafe {
             ffi::panic_if_error(ffi::rwlGetPixelSize(
                 self.rwl_window,

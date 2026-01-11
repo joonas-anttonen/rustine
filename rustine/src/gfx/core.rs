@@ -66,6 +66,97 @@ impl Drop for Gfx {
 }
 
 impl Gfx {
+    pub fn run(gfx: Arc<Mutex<gfx::Gfx>>, exit_flag: &std::sync::atomic::AtomicBool) {
+        Log::global().set_current_thread_name("gfx");
+
+        info!("GFX START");
+
+        const TARGET_FPS: f64 = 120.0;
+        let target_frame_time = std::time::Duration::from_secs_f64(1.0 / TARGET_FPS);
+        const SPIN_THRESHOLD: std::time::Duration = std::time::Duration::from_micros(500);
+
+        let start_instant = std::time::Instant::now();
+        let mut last_instant = std::time::Instant::now();
+        let mut last_stat_instant = std::time::Instant::now();
+        let mut frame_delta_times: RingBuffer<f64> = RingBuffer::new(120);
+
+        while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            let frame_start = std::time::Instant::now();
+
+            {
+                let mut core = gfx.lock().unwrap();
+
+                let now = std::time::Instant::now();
+                let t = now.duration_since(start_instant).as_secs_f64();
+                let dt = now.duration_since(last_instant).as_secs_f32();
+                frame_delta_times.push(dt as f64);
+                core.render(t, dt);
+                last_instant = now;
+
+                let stat_now = std::time::Instant::now();
+                if stat_now.duration_since(last_stat_instant).as_secs_f64() >= 1.0 {
+                    let frame_cpu_times = core.frame_cpu_times();
+                    if let Some((min, max, mean)) = frame_cpu_times.min_max_mean() {
+                        debug!(
+                            "Frame CPU -> min: {}, max: {}, mean: {}",
+                            utilities::format_duration(min),
+                            utilities::format_duration(max),
+                            utilities::format_duration(mean)
+                        );
+                    }
+                    if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
+                        debug!(
+                            "Frame Delta -> min: {}, max: {}, mean: {}",
+                            utilities::format_duration(min as f64),
+                            utilities::format_duration(max as f64),
+                            utilities::format_duration(mean as f64)
+                        );
+                    }
+
+                    let current = alloc::current_bytes();
+                    let peak = alloc::peak_bytes();
+                    let vram = gfx::Gfx::current_allocated_vram_bytes();
+                    let rss = alloc::rss_bytes();
+                    match rss {
+                        Some(rss_b) => debug!(
+                            "Memory -> {}, peak: {} | VRAM: {} | RAM: {}",
+                            utilities::format_bytes_iec(current),
+                            utilities::format_bytes_iec(peak),
+                            utilities::format_bytes_iec(vram),
+                            utilities::format_bytes_iec(rss_b)
+                        ),
+                        None => debug!(
+                            "Memory -> {}, peak: {} | VRAM: {}",
+                            utilities::format_bytes_iec(current),
+                            utilities::format_bytes_iec(peak),
+                            utilities::format_bytes_iec(vram),
+                        ),
+                    }
+                    last_stat_instant = stat_now;
+                }
+            }
+
+            // Adaptive spin-sleep frame rate limiting
+            let elapsed = frame_start.elapsed();
+            if elapsed < target_frame_time {
+                let mut remaining = target_frame_time - elapsed;
+
+                // Sleep for bulk of remaining time
+                while remaining > SPIN_THRESHOLD {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    remaining = target_frame_time.saturating_sub(frame_start.elapsed());
+                }
+
+                // Spin for precise timing
+                while frame_start.elapsed() < target_frame_time {
+                    std::hint::spin_loop();
+                }
+            }
+        }
+
+        info!("GFX STOP");
+    }
+
     pub fn current_allocated_vram_bytes() -> usize {
         allocator::Allocator::current_allocated_bytes()
     }
@@ -361,6 +452,14 @@ impl Gfx {
             )
             .unwrap();
         self.test_data.target_frame = Some(Arc::new(target_frame));
+
+        self.render_empty();
+    }
+
+    fn render_empty(&mut self) {
+        self.queue.enqueue_present(move |cmd, present_image| {
+            cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::PRESENT_SRC_KHR);
+        });
     }
 
     pub fn create_pipeline(&self, parameters: pipeline::Parameters) -> Pipeline {
@@ -539,7 +638,10 @@ impl Gfx {
 
         let target_frame = match self.test_data.target_frame.as_ref() {
             Some(frame) => Arc::clone(frame),
-            None => return,
+            None => {
+                self.render_empty();
+                return;
+            }
         };
 
         self.stage_incoming_images();
@@ -556,7 +658,10 @@ impl Gfx {
 
         let mut frame = match self.cached_render_frame.clone() {
             Some(f) => f,
-            None => return,
+            None => {
+                self.render_empty();
+                return;
+            }
         };
 
         // Preprocess: update vertices for images with dynamic fitting based on actual pixel buffer sizes
