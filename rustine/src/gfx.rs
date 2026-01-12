@@ -279,6 +279,100 @@ fn compute_fit(
     (positions, uvs)
 }
 
+/// Computes the signed area (cross product) of a triangle defined by three points.
+/// Positive if CCW, negative if CW.
+fn triangle_signed_area(p0: Vector2f, p1: Vector2f, p2: Vector2f) -> f32 {
+    (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y)
+}
+
+/// Checks if point p is strictly inside triangle defined by a, b, c using barycentric coordinates.
+fn point_in_triangle(p: Vector2f, a: Vector2f, b: Vector2f, c: Vector2f) -> bool {
+    let area = triangle_signed_area(a, b, c).abs();
+    if area < 1e-10 {
+        return false;
+    }
+
+    let area1 = triangle_signed_area(p, b, c).abs();
+    let area2 = triangle_signed_area(a, p, c).abs();
+    let area3 = triangle_signed_area(a, b, p).abs();
+
+    (area1 + area2 + area3 - area).abs() < 1e-6
+}
+
+/// Ear clipping triangulation for simple polygons (may be convex or concave).
+///
+/// Assumes the input polygon is closed (last point connects to first) with CCW winding.
+/// Returns a vector of triangles, each represented as [p0, p1, p2].
+fn earclip_triangulate(points: &[Vector2f]) -> Vec<[Vector2f; 3]> {
+    let n = points.len();
+    if n < 3 {
+        return Vec::new();
+    }
+
+    let mut triangles: Vec<[Vector2f; 3]> = Vec::new();
+    let mut remaining_indices: Vec<usize> = (0..n).collect();
+
+    while remaining_indices.len() > 2 {
+        let mut found_ear = false;
+
+        for i in 0..remaining_indices.len() {
+            let prev_idx = if i == 0 {
+                remaining_indices.len() - 1
+            } else {
+                i - 1
+            };
+            let next_idx = if i == remaining_indices.len() - 1 {
+                0
+            } else {
+                i + 1
+            };
+
+            let p_prev = points[remaining_indices[prev_idx]];
+            let p_curr = points[remaining_indices[i]];
+            let p_next = points[remaining_indices[next_idx]];
+
+            // Check if the angle at p_curr is convex (left turn in CCW winding)
+            let cross = triangle_signed_area(p_prev, p_curr, p_next);
+            if cross <= 0.0 {
+                continue; // Reflex angle, skip
+            }
+
+            // Check if any other point lies inside this potential ear
+            let mut is_ear = true;
+            for j in 0..remaining_indices.len() {
+                if j == prev_idx || j == i || j == next_idx {
+                    continue;
+                }
+
+                let test_point = points[remaining_indices[j]];
+                if point_in_triangle(test_point, p_prev, p_curr, p_next) {
+                    is_ear = false;
+                    break;
+                }
+            }
+
+            if is_ear {
+                // Found an ear, clip it
+                triangles.push([p_prev, p_curr, p_next]);
+                remaining_indices.remove(i);
+                found_ear = true;
+                break;
+            }
+        }
+
+        if !found_ear {
+            // Degenerate polygon or numerical issues; clip the smallest angle
+            if remaining_indices.len() > 2 {
+                remaining_indices.remove(0);
+            } else {
+                break;
+            }
+        }
+    }
+
+    triangles
+}
+
 /// Pre-computed render frame: all vertices and indices are pre-built by UI thread.
 #[derive(Clone)]
 pub struct RenderFrame {
@@ -341,11 +435,11 @@ impl RenderFrame {
 
         self.indices.extend_from_slice(&[
             vertex_base,
+            vertex_base + 2,
             vertex_base + 1,
-            vertex_base + 2,
             vertex_base,
-            vertex_base + 2,
             vertex_base + 3,
+            vertex_base + 2,
         ]);
 
         if self.batches.is_empty() {
@@ -368,6 +462,64 @@ impl RenderFrame {
             batch.push_command(DrawCommand::new(
                 index_offset,
                 6,
+                image_id,
+                image_fallback_id,
+            ));
+        }
+    }
+
+    pub fn push_triangle(
+        &mut self,
+        positions: [Vector2f; 3],
+        uvs: [Vector2f; 3],
+        color: u32,
+        image_id: Option<u32>,
+        image_fallback_id: Option<u32>,
+    ) {
+        let vertex_base = self.vertices.len() as u32;
+        let index_offset = self.indices.len() as u32;
+
+        self.vertices.extend_from_slice(&[
+            GpuVertex {
+                position: positions[0],
+                texture: uvs[0],
+                color,
+            },
+            GpuVertex {
+                position: positions[1],
+                texture: uvs[1],
+                color,
+            },
+            GpuVertex {
+                position: positions[2],
+                texture: uvs[2],
+                color,
+            },
+        ]);
+
+        self.indices
+            .extend_from_slice(&[vertex_base, vertex_base + 2, vertex_base + 1]);
+
+        if self.batches.is_empty() {
+            self.batches.push(DrawBatch::new());
+        }
+
+        let batch = self.batches.last_mut().expect("batch exists");
+
+        let can_merge = batch
+            .commands
+            .last()
+            .map(|cmd| cmd.image_id == image_id && cmd.image_fallback_id == image_fallback_id)
+            .unwrap_or(false);
+
+        if can_merge {
+            if let Some(cmd) = batch.commands.last_mut() {
+                cmd.index_count += 3;
+            }
+        } else {
+            batch.push_command(DrawCommand::new(
+                index_offset,
+                3,
                 image_id,
                 image_fallback_id,
             ));
@@ -618,6 +770,310 @@ impl RenderFrame {
         ];
         self.push_quad(right_positions, uvs, color, None, None);
     }
+
+    /// Render an antialiased polyline connecting the given points.
+    ///
+    /// The line is rendered as a series of quads expanded perpendicular to each segment,
+    /// with a slight overscan to allow the fragment shader to apply smooth antialiasing fringes.
+    ///
+    /// # Arguments
+    /// * `points` - Slice of at least 2 points defining the polyline path
+    /// * `thickness` - Line thickness in pixels; will be expanded for antialiasing
+    /// * `color` - RGBA color packed as u32
+    pub fn draw_polyline(&mut self, points: &[Vector2f], thickness: f32, color: u32) {
+        if points.len() < 2 || thickness <= 0.0 {
+            return;
+        }
+
+        // Expand line thickness slightly for antialiasing fringe generation
+        let half_thickness = thickness * 0.5;
+        let aa_expand = 0.75; // Extra pixel for antialiasing fringe
+        let expanded_half = half_thickness + aa_expand;
+
+        // UV encoding for AA:
+        //   uv.x = signed normalized distance across the stroke (-1 = left edge, +1 = right edge)
+        //   uv.y = -fringe_start_ratio (negative marks polyline mode and carries the ratio)
+        let fringe_start_ratio = half_thickness / expanded_half; // in (0,1)
+        let uv_left = Vector2f::new(-1.0, -fringe_start_ratio);
+        let uv_right = Vector2f::new(1.0, -fringe_start_ratio);
+        let uvs = [uv_left, uv_left, uv_right, uv_right];
+
+        // Process each segment
+        for segment_idx in 0..points.len() - 1 {
+            let p0 = points[segment_idx];
+            let p1 = points[segment_idx + 1];
+
+            // Skip degenerate segments
+            let delta = p1 - p0;
+            if delta.length_squared() < 1e-6 {
+                continue;
+            }
+
+            let dir = delta.normalize();
+            let perp = Vector2f::new(-dir.y, dir.x); // Perpendicular (rotate 90° CCW)
+
+            // Compute segment quad corners
+            let offset = perp * expanded_half;
+            let mut p0_left = p0 - offset;
+            let mut p0_right = p0 + offset;
+            let mut p1_left = p1 - offset;
+            let mut p1_right = p1 + offset;
+
+            // Handle join at p0 (with previous segment)
+            if segment_idx > 0 {
+                let p_prev = points[segment_idx - 1];
+                let prev_delta = p0 - p_prev;
+
+                if prev_delta.length_squared() >= 1e-6 {
+                    let prev_dir = prev_delta.normalize();
+                    let prev_perp = Vector2f::new(-prev_dir.y, prev_dir.x);
+
+                    // Compute bisector and extend to meet it
+                    let bisector = (prev_perp + perp).normalize();
+                    let bisector_scale = expanded_half / bisector.dot(&perp);
+                    p0_left = p0 - bisector * bisector_scale;
+                    p0_right = p0 + bisector * bisector_scale;
+                }
+            }
+
+            // Handle join at p1 (with next segment)
+            if segment_idx < points.len() - 2 {
+                let p_next = points[segment_idx + 2];
+                let next_delta = p_next - p1;
+
+                if next_delta.length_squared() >= 1e-6 {
+                    let next_dir = next_delta.normalize();
+                    let next_perp = Vector2f::new(-next_dir.y, next_dir.x);
+
+                    // Compute bisector and extend to meet it
+                    let bisector = (perp + next_perp).normalize();
+                    let bisector_scale = expanded_half / bisector.dot(&perp);
+                    p1_left = p1 - bisector * bisector_scale;
+                    p1_right = p1 + bisector * bisector_scale;
+                }
+            }
+
+            // Create quad for this segment (CCW winding for front-facing)
+            let positions = [p0_left, p1_left, p1_right, p0_right];
+            self.push_quad(positions, uvs, color, None, None);
+        }
+    }
+
+    /// Fill a closed polyline using ear clipping triangulation.
+    ///
+    /// Supports both convex and concave polygons. The polyline is assumed to be closed
+    /// (the last point connects back to the first). Uses a simple ear clipping algorithm
+    /// to triangulate the polygon, then renders each triangle as two quads for stability.
+    ///
+    /// # Arguments
+    /// * `points` - Slice of at least 3 points defining the polygon
+    /// * `color` - RGBA color packed as u32
+    pub fn fill_polyline(&mut self, points: &[Vector2f], color: u32) {
+        if points.len() < 3 {
+            return;
+        }
+
+        // Use ear clipping to triangulate the polygon
+        let triangles = earclip_triangulate(points);
+
+        let uvs = [
+            Vector2f::new(0.0, 0.0),
+            Vector2f::new(0.0, 0.0),
+            Vector2f::new(0.0, 0.0),
+        ];
+
+        for triangle in triangles {
+            self.push_triangle(triangle, uvs, color, None, None);
+        }
+    }
+
+    /// Draw an antialiased polyline with interpolation between control points.
+    ///
+    /// Interpolates smoothly between the given control points and renders the curve as
+    /// connected line segments. The tesselation parameter controls the number of line
+    /// segments generated per interval between control points.
+    ///
+    /// # Arguments
+    /// * `points` - Slice of at least 2 control points
+    /// * `thickness` - Line thickness in pixels
+    /// * `color` - RGBA color packed as u32
+    /// * `mode` - Interpolation mode (Linear or CatmullRom)
+    /// * `tesselation` - Number of segments per control point interval; must be ≥ 1
+    pub fn draw_polyline_interpolated(
+        &mut self,
+        points: &[Vector2f],
+        thickness: f32,
+        color: u32,
+        mode: InterpolationMode,
+        tesselation: u32,
+    ) {
+        if points.len() < 2 || thickness <= 0.0 || tesselation < 1 {
+            return;
+        }
+
+        let interpolated = interpolate_polyline(points, mode, tesselation, false);
+        self.draw_polyline(&interpolated, thickness, color);
+    }
+
+    /// Fill a closed polyline with interpolation between control points.
+    ///
+    /// Interpolates smoothly between the given control points and fills the enclosed region
+    /// using triangulation. The tesselation parameter controls the number of line segments
+    /// generated per interval between control points.
+    ///
+    /// # Arguments
+    /// * `points` - Slice of at least 3 control points defining a closed polygon
+    /// * `color` - RGBA color packed as u32
+    /// * `mode` - Interpolation mode (Linear or CatmullRom)
+    /// * `tesselation` - Number of segments per control point interval; must be ≥ 1
+    pub fn fill_polyline_interpolated(
+        &mut self,
+        points: &[Vector2f],
+        color: u32,
+        mode: InterpolationMode,
+        tesselation: u32,
+    ) {
+        if points.len() < 3 || tesselation < 1 {
+            return;
+        }
+
+        let interpolated = interpolate_polyline(points, mode, tesselation, false);
+        self.fill_polyline(&interpolated, color);
+    }
+}
+
+/// Interpolation mode for polyline curves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterpolationMode {
+    /// Linear interpolation between control points.
+    Linear,
+    /// Cubic Bézier interpolation using Catmull-Rom spline.
+    CatmullRom,
+    /// Cubic B-spline interpolation.
+    BSpline,
+}
+
+/// Generates interpolated points between control points.
+pub fn interpolate_polyline(
+    points: &[Vector2f],
+    mode: InterpolationMode,
+    tesselation: u32,
+    closed: bool,
+) -> Vec<Vector2f> {
+    let tesselation = tesselation as usize;
+    let mut result = Vec::new();
+
+    let segment_count = if closed {
+        points.len()
+    } else {
+        points.len() - 1
+    };
+
+    match mode {
+        InterpolationMode::Linear => {
+            for i in 0..segment_count {
+                let p0 = points[i];
+                let p1 = points[(i + 1) % points.len()];
+
+                result.push(p0);
+
+                for t in 1..tesselation {
+                    let t_normalized = t as f32 / tesselation as f32;
+                    let p = p0 * (1.0 - t_normalized) + p1 * t_normalized;
+                    result.push(p);
+                }
+            }
+            if !closed {
+                result.push(points[points.len() - 1]);
+            }
+        }
+        InterpolationMode::CatmullRom => {
+            for i in 0..segment_count {
+                let p0 = points[(i + points.len() - 1) % points.len()];
+                let p1 = points[i];
+                let p2 = points[(i + 1) % points.len()];
+                let p3 = points[(i + 2) % points.len()];
+
+                result.push(p1);
+
+                for t in 1..tesselation {
+                    let t_normalized = t as f32 / tesselation as f32;
+                    let p = catmull_rom(p0, p1, p2, p3, t_normalized);
+                    result.push(p);
+                }
+            }
+            if !closed {
+                result.push(points[points.len() - 1]);
+            }
+        }
+        InterpolationMode::BSpline => {
+            for i in 0..segment_count {
+                let p0 = points[(i + points.len() - 1) % points.len()];
+                let p1 = points[i];
+                let p2 = points[(i + 1) % points.len()];
+                let p3 = points[(i + 2) % points.len()];
+
+                for t in 0..tesselation {
+                    let t_normalized = t as f32 / tesselation as f32;
+                    let p = bspline(p0, p1, p2, p3, t_normalized);
+                    result.push(p);
+                }
+            }
+            if !closed {
+                let p0 = points[points.len() - 2];
+                let p1 = points[points.len() - 1];
+                let p2 = points[points.len() - 1];
+                let p3 = points[points.len() - 1];
+                let p = bspline(p0, p1, p2, p3, 1.0);
+                result.push(p);
+            }
+        }
+    }
+
+    result
+}
+
+/// Catmull-Rom cubic spline interpolation.
+///
+/// Computes a point on the Catmull-Rom curve defined by 4 control points.
+/// The curve passes through p1 and p2.
+///
+/// # Arguments
+/// * `p0`, `p1`, `p2`, `p3` - Four control points (the curve goes from p1 to p2)
+/// * `t` - Interpolation parameter in [0, 1]
+fn catmull_rom(p0: Vector2f, p1: Vector2f, p2: Vector2f, p3: Vector2f, t: f32) -> Vector2f {
+    let t2 = t * t;
+    let t3 = t2 * t;
+
+    // Catmull-Rom basis functions
+    let b0 = -0.5 * t3 + t2 - 0.5 * t;
+    let b1 = 1.5 * t3 - 2.5 * t2 + 1.0;
+    let b2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
+    let b3 = 0.5 * t3 - 0.5 * t2;
+
+    p0 * b0 + p1 * b1 + p2 * b2 + p3 * b3
+}
+
+/// Cubic B-spline interpolation.
+///
+/// Computes a point on the cubic B-spline curve defined by 4 control points.
+/// Unlike Catmull-Rom, the curve does not pass through the control points but is
+/// influenced by them, creating a smoother curve with less overshoot.
+///
+/// # Arguments
+/// * `p0`, `p1`, `p2`, `p3` - Four control points
+/// * `t` - Interpolation parameter in [0, 1]
+fn bspline(p0: Vector2f, p1: Vector2f, p2: Vector2f, p3: Vector2f, t: f32) -> Vector2f {
+    let t2 = t * t;
+    let t3 = t2 * t;
+
+    // Cubic B-spline basis functions
+    let b0 = (-t3 + 3.0 * t2 - 3.0 * t + 1.0) / 6.0;
+    let b1 = (3.0 * t3 - 6.0 * t2 + 4.0) / 6.0;
+    let b2 = (-3.0 * t3 + 3.0 * t2 + 3.0 * t + 1.0) / 6.0;
+    let b3 = t3 / 6.0;
+
+    p0 * b0 + p1 * b1 + p2 * b2 + p3 * b3
 }
 
 #[derive(Debug)]

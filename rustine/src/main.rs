@@ -1,3 +1,4 @@
+use rustine::Vector2f;
 use rustine::*;
 use rustine::{error, info};
 use rustine::{gfx, gui, io, log::*, version::Version};
@@ -303,6 +304,26 @@ fn generate_render_frame(
     );
 
     //frame.draw_rectangle(&text_area, 1.0, color);
+
+    // Test polyline
+    {
+        let test_points = vec![
+            Vector2f::new(100.0, 300.0),
+            Vector2f::new(100.0, 300.0),
+            Vector2f::new(200.0, 250.0),
+            Vector2f::new(300.0, 300.0),
+            Vector2f::new(350.0, 200.0),
+            Vector2f::new(450.0, 480.0),
+            Vector2f::new(100.0, 300.0),
+            Vector2f::new(100.0, 300.0),
+        ];
+
+        let interpolation = gfx::InterpolationMode::BSpline;
+        let tesselation = 4;
+
+        frame.fill_polyline_interpolated(&test_points, 0xFF66887F, interpolation, tesselation);
+        frame.draw_polyline_interpolated(&test_points, 2.0, 0xFFFFFFFF, interpolation, tesselation);
+    }
 
     frame
 }

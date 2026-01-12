@@ -5,13 +5,13 @@
         "commandLine": "",
         "environment": [
         ],
-        "executable": "/home/jant/projects/rustine/Rustine/target/debug/rustine-app",
+        "executable": "/home/jant/projects/rustine/rustine/target/debug/rustine-app",
         "inject": false,
         "numQueuedFrames": 0,
         "options": {
             "allowFullscreen": false,
             "allowVSync": false,
-            "apiValidation": true,
+            "apiValidation": false,
             "captureAllCmdLists": false,
             "captureCallstacks": true,
             "captureCallstacksOnlyDraws": false,

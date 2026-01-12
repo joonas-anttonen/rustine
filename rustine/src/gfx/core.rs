@@ -267,7 +267,7 @@ impl Gfx {
             shader: test_shader_program,
             topology: Topology::Triangles,
             winding: Winding::CounterClockwise,
-            culling: Culling::None,
+            culling: Culling::Back,
             raster: Raster::Fill,
             samples: Samples::X1,
             depth_comparison: Comparison::Always,
@@ -685,7 +685,7 @@ impl Gfx {
         // Drain any released images before staging new ones
         self.drain_released_images();
         self.stage_incoming_images();
-        
+
         let target_frame = match self.test_data.target_frame.as_ref() {
             Some(frame) => Arc::clone(frame),
             None => {
@@ -1013,14 +1013,19 @@ fragment_input vertex(vertex_input input, in uint vertexIndex : SV_VertexID)
 float4 fragment(fragment_input input) : SV_TARGET
 { 
 	float4 geometryColor = input.Color;
+
+    // Polyline path: UV.y is negative and encodes fringe start ratio
+    if (input.UV.y < 0.0)
+    {
+        float fringe_start = -input.UV.y;          // ratio in (0,1)
+        float dist = abs(input.UV.x);              // 0 at center, 1 at outer edge
+        float coverage = 1.0 - smoothstep(fringe_start, 1.0, dist);
+
+        return float4(geometryColor.rgb, coverage * geometryColor.a);
+    }
+
 	float4 textureColor = commandTexture.Sample(commandSampler, input.UV);
     float alpha = textureColor.a;
-
-	//if (command.isSdf)
-	//{ 
-	//	float sdf = textureColor.a - 0.5;
-	//	alpha = smoothstep(-command.sdfRange, +command.sdfRange, sdf);
-	//}
 
 	return float4(geometryColor.rgb * textureColor.rgb, alpha * geometryColor.a);
 }

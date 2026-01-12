@@ -37,6 +37,87 @@ impl Default for Vector2<f32> {
     }
 }
 
+impl std::ops::Add for Vector2<f32> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl std::ops::Sub for Vector2<f32> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl std::ops::Mul<f32> for Vector2<f32> {
+    type Output = Self;
+    fn mul(self, scalar: f32) -> Self {
+        Self {
+            x: self.x * scalar,
+            y: self.y * scalar,
+        }
+    }
+}
+
+impl std::ops::Mul<Vector2<f32>> for f32 {
+    type Output = Vector2<f32>;
+    fn mul(self, vec: Vector2<f32>) -> Vector2<f32> {
+        Vector2 {
+            x: self * vec.x,
+            y: self * vec.y,
+        }
+    }
+}
+
+impl std::ops::Neg for Vector2<f32> {
+    type Output = Self;
+    fn neg(self) -> Self {
+        Self {
+            x: -self.x,
+            y: -self.y,
+        }
+    }
+}
+
+impl Vector2<f32> {
+    pub fn length_squared(&self) -> f32 {
+        self.x * self.x + self.y * self.y
+    }
+
+    pub fn length(&self) -> f32 {
+        self.length_squared().sqrt()
+    }
+
+    pub fn normalize(&self) -> Self {
+        let len = self.length();
+        if len > 1e-6 {
+            Self {
+                x: self.x / len,
+                y: self.y / len,
+            }
+        } else {
+            Self { x: 0.0, y: 0.0 }
+        }
+    }
+
+    pub fn dot(&self, other: &Self) -> f32 {
+        self.x * other.x + self.y * other.y
+    }
+
+    /// Computes the Euclidean distance between this vector and another.
+    pub fn distance(&self, other: &Self) -> f32 {
+        (*other - *self).length()
+    }
+}
+
 /// Represents the target platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
