@@ -182,6 +182,10 @@ impl rustine::gui::Application for MyApplication {
         log::debug!("Application::on_key: {:?} {:?}", _key.key, _key.action);
     }
 
+    fn on_char(&self, c: char) {
+        log::debug!("Application::on_char: U+{:04X} ('{}')", c as u32, c);
+    }
+
     fn render(&self, frame: &mut rustine::gfx::RenderFrame) {
         let w = frame.size.x as f32;
         let h = frame.size.y as f32;

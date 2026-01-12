@@ -76,6 +76,9 @@ impl GuiBuilder {
 pub trait Application {
     fn startup(&self);
     fn on_key(&self, key: input::KeyEvent);
+    fn on_char(&self, _char: char) {
+        // Default implementation does nothing
+    }
     fn render(&self, frame: &mut gfx::RenderFrame);
 }
 
@@ -277,6 +280,7 @@ impl Gui {
             ));
 
             ffi::panic_if_error(ffi::rwlSetKeyCallback(rwl_window, Self::rwl_key_callback));
+            ffi::panic_if_error(ffi::rwlSetCharCallback(rwl_window, Self::rwl_char_callback));
 
             rwl_window
         };
@@ -420,6 +424,18 @@ impl Gui {
                 let gui = &mut *gui_ptr;
 
                 gui.application.on_key(key_event);
+            }
+        }
+    }
+
+    unsafe extern "C" fn rwl_char_callback(window: ffi::RwlWindow, codepoint: u32) {
+        unsafe {
+            let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                if let Some(c) = char::from_u32(codepoint) {
+                    let gui = &mut *gui_ptr;
+                    gui.application.on_char(c);
+                }
             }
         }
     }
@@ -676,6 +692,9 @@ mod ffi {
         mods: RwlMod,
     );
 
+    /// Callback for character input (UTF-32 codepoint)
+    pub type RwlCharCallback = unsafe extern "C" fn(window: RwlWindow, codepoint: u32);
+
     /// Callback for logging messages from the library
     /// severity: 0=Debug, 1=Info, 2=Warning, 3=Error
     pub type RwlLogCallback = unsafe extern "C" fn(severity: u32, message: *const std::ffi::c_char);
@@ -752,6 +771,7 @@ mod ffi {
         ) -> RwlStatus;
 
         pub fn rwlSetKeyCallback(window: RwlWindow, callback: RwlKeyCallback) -> RwlStatus;
+        pub fn rwlSetCharCallback(window: RwlWindow, callback: RwlCharCallback) -> RwlStatus;
 
         pub fn rwlGetPixelSize(window: RwlWindow, width: *mut u32, height: *mut u32) -> RwlStatus;
         pub fn rwlGetLogicalSize(window: RwlWindow, width: *mut u32, height: *mut u32)

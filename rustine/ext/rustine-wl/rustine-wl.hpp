@@ -173,6 +173,10 @@ typedef void (*rwl_logical_size_callback)(rwl_window* window, uint32_t width, ui
 typedef void (*rwl_key_callback)(
     rwl_window* window, int32_t key, int32_t scancode, int32_t action, int32_t mods);
 
+// Callback for character input events (UTF-32 codepoint)
+// Only triggered on key press, not release
+typedef void (*rwl_char_callback)(rwl_window* window, uint32_t codepoint);
+
 // Callback for logging messages from the library
 // severity: 0=Debug, 1=Info, 2=Warning, 3=Error
 typedef void (*rwl_log_callback)(uint32_t severity, const char* message);
@@ -215,6 +219,7 @@ void* rwlGetWindowUserPointer(rwl_window* window);
 rwl_status rwlSetPixelSizeCallback(rwl_window* window, rwl_pixel_size_callback callback);
 rwl_status rwlSetLogicalSizeCallback(rwl_window* window, rwl_logical_size_callback callback);
 rwl_status rwlSetKeyCallback(rwl_window* window, rwl_key_callback callback);
+rwl_status rwlSetCharCallback(rwl_window* window, rwl_char_callback callback);
 
 // Get the buffer size to render at (accounts for fractional scaling).
 rwl_status rwlGetPixelSize(rwl_window* window, uint32_t* width, uint32_t* height);

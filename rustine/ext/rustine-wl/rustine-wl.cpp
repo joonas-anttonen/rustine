@@ -224,6 +224,7 @@ struct rwl_window_internal {
     rwl_pixel_size_callback pixel_size_callback;
     rwl_logical_size_callback logical_size_callback;
     rwl_key_callback key_callback;
+    rwl_char_callback char_callback;
 
     void* user_pointer;
 
@@ -629,6 +630,18 @@ static void keyboard_handle_key(void* data,
         window->key_states[key] = false;
     } else if (action == RWL_ACTION_PRESS) {
         window->key_states[key] = true;
+
+        // Emit character event on press if there's a character callback
+        if (window->char_callback && g_xkb_state) {
+            // Get the keysym from the state
+            // +8 = offset for evdev keycodes, basically Wayland -> XKB conversion
+            xkb_keysym_t keysym = xkb_state_key_get_one_sym(g_xkb_state, scancode + 8);
+            // Convert keysym to UTF-32 codepoint
+            uint32_t codepoint = xkb_keysym_to_utf32(keysym);
+            if (codepoint != 0) {
+                window->char_callback(reinterpret_cast<rwl_window*>(window), codepoint);
+            }
+        }
     }
 
     if (window->key_callback) {
@@ -1176,6 +1189,17 @@ rwl_status rwlSetKeyCallback(rwl_window* window, rwl_key_callback callback) {
 
     rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
     win->key_callback = callback;
+
+    return RWL_STATUS_OK;
+}
+
+rwl_status rwlSetCharCallback(rwl_window* window, rwl_char_callback callback) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->char_callback = callback;
 
     return RWL_STATUS_OK;
 }
