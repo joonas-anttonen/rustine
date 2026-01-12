@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::{error, vk_call, warning};
-use crate::{gfx::vulkan as vk, gfx::*, gfx::pipeline::*};
+use crate::{gfx::pipeline::*, gfx::vulkan as vk, gfx::*};
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -720,11 +720,7 @@ impl CommandBuffer {
         self.raw_image_barrier(image.image, old_layout, new_layout);
     }
 
-    pub fn layout_barrier(
-        &mut self,
-        buffer: &Arc<PixelBuffer>,
-        new_layout: Layout,
-    ) {
+    pub fn layout_barrier(&mut self, buffer: &Arc<PixelBuffer>, new_layout: Layout) {
         let old_layout = buffer.layout();
         self.pixel_buffers_in_use.insert(buffer.clone());
         self.raw_image_barrier(buffer.image(), old_layout, new_layout);
@@ -770,18 +766,11 @@ impl CommandBuffer {
         }
     }
 
-    pub fn clear_present_image(&self, image: &presentation::PresentationImage, color: &[f32; 4]) {
-        self.raw_clear_pixel_buffer(image.image, color);
-    }
-
     /// Clears the given pixel buffer to the specified color.
     /// Current layout of `buffer` must be `SHARED_PRESENT_KHR`, `GENERAL` or `TRANSFER_DST_OPTIMAL`.
     pub fn clear_pixel_buffer(&mut self, buffer: &Arc<PixelBuffer>, color: &[f32; 4]) {
         self.pixel_buffers_in_use.insert(buffer.clone());
-        self.raw_clear_pixel_buffer(buffer.image(), color);
-    }
 
-    pub fn raw_clear_pixel_buffer(&self, image: vk::VkImage, color: &[f32; 4]) {
         let clear_color = vk::VkClearColorValue { float32: *color };
         let image_subresource_range = vk::VkImageSubresourceRange {
             aspectMask: vk::VkImageAspectFlags::COLOR_BIT as u32,
@@ -793,7 +782,7 @@ impl CommandBuffer {
         unsafe {
             vk::vkCmdClearColorImage(
                 self.handle,
-                image,
+                buffer.image(),
                 vk::VkImageLayout::TRANSFER_DST_OPTIMAL,
                 &clear_color,
                 1,

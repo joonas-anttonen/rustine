@@ -684,7 +684,8 @@ impl Gfx {
 
         // Drain any released images before staging new ones
         self.drain_released_images();
-
+        self.stage_incoming_images();
+        
         let target_frame = match self.test_data.target_frame.as_ref() {
             Some(frame) => Arc::clone(frame),
             None => {
@@ -692,8 +693,6 @@ impl Gfx {
                 return;
             }
         };
-
-        self.stage_incoming_images();
 
         // Check for new render commands; if present, cache them and use; otherwise use cached frame
         {
