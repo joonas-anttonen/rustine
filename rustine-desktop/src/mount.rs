@@ -4,25 +4,19 @@ use std::{ffi::CString, fs};
 pub fn mount(device: &str, target: &str, fstype: &str) -> Result<(), MountError> {
     // Create mount point if it doesn't exist
     fs::create_dir_all(target)
-        .map_err(|e| MountError::InvalidPath(format!("Failed to create mount point: {}", e)))?;
+        .map_err(|e| {
+            match e.kind() {
+                std::io::ErrorKind::PermissionDenied => MountError::PermissionDenied,
+                _ => MountError::DirectoryCreationFailed(e),
+            }
+        })?;
 
     let device_c = CString::new(device)
         .map_err(|_| MountError::InvalidPath("device path contains null byte".into()))?;
     let target_c = CString::new(target)
         .map_err(|_| MountError::InvalidPath("target path contains null byte".into()))?;
     let fstype_c = CString::new(fstype)
-        .map_err(|_| MountError::InvalidPath("fstype contains null byte".into()))?;
-
-    /*
-
-    let mut child = Command::new("sudo")
-        .args(&["-S", "mount", "-t", fstype, device, target])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| MountError::MountFailed(e))?;
-     */
+        .map_err(|_| MountError::InvalidPath("filesystem type contains null byte".into()))?;
 
     unsafe {
         let ret = libc::mount(
@@ -34,7 +28,8 @@ pub fn mount(device: &str, target: &str, fstype: &str) -> Result<(), MountError>
         );
 
         if ret != 0 {
-            return Err(MountError::MountFailed(std::io::Error::last_os_error()));
+            let io_error = std::io::Error::last_os_error();
+            return Err(categorize_mount_error(io_error));
         }
     }
 
@@ -49,7 +44,8 @@ pub fn umount(target: &str) -> Result<(), MountError> {
     unsafe {
         let ret = libc::umount(target_c.as_ptr());
         if ret != 0 {
-            return Err(MountError::UmountFailed(std::io::Error::last_os_error()));
+            let io_error = std::io::Error::last_os_error();
+            return Err(categorize_umount_error(io_error));
         }
     }
 
@@ -61,18 +57,81 @@ pub fn umount(target: &str) -> Result<(), MountError> {
 pub enum MountError {
     /// Invalid path provided (contains null bytes)
     InvalidPath(String),
+    /// Permission denied when performing mount/unmount
+    PermissionDenied,
+    /// Device not found
+    DeviceNotFound,
+    /// Mount point or target doesn't exist
+    NotFound,
+    /// Filesystem type not supported
+    UnsupportedFilesystem,
+    /// Directory creation failed
+    DirectoryCreationFailed(std::io::Error),
     /// Mount syscall failed
     MountFailed(std::io::Error),
     /// Unmount syscall failed
     UmountFailed(std::io::Error),
+    /// Other mount-related error
+    Other(std::io::Error),
+}
+
+/// Categorize mount errors from OS error codes
+fn categorize_mount_error(err: std::io::Error) -> MountError {
+    use std::io::ErrorKind;
+    match err.kind() {
+        ErrorKind::PermissionDenied => MountError::PermissionDenied,
+        ErrorKind::NotFound => MountError::DeviceNotFound,
+        ErrorKind::Unsupported => MountError::UnsupportedFilesystem,
+        _ => {
+            // Check raw OS error code for more specific errors
+            if let Some(code) = err.raw_os_error() {
+                match code {
+                    libc::ENODEV => MountError::DeviceNotFound,
+                    libc::ENOENT => MountError::NotFound,
+                    libc::EACCES | libc::EPERM => MountError::PermissionDenied,
+                    libc::ENOTSUP => MountError::UnsupportedFilesystem,
+                    _ => MountError::MountFailed(err),
+                }
+            } else {
+                MountError::MountFailed(err)
+            }
+        }
+    }
+}
+
+/// Categorize umount errors from OS error codes
+fn categorize_umount_error(err: std::io::Error) -> MountError {
+    use std::io::ErrorKind;
+    match err.kind() {
+        ErrorKind::PermissionDenied => MountError::PermissionDenied,
+        ErrorKind::NotFound => MountError::NotFound,
+        _ => {
+            // Check raw OS error code for more specific errors
+            if let Some(code) = err.raw_os_error() {
+                match code {
+                    libc::ENOENT => MountError::NotFound,
+                    libc::EACCES | libc::EPERM => MountError::PermissionDenied,
+                    _ => MountError::UmountFailed(err),
+                }
+            } else {
+                MountError::UmountFailed(err)
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for MountError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             MountError::InvalidPath(msg) => write!(f, "Invalid path: {}", msg),
+            MountError::PermissionDenied => write!(f, "Permission denied: requires root privileges"),
+            MountError::DeviceNotFound => write!(f, "Device not found"),
+            MountError::NotFound => write!(f, "Mount point not found"),
+            MountError::UnsupportedFilesystem => write!(f, "Unsupported or unrecognized filesystem type"),
+            MountError::DirectoryCreationFailed(err) => write!(f, "Failed to create mount point: {}", err),
             MountError::MountFailed(err) => write!(f, "Mount failed: {}", err),
             MountError::UmountFailed(err) => write!(f, "Unmount failed: {}", err),
+            MountError::Other(err) => write!(f, "Mount operation failed: {}", err),
         }
     }
 }

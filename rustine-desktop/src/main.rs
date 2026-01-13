@@ -151,6 +151,44 @@ impl rustine::gui::Application for MyApplication {
                     });
                 }
             }
+            rustine::gui::Key::E => {
+                if let Some(idx) = state.selected_index {
+                    if let Some(device) = state.devices.get(idx) {
+                        if let Some(mount_info) = &device.mount_info {
+                            let mount_path = &mount_info.mount_point;
+                            let dispatch_cmd = format!("[float] alacritty --command yazi {}", mount_path);
+                            match std::process::Command::new("hyprctl")
+                                .arg("dispatch")
+                                .arg("exec")
+                                .arg(dispatch_cmd)
+                                .spawn()
+                            {
+                                Ok(_) => log::info!("Launched yazi at {}", mount_path),
+                                Err(e) => log::error!("Failed to launch yazi: {}", e),
+                            }
+                        }
+                    }
+                }
+            }
+            rustine::gui::Key::M => {
+                if let Some(idx) = state.selected_index {
+                    if let Some(device) = state.devices.get(idx) {
+                        if device.mount_info.is_none() {
+                            // Extract drive name from path (e.g., "/dev/sda1" -> "sda1")
+                            let drive_name = device.path.split('/').last().unwrap_or("drive");
+                            let mount_path = format!("/media/{}", drive_name);
+                            let fs_type = device.fs_type.as_ref().map(|s| s.as_str()).unwrap_or("auto");
+
+                            match rustine_desktop::mount::mount(&device.path, &mount_path, fs_type) {
+                                Ok(_) => log::info!("Successfully mounted {} at {}", device.path, mount_path),
+                                Err(e) => log::error!("Failed to mount {}: {}", device.path, e),
+                            }
+                        } else {
+                            log::warning!("Drive {} is already mounted", device.path);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
