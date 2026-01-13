@@ -96,6 +96,12 @@ impl Gfx {
         let mut last_stat_instant = std::time::Instant::now();
         let mut frame_delta_times: RingBuffer<f64> = RingBuffer::new(120);
 
+        // Clone notifier without holding the core (gfx) lock while waiting
+        let work_notifier = {
+            let core = gfx.lock().unwrap();
+            std::sync::Arc::clone(&core.work_available)
+        };
+
         loop {
             // Check for exit signal
             if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -104,23 +110,16 @@ impl Gfx {
 
             // Handle event-driven mode: wait for work notification
             if let LoopMode::Event = mode {
-                // Clone notifier without holding the core (gfx) lock while waiting
-                let work_notifier = {
-                    let core = gfx.lock().unwrap();
-                    std::sync::Arc::clone(&core.work_available)
-                };
-
-                let (work_flag, condvar) = &*work_notifier;
+                let (work_flag, condvar) = work_notifier.as_ref();
                 let mut work_ready = work_flag.lock().unwrap();
 
                 // Wait until work is available or exit flag is set
-                while !*work_ready && !exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                while !*work_ready {
                     work_ready = condvar.wait(work_ready).unwrap();
                 }
 
                 // Reset the work flag after waking up
                 *work_ready = false;
-                drop(work_ready);
 
                 if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
                     break;

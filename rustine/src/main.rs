@@ -135,15 +135,7 @@ fn main() {
 struct MyApplication;
 
 impl rustine::gui::Application for MyApplication {
-    fn startup(&self) {
-        // Initialization code here
-    }
 
-    fn on_key(&self, _key: rustine::gui::KeyEvent) {}
-
-    fn render(&self, _frame: &mut gfx::RenderFrame) {
-        // Rendering code here
-    }
 }
 
 fn gui_thread_function(

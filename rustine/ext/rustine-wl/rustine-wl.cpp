@@ -1057,8 +1057,8 @@ rwl_status rwlCreateWindow(rwl_window_type type,
         }
     }
 
-    bool is_layer_shell_window =
-        (type == RWL_WINDOW_TYPE_BACKGROUND || type == RWL_WINDOW_TYPE_TASKBAR);
+    bool is_layer_shell_window = (type == RWL_WINDOW_TYPE_BACKGROUND ||
+                                  type == RWL_WINDOW_TYPE_TASKBAR || type == RWL_WINDOW_TYPE_POPUP);
 
     // Create layer surface if layer shell is available
     if (is_layer_shell_window && g_layer_shell) {
@@ -1069,7 +1069,7 @@ rwl_status rwlCreateWindow(rwl_window_type type,
 
         if (type == RWL_WINDOW_TYPE_BACKGROUND) {
             // Background: bottom layer, covers full screen
-            layer = ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND;
+            layer = ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM;
             anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT |
                      ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT;
             exclusive_zone = -1;  // Background doesn't occlude
@@ -1079,6 +1079,11 @@ rwl_status rwlCreateWindow(rwl_window_type type,
             anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
                      ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
             exclusive_zone = height;  // Reserve space for taskbar
+        } else if (type == RWL_WINDOW_TYPE_POPUP) {
+            // Popup: top layer, typically transient
+            layer = ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY;
+            anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+            exclusive_zone = 0;  // No exclusive zone
         } else {
             wl_surface_destroy(window->surface);
             return RWL_STATUS_INVALID_ARGUMENT;

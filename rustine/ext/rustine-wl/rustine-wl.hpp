@@ -24,6 +24,7 @@ typedef enum rwl_window_type {
     RWL_WINDOW_TYPE_NORMAL = 0,
     RWL_WINDOW_TYPE_BACKGROUND = 1,  // Desktop background (bottom layer, covers full screen)
     RWL_WINDOW_TYPE_TASKBAR = 2,     // Taskbar/panel (top layer, typically anchored to top)
+    RWL_WINDOW_TYPE_POPUP = 3,       // Popup window (top layer, typically transient)
 } rwl_window_type;
 
 typedef enum rwl_action {

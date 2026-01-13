@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, atomic};
 
 use rustine::{Version, log};
-use rustine_desktop::{sysinfo};
+use rustine_desktop::sysinfo;
 
 static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 
@@ -62,6 +62,7 @@ fn main() -> std::process::ExitCode {
 
         let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
             .window_title("rustine-desktop")
+            .window_size(1280, 720)
             .window_type(rustine::gui::WindowType::Normal);
 
         let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
@@ -87,16 +88,16 @@ fn main() -> std::process::ExitCode {
 struct MyApplication;
 
 impl rustine::gui::Application for MyApplication {
-    fn startup(&self) {
+    fn startup(&self, _gui: &rustine::gui::Gui) {
         log::debug!("Application::startup");
 
         // Enumerate mounted drives
         match sysinfo::get_mounted_drives() {
             Ok(mounted) => {
-                log::info!("=== Mounted Drives ===");
+                log::info!("Mounted");
                 for drive in mounted {
                     log::info!(
-                        "  {} -> {} ({})",
+                        "{} -> {} ({})",
                         drive.device,
                         drive.mount_point,
                         drive.fs_type
@@ -106,87 +107,45 @@ impl rustine::gui::Application for MyApplication {
             Err(e) => log::error!("Failed to get mounted drives: {}", e),
         }
 
-        // Enumerate all block devices
-        match sysinfo::get_block_devices() {
-            Ok(devices) => {
-                log::info!("=== Block Devices ===");
-                for device in devices {
-                    let size_str = if let Some(size) = device.size {
-                        format!("{:.2} GB", size as f64 / 1_000_000_000.0)
-                    } else {
-                        "unknown size".to_string()
-                    };
-                    let id_str = device
-                        .model
-                        .as_ref()
-                        .or(device.vendor.as_ref())
-                        .map(|s| format!(" {}", s))
-                        .unwrap_or_default();
-                    let serial_str = device
-                        .serial
-                        .as_ref()
-                        .map(|s| format!(" serial={}", s))
-                        .unwrap_or_default();
-                    let label_str = device
-                        .label
-                        .as_ref()
-                        .map(|s| format!(" label=\"{}\"", s))
-                        .unwrap_or_default();
-                    let fs_str = device
-                        .fs_type
-                        .as_ref()
-                        .map(|s| format!(" fs={}", s))
-                        .unwrap_or_default();
-                    log::info!(
-                        "  {} ({}) - {}{}{}{}{}",
-                        device.path,
-                        size_str,
-                        if device.is_partition { "partition" } else { "disk" },
-                        id_str,
-                        serial_str,
-                        label_str,
-                        fs_str,
-                    );
-                }
-            }
-            Err(e) => log::error!("Failed to get block devices: {}", e),
-        }
-
         // Enumerate unmounted drives
         match sysinfo::get_unmounted_drives() {
             Ok(unmounted) => {
-                log::info!("=== Unmounted Drives ===");
+                log::info!("Unmounted");
                 if unmounted.is_empty() {
                     log::info!("  (none)");
                 } else {
-                    for drive in unmounted {
+                    for drive in unmounted.iter().filter(|d| d.is_partition) {
                         let size_str = if let Some(size) = drive.size {
                             format!("{:.2} GB", size as f64 / 1_000_000_000.0)
                         } else {
                             "unknown size".to_string()
                         };
-                        log::info!("  {} ({})", drive.path, size_str);
+                        let fs_str = drive
+                            .fs_type
+                            .as_ref()
+                            .map(|s| format!("{}", s))
+                            .unwrap_or_default();
+                        log::info!("{} ({}) ({})", drive.path, size_str, fs_str);
                     }
                 }
             }
             Err(e) => log::error!("Failed to get unmounted drives: {}", e),
         }
-
-        //match mount::mount("/dev/sdc1", "/media/sdc1", "vfat") {
-        //    Ok(()) => log::info!("Mounted /dev/sdc1 on /media/sdc1"),
-        //    Err(e) => log::error!("Failed to mount /dev/sdc1: {}", e),
-        //}
     }
 
-    fn on_key(&self, _key: rustine::gui::KeyEvent) {
+    fn on_key(&self, gui: &rustine::gui::Gui, _key: rustine::gui::KeyEvent) {
         log::debug!("Application::on_key: {:?} {:?}", _key.key, _key.action);
+
+        if _key.key == rustine::gui::Key::ESCAPE {
+            gui.request_quit();
+        }
     }
 
-    fn on_char(&self, c: char) {
+    fn on_char(&self, _gui: &rustine::gui::Gui, c: char) {
         log::debug!("Application::on_char: U+{:04X} ('{}')", c as u32, c);
     }
 
-    fn render(&self, frame: &mut rustine::gfx::RenderFrame) {
+    fn render(&self, _gui: &rustine::gui::Gui, frame: &mut rustine::gfx::RenderFrame) {
         let w = frame.size.x as f32;
         let h = frame.size.y as f32;
 

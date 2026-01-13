@@ -21,6 +21,7 @@ pub enum WindowType {
     Normal,
     Background,
     Taskbar,
+    Popup,
 }
 
 pub struct GuiBuilder {
@@ -74,12 +75,10 @@ impl GuiBuilder {
 }
 
 pub trait Application {
-    fn startup(&self);
-    fn on_key(&self, key: input::KeyEvent);
-    fn on_char(&self, _char: char) {
-        // Default implementation does nothing
-    }
-    fn render(&self, frame: &mut gfx::RenderFrame);
+    fn startup(&self, _gui: &Gui) {}
+    fn on_key(&self, _gui: &Gui, _key: input::KeyEvent) {}
+    fn on_char(&self, _gui: &Gui, _char: char) {}
+    fn render(&self, _gui: &Gui, _frame: &mut gfx::RenderFrame) {}
 }
 
 pub struct Gui {
@@ -109,6 +108,13 @@ impl Drop for Gui {
 }
 
 impl Gui {
+    pub fn request_quit(&self) {
+        unsafe {
+            ffi::rwlWindowRequestClose(self.rwl_window);
+            ffi::rwlPostEmptyEvent();
+        }
+    }
+
     pub fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: gfx::LoopMode) {
         info!("GUI START");
 
@@ -121,7 +127,7 @@ impl Gui {
         let target_frame_time = std::time::Duration::from_secs_f64(1.0 / TARGET_FPS);
         const CLOSE_ENOUGH: std::time::Duration = std::time::Duration::from_micros(500);
 
-        gui.application.startup();
+        gui.application.startup(&gui);
 
         while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) && !gui.should_close() {
             gui.process_events();
@@ -133,7 +139,7 @@ impl Gui {
             last_instant = frame_start;
 
             let mut frame = gfx::RenderFrame::new(gui.pixel_size());
-            gui.application.render(&mut frame);
+            gui.application.render(&gui, &mut frame);
 
             {
                 let gfx = gui.gfx.lock().unwrap();
@@ -251,6 +257,12 @@ impl Gui {
                     std::ptr::null_mut(),
                     parameters.window_width.unwrap_or(0),
                     parameters.window_height.unwrap_or(0),
+                ),
+                WindowType::Popup => (
+                    ffi::RwlWindowType::Popup,
+                    std::ptr::null_mut(),
+                    parameters.window_width.unwrap_or(1280),
+                    parameters.window_height.unwrap_or(720),
                 ),
                 WindowType::Taskbar => (
                     ffi::RwlWindowType::Taskbar,
@@ -423,7 +435,7 @@ impl Gui {
 
                 let gui = &mut *gui_ptr;
 
-                gui.application.on_key(key_event);
+                gui.application.on_key(gui, key_event);
             }
         }
     }
@@ -434,7 +446,7 @@ impl Gui {
             if !gui_ptr.is_null() {
                 if let Some(c) = char::from_u32(codepoint) {
                     let gui = &mut *gui_ptr;
-                    gui.application.on_char(c);
+                    gui.application.on_char(gui, c);
                 }
             }
         }
@@ -478,6 +490,8 @@ mod ffi {
         Background = 1,
         /// Taskbar/panel (top layer, typically anchored to top)
         Taskbar = 2,
+        /// Popup window (top layer, typically transient)
+        Popup = 3,
     }
 
     /// Key action states
@@ -652,6 +666,7 @@ mod ffi {
         pub fn to_input(&self) -> crate::gui::input::Key {
             match self.0 {
                 Self::SPACE => crate::gui::input::Key::SPACE,
+                Self::ESCAPE => crate::gui::input::Key::ESCAPE,
                 _ => crate::gui::input::Key::UNKNOWN,
             }
         }
