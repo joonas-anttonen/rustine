@@ -53,7 +53,10 @@ fn main() -> std::process::ExitCode {
     log::debug!("STARTUP");
 
     let application = Box::new(MyApplication {
-        state: std::cell::RefCell::new(MyApplicationState { frame_index: 0 }),
+        state: std::cell::RefCell::new(MyApplicationState {
+            frame_index: 0,
+            devices: Vec::new(),
+        }),
     });
 
     {
@@ -91,6 +94,7 @@ fn main() -> std::process::ExitCode {
 
 struct MyApplicationState {
     frame_index: usize,
+    devices: Vec<sysinfo::BlockDevice>,
 }
 
 struct MyApplication {
@@ -101,45 +105,22 @@ impl rustine::gui::Application for MyApplication {
     fn startup(&self, _gui: &rustine::gui::Gui) {
         log::debug!("Application::startup");
 
-        // Enumerate mounted drives
-        match sysinfo::get_mounted_drives() {
-            Ok(mounted) => {
-                log::info!("Mounted");
-                for drive in mounted {
-                    log::info!(
-                        "{} -> {} ({})",
-                        drive.device,
-                        drive.mount_point,
-                        drive.fs_type
-                    );
-                }
-            }
-            Err(e) => log::error!("Failed to get mounted drives: {}", e),
-        }
+        let mut state = self.state.borrow_mut();
 
-        // Enumerate unmounted drives
-        match sysinfo::get_unmounted_drives() {
-            Ok(unmounted) => {
-                log::info!("Unmounted");
-                if unmounted.is_empty() {
-                    log::info!("  (none)");
-                } else {
-                    for drive in unmounted.iter().filter(|d| d.is_partition) {
-                        let fs_str = drive
-                            .fs_type
-                            .as_ref()
-                            .map(|s| format!("{}", s))
-                            .unwrap_or_default();
-                        log::info!(
-                            "{} ({}) ({})",
-                            drive.path,
-                            rustine::utilities::format_bytes_iec(drive.size.unwrap_or(0) as usize),
-                            fs_str
-                        );
-                    }
-                }
+        // Enumerate all block devices
+        match sysinfo::get_block_devices() {
+            Ok(devices) => {
+                let mounted_count = devices.iter().filter(|d| d.mount_info.is_some()).count();
+                let unmounted_count = devices.len() - mounted_count;
+                log::info!(
+                    "Found {} devices ({} mounted, {} unmounted)",
+                    devices.len(),
+                    mounted_count,
+                    unmounted_count
+                );
+                state.devices = devices;
             }
-            Err(e) => log::error!("Failed to get unmounted drives: {}", e),
+            Err(e) => log::error!("Failed to get block devices: {}", e),
         }
     }
 
@@ -163,13 +144,18 @@ impl rustine::gui::Application for MyApplication {
 
         const TOP_BAR_HEIGHT: f32 = 48.0;
         const SIDE_BAR_WIDTH: f32 = 48.0;
+        const LINE_HEIGHT: f32 = 20.0;
 
         let content_x = SIDE_BAR_WIDTH;
         let content_y = TOP_BAR_HEIGHT;
-        //let content_w = w - SIDE_BAR_WIDTH;
+        let _content_w = w - SIDE_BAR_WIDTH;
         let content_h = h - TOP_BAR_HEIGHT;
 
         let bar_color = 0x1B232F_FFu32;
+        let bg_color = 0x0D1117_FFu32;
+        let text_color = 0xFFFFFF_FFu32;
+        let mounted_color = 0x3FB950_FFu32;
+        let unmounted_color = 0x79C0FF_FFu32;
 
         // Fill background
         frame.fill_rectangle(
@@ -179,7 +165,7 @@ impl rustine::gui::Application for MyApplication {
                 w,
                 h,
             },
-            bar_color,
+            bg_color,
         );
 
         // Draw top bar
@@ -205,54 +191,72 @@ impl rustine::gui::Application for MyApplication {
         );
 
         let text_font_metrics =
-            rustine::gfx::fonts::get_font_metrics(rustine::gfx::fonts::DEPARTUREMONO_FONT_ID)
+            rustine::gfx::fonts::get_font_metrics(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID)
                 .expect("Font metrics exist");
 
-        // Switch text color every other frame between pastel red and green
-        let frame_indicator_color = if state.frame_index % 2 == 0 {
-            0xFFAAAA_FFu32
-        } else {
-            0xAAFFAA_FFu32
-        };
-
-        frame.fill_rectangle(
-            &rustine::gfx::Rectangle {
-                x: 4.0,
-                y: 4.0,
-                w: 10.0,
-                h: 10.0,
-            },
-            frame_indicator_color,
-        );
-
-        let text_color = 0xFFFFFF_FFu32;
-
-        let counts = rustine::alloc::counts();
-        //let count = counts.0 - counts.1;
-        let current = rustine::alloc::current_bytes();
-        let peak = rustine::alloc::peak_bytes();
-        let vram = rustine::gfx::Gfx::current_allocated_vram_bytes();
-        let rss = rustine::alloc::rss_bytes();
-
-        let txt = format!(
-            "FRAME {} \u{f293}\nALLOCS ({}) {}, peak: {} | VRAM: {} | RAM: {}",
-            state.frame_index.to_string(),
-            counts.0,
-            rustine::utilities::format_bytes_iec(current),
-            rustine::utilities::format_bytes_iec(peak),
-            rustine::utilities::format_bytes_iec(vram),
-            rustine::utilities::format_bytes_iec(rss.unwrap_or(0)),
-        );
-
-        // Draw debug text
+        // Title in top bar
         frame.push_text(
-            txt.as_str(),
-            content_x,
-            content_y + text_font_metrics.ascender,
+            "Drive Manager",
+            content_x + 10.0,
+            (TOP_BAR_HEIGHT / 2.0) + (text_font_metrics.ascender / 2.0),
             1.0,
             text_color,
             rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
         );
+
+        let mut y = content_y + text_font_metrics.ascender;
+
+        const STATUS_LIGHT_WIDTH: f32 = 4.0;
+        const STATUS_LIGHT_HEIGHT: f32 = 14.0;
+        const STATUS_LIGHT_MARGIN: f32 = 10.0;
+        const TEXT_START_X: f32 = STATUS_LIGHT_MARGIN + STATUS_LIGHT_WIDTH + 8.0;
+
+        // Draw all drives in a flat list (partitions only)
+        for device in state.devices.iter().filter(|d| d.is_partition) {
+            let status_y = y - (STATUS_LIGHT_HEIGHT / 2.0) - 2.0;
+            
+            let size_str = rustine::utilities::format_bytes_iec(device.size.unwrap_or(0) as usize);
+            
+            // Determine color and text based on mount status
+            let (status_color, drive_text) = if let Some(mount_info) = &device.mount_info {
+                // Mounted: green status light
+                let text = format!(
+                    "{} ({}) -> {} ({})",
+                    device.path, size_str, mount_info.mount_point, mount_info.fs_type
+                );
+                (mounted_color, text)
+            } else {
+                // Unmounted: blue status light
+                let fs_str = device
+                    .fs_type
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or("unknown");
+                let text = format!("{} ({}) ({})", device.path, size_str, fs_str);
+                (unmounted_color, text)
+            };
+            
+            // Draw status light
+            frame.fill_rectangle(
+                &rustine::gfx::Rectangle {
+                    x: content_x + STATUS_LIGHT_MARGIN,
+                    y: status_y,
+                    w: STATUS_LIGHT_WIDTH,
+                    h: STATUS_LIGHT_HEIGHT,
+                },
+                status_color,
+            );
+
+            frame.push_text(
+                &drive_text,
+                content_x + TEXT_START_X,
+                y - text_font_metrics.descender,
+                1.0,
+                text_color,
+                rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+            );
+            y += LINE_HEIGHT;
+        }
 
         state.frame_index += 1;
     }

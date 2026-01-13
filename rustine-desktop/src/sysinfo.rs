@@ -2,20 +2,18 @@ use std::fs;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-/// Represents a mounted filesystem
+/// Information about a mounted filesystem
 #[derive(Debug, Clone)]
-pub struct MountedDrive {
-    /// Device path (e.g., /dev/sda1)
-    pub device: String,
+pub struct MountInfo {
     /// Mount point (e.g., /home)
     pub mount_point: String,
     /// Filesystem type (e.g., ext4, ntfs, btrfs)
     pub fs_type: String,
     /// Mount options
-    pub _options: Vec<String>,
+    pub options: Vec<String>,
 }
 
-/// Represents a block device that could be mounted
+/// Represents a block device
 #[derive(Debug, Clone)]
 pub struct BlockDevice {
     /// Device name (e.g., sda, sda1, nvme0n1, nvme0n1p1)
@@ -38,11 +36,13 @@ pub struct BlockDevice {
     pub wwid: Option<String>,
     /// Volume label for partitions (if available)
     pub label: Option<String>,
+    /// Mount information if this device is currently mounted
+    pub mount_info: Option<MountInfo>,
 }
 
-/// Returns all currently mounted filesystems
-pub fn get_mounted_drives() -> io::Result<Vec<MountedDrive>> {
-    let mut drives = Vec::new();
+/// Returns a map of device paths to their mount information
+fn get_mount_map() -> io::Result<std::collections::HashMap<String, MountInfo>> {
+    let mut mounts = std::collections::HashMap::new();
     let file = fs::File::open("/proc/mounts")?;
     let reader = io::BufReader::new(file);
 
@@ -58,17 +58,19 @@ pub fn get_mounted_drives() -> io::Result<Vec<MountedDrive>> {
             
             // Skip pseudo-filesystems typically
             if device.starts_with('/') {
-                drives.push(MountedDrive {
-                    device: device.to_string(),
-                    mount_point: unescape_mount_point(mount_point),
-                    fs_type: fs_type.to_string(),
-                        _options: options_str.split(',').map(|s| s.to_string()).collect(),
-                });
+                mounts.insert(
+                    device.to_string(),
+                    MountInfo {
+                        mount_point: unescape_mount_point(mount_point),
+                        fs_type: fs_type.to_string(),
+                        options: options_str.split(',').map(|s| s.to_string()).collect(),
+                    },
+                );
             }
         }
     }
 
-    Ok(drives)
+    Ok(mounts)
 }
 
 /// Returns all block devices on the system
@@ -77,6 +79,7 @@ pub fn get_block_devices() -> io::Result<Vec<BlockDevice>> {
     let sys_block_path = Path::new("/sys/block");
 
     let label_map = collect_partition_labels();
+    let mount_map = get_mount_map()?;
 
     if !sys_block_path.exists() {
         return Ok(devices);
@@ -95,11 +98,13 @@ pub fn get_block_devices() -> io::Result<Vec<BlockDevice>> {
         let device_path = entry.path();
         let size = read_block_device_size(&device_path);
         let metadata = read_device_metadata(&device_path);
-        let fs_type = probe_filesystem(&format!("/dev/{}", device_name_str));
+        let dev_path = format!("/dev/{}", device_name_str);
+        let fs_type = probe_filesystem(&dev_path);
+        let mount_info = mount_map.get(&dev_path).cloned();
         
         devices.push(BlockDevice {
                 _name: device_name_str.to_string(),
-            path: format!("/dev/{}", device_name_str),
+            path: dev_path,
             size,
             is_partition: false,
             fs_type,
@@ -108,10 +113,11 @@ pub fn get_block_devices() -> io::Result<Vec<BlockDevice>> {
             serial: metadata.serial,
             wwid: metadata.wwid,
             label: None,
+            mount_info,
         });
 
         // Check for partitions
-        if let Ok(partitions) = collect_partitions(&device_path, &device_name_str, &label_map) {
+        if let Ok(partitions) = collect_partitions(&device_path, &device_name_str, &label_map, &mount_map) {
             devices.extend(partitions);
         }
     }
@@ -119,68 +125,29 @@ pub fn get_block_devices() -> io::Result<Vec<BlockDevice>> {
     Ok(devices)
 }
 
-/// Returns block devices that are not currently mounted
-pub fn get_unmounted_drives() -> io::Result<Vec<BlockDevice>> {
-    let mounted = get_mounted_drives()?;
+/// Returns only block devices that are currently mounted
+pub fn get_mounted_devices() -> io::Result<Vec<BlockDevice>> {
     let all_devices = get_block_devices()?;
-    
-    let mut mounted_devices: std::collections::HashSet<String> =
-        mounted.iter().map(|m| m.device.clone()).collect();
-
-    // Also mark parent disks as mounted when any of their partitions are mounted
-    for dev in mounted.iter().filter_map(|m| base_disk_from_device(&m.device)) {
-        mounted_devices.insert(dev);
-    }
-    
     Ok(all_devices
         .into_iter()
-        .filter(|dev| !mounted_devices.contains(&dev.path))
+        .filter(|dev| dev.mount_info.is_some())
         .collect())
 }
 
-fn base_disk_from_device(dev_path: &str) -> Option<String> {
-    if !dev_path.starts_with("/dev/") {
-        return None;
-    }
-
-    let name = dev_path.trim_start_matches("/dev/");
-
-    // nvme: nvme0n1p2 -> nvme0n1
-    if let Some((prefix, suffix)) = name.rsplit_once('p') {
-        if prefix.starts_with("nvme") || prefix.starts_with("mmcblk") {
-            if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
-                return Some(format!("/dev/{}", prefix));
-            }
-        }
-    }
-
-    // sdX, vdX, hdX style: sda1 -> sda
-    let mut chars = name.chars().rev().peekable();
-    let mut digits = String::new();
-    while let Some(&c) = chars.peek() {
-        if c.is_ascii_digit() {
-            digits.push(c);
-            chars.next();
-        } else {
-            break;
-        }
-    }
-
-    if !digits.is_empty() {
-        let base_len = name.len() - digits.len();
-        let base = &name[..base_len];
-        if base.starts_with('s') || base.starts_with('v') || base.starts_with('h') {
-            return Some(format!("/dev/{}", base));
-        }
-    }
-
-    None
+/// Returns only block devices that are not currently mounted
+pub fn get_unmounted_devices() -> io::Result<Vec<BlockDevice>> {
+    let all_devices = get_block_devices()?;
+    Ok(all_devices
+        .into_iter()
+        .filter(|dev| dev.mount_info.is_none())
+        .collect())
 }
 
 fn collect_partitions(
     device_path: &Path,
     device_name: &str,
     label_map: &std::collections::HashMap<String, String>,
+    mount_map: &std::collections::HashMap<String, MountInfo>,
 ) -> io::Result<Vec<BlockDevice>> {
     let mut partitions = Vec::new();
     
@@ -197,6 +164,7 @@ fn collect_partitions(
             let dev_path = format!("/dev/{}", partition_name_str);
             let label = label_map.get(&dev_path).cloned();
             let fs_type = probe_filesystem(&dev_path);
+            let mount_info = mount_map.get(&dev_path).cloned();
             
             partitions.push(BlockDevice {
                     _name: partition_name_str.to_string(),
@@ -209,6 +177,7 @@ fn collect_partitions(
                 serial: metadata.serial,
                 wwid: metadata.wwid,
                 label,
+                mount_info,
             });
         }
     }
