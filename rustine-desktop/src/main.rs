@@ -57,6 +57,9 @@ fn main() -> std::process::ExitCode {
             frame_index: 0,
             devices: Vec::new(),
             selected_index: None,
+            password_mode: false,
+            password_buffer: String::new(),
+            mounting_index: None,
         }),
     });
 
@@ -97,6 +100,9 @@ struct MyApplicationState {
     frame_index: usize,
     devices: Vec<sysinfo::BlockDevice>,
     selected_index: Option<usize>,
+    password_mode: bool,
+    password_buffer: String,
+    mounting_index: Option<usize>,
 }
 
 struct MyApplication {
@@ -114,6 +120,9 @@ impl rustine::gui::Application for MyApplication {
             Ok(devices) => {
                 state.devices = devices.into_iter().filter(|d| d.is_partition).collect();
                 state.selected_index = Some(0);
+                state.password_mode = false;
+                state.password_buffer = String::new();
+                state.mounting_index = None;
             }
             Err(e) => log::error!("Failed to get block devices: {}", e),
         }
@@ -130,9 +139,6 @@ impl rustine::gui::Application for MyApplication {
         let partition_count = state.devices.iter().filter(|d| d.is_partition).count();
 
         match _key.key {
-            rustine::gui::Key::ESCAPE => {
-                gui.request_quit();
-            }
             rustine::gui::Key::UP => {
                 if partition_count > 0 {
                     state.selected_index = Some(match state.selected_index {
@@ -172,21 +178,71 @@ impl rustine::gui::Application for MyApplication {
             }
             rustine::gui::Key::M => {
                 if let Some(idx) = state.selected_index {
-                    if let Some(device) = state.devices.get(idx) {
-                        if device.mount_info.is_none() {
-                            // Extract drive name from path (e.g., "/dev/sda1" -> "sda1")
-                            let drive_name = device.path.split('/').last().unwrap_or("drive");
-                            let mount_path = format!("/media/{}", drive_name);
-                            let fs_type = device.fs_type.as_ref().map(|s| s.as_str()).unwrap_or("auto");
+                    if state.devices.get(idx).is_some() {
+                        // Enter password mode for both mount and unmount
+                        state.password_mode = true;
+                        state.password_buffer.clear();
+                        state.mounting_index = Some(idx);
+                    }
+                }
+            }
+            rustine::gui::Key::ENTER => {
+                if state.password_mode {
+                    // Execute mount or unmount with sudo
+                    if let Some(idx) = state.mounting_index {
+                        if let Some(device) = state.devices.get(idx) {
+                            if let Some(mount_info) = &device.mount_info {
+                                // Unmount
+                                match rustine_desktop::mount::umount_with_sudo(&mount_info.mount_point, &state.password_buffer) {
+                                    Ok(_) => {
+                                        log::info!("Successfully unmounted {} from {}", device.path, mount_info.mount_point);
+                                        // Rescan drives after unmount
+                                        match rustine_desktop::sysinfo::get_block_devices() {
+                                            Ok(devices) => {
+                                                state.devices = devices.into_iter().filter(|d| d.is_partition).collect();
+                                            }
+                                            Err(e) => log::error!("Failed to rescan block devices: {}", e),
+                                        }
+                                    }
+                                    Err(e) => log::error!("Failed to unmount {}: {}", device.path, e),
+                                }
+                            } else {
+                                // Mount
+                                let drive_name = device.path.split('/').last().unwrap_or("drive");
+                                let mount_path = format!("/media/{}", drive_name);
+                                let fs_type = device.fs_type.as_ref().map(|s| s.as_str()).unwrap_or("auto");
 
-                            match rustine_desktop::mount::mount(&device.path, &mount_path, fs_type) {
-                                Ok(_) => log::info!("Successfully mounted {} at {}", device.path, mount_path),
-                                Err(e) => log::error!("Failed to mount {}: {}", device.path, e),
+                                match rustine_desktop::mount::mount_with_sudo(&device.path, &mount_path, fs_type, &state.password_buffer) {
+                                    Ok(_) => {
+                                        log::info!("Successfully mounted {} at {}", device.path, mount_path);
+                                        // Rescan drives after mount
+                                        match rustine_desktop::sysinfo::get_block_devices() {
+                                            Ok(devices) => {
+                                                state.devices = devices.into_iter().filter(|d| d.is_partition).collect();
+                                            }
+                                            Err(e) => log::error!("Failed to rescan block devices: {}", e),
+                                        }
+                                    }
+                                    Err(e) => log::error!("Failed to mount {}: {}", device.path, e),
+                                }
                             }
-                        } else {
-                            log::warning!("Drive {} is already mounted", device.path);
                         }
                     }
+
+                    // Clear password from memory
+                    state.password_buffer.clear();
+                    state.password_mode = false;
+                    state.mounting_index = None;
+                }
+            }
+            rustine::gui::Key::ESCAPE => {
+                if state.password_mode {
+                    // Cancel password entry
+                    state.password_buffer.clear();
+                    state.password_mode = false;
+                    state.mounting_index = None;
+                } else {
+                    gui.request_quit();
                 }
             }
             _ => {}
@@ -195,6 +251,17 @@ impl rustine::gui::Application for MyApplication {
 
     fn on_char(&self, _gui: &rustine::gui::Gui, c: char) {
         log::debug!("Application::on_char: U+{:04X} ('{}')", c as u32, c);
+        
+        let mut state = self.state.borrow_mut();
+        if state.password_mode {
+            // Collect password characters (no visual feedback)
+            if c == '\x08' || c == '\x7f' {
+                // Backspace
+                state.password_buffer.pop();
+            } else if c.is_ascii() && !c.is_control() {
+                state.password_buffer.push(c);
+            }
+        }
     }
 
     fn render(&self, _gui: &rustine::gui::Gui, frame: &mut rustine::gfx::RenderFrame) {
@@ -332,6 +399,37 @@ impl rustine::gui::Application for MyApplication {
                 rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
             );
             y += line_height;
+        }
+
+        // Draw password entry prompt if in password mode
+        if state.password_mode {
+            if let Some(mounting_idx) = state.mounting_index {
+                // Calculate Y position for the password prompt (on top of the mounting line)
+                let prompt_y = content_y + (mounting_idx as f32 * line_height);
+                
+                // Draw semi-transparent background overlay for the prompt
+                let prompt_bg_color = 0x0D1117_EEu32;
+                frame.fill_rectangle(
+                    &rustine::gfx::Rectangle {
+                        x: content_x,
+                        y: prompt_y,
+                        w: _content_w,
+                        h: line_height,
+                    },
+                    prompt_bg_color,
+                );
+
+                // Draw password prompt text
+                let prompt_text = "[sudo] password: ";
+                frame.push_text(
+                    prompt_text,
+                    content_x + TEXT_START_X,
+                    prompt_y + text_font_metrics.ascender,
+                    1.0,
+                    text_color,
+                    rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                );
+            }
         }
 
         state.frame_index += 1;

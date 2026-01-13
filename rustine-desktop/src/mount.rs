@@ -1,4 +1,95 @@
-use std::{ffi::CString, fs};
+use std::{ffi::CString, fs, process::{Command, Stdio}, io::Write};
+
+/// Mount a filesystem using sudo with password
+pub fn mount_with_sudo(device: &str, target: &str, fstype: &str, password: &str) -> Result<(), MountError> {
+    // Create mount point directory using sudo
+    let mut mkdir_status = Command::new("sudo")
+        .arg("-S")
+        .arg("mkdir")
+        .arg("-p")
+        .arg(target)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| MountError::Other(e))?;
+
+    if let Some(mut stdin) = mkdir_status.stdin.take() {
+        writeln!(stdin, "{}", password).map_err(|e| MountError::Other(e))?;
+    }
+
+    let mkdir_output = mkdir_status.wait_with_output().map_err(|e| MountError::Other(e))?;
+    
+    if !mkdir_output.status.success() {
+        return Err(MountError::DirectoryCreationFailed(
+            std::io::Error::new(std::io::ErrorKind::Other, 
+                String::from_utf8_lossy(&mkdir_output.stderr).to_string())
+        ));
+    }
+
+    // Mount using sudo
+    let mut mount_status = Command::new("sudo")
+        .arg("-S")
+        .arg("mount")
+        .arg("-t")
+        .arg(fstype)
+        .arg(device)
+        .arg(target)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| MountError::Other(e))?;
+
+    if let Some(mut stdin) = mount_status.stdin.take() {
+        writeln!(stdin, "{}", password).map_err(|e| MountError::Other(e))?;
+    }
+
+    let mount_output = mount_status.wait_with_output().map_err(|e| MountError::Other(e))?;
+    
+    if !mount_output.status.success() {
+        let stderr = String::from_utf8_lossy(&mount_output.stderr);
+        if stderr.contains("Permission denied") || stderr.contains("incorrect password") {
+            return Err(MountError::PermissionDenied);
+        }
+        return Err(MountError::MountFailed(
+            std::io::Error::new(std::io::ErrorKind::Other, stderr.to_string())
+        ));
+    }
+
+    Ok(())
+}
+
+/// Unmount a filesystem using sudo with password
+pub fn umount_with_sudo(target: &str, password: &str) -> Result<(), MountError> {
+    let mut umount_status = Command::new("sudo")
+        .arg("-S")
+        .arg("umount")
+        .arg(target)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| MountError::Other(e))?;
+
+    if let Some(mut stdin) = umount_status.stdin.take() {
+        writeln!(stdin, "{}", password).map_err(|e| MountError::Other(e))?;
+    }
+
+    let umount_output = umount_status.wait_with_output().map_err(|e| MountError::Other(e))?;
+    
+    if !umount_output.status.success() {
+        let stderr = String::from_utf8_lossy(&umount_output.stderr);
+        if stderr.contains("Permission denied") || stderr.contains("incorrect password") {
+            return Err(MountError::PermissionDenied);
+        }
+        return Err(MountError::UmountFailed(
+            std::io::Error::new(std::io::ErrorKind::Other, stderr.to_string())
+        ));
+    }
+
+    Ok(())
+}
 
 /// Mount a filesystem using libc mount syscall
 pub fn mount(device: &str, target: &str, fstype: &str) -> Result<(), MountError> {
