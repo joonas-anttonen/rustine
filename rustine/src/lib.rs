@@ -9,6 +9,37 @@ pub use ringbuffer::RingBuffer;
 pub mod version;
 pub use version::Version;
 
+use std::sync::{Condvar, Mutex};
+
+pub struct AutoResetEvent
+{
+    mutex: Mutex<bool>,
+    condvar: Condvar,
+}
+
+impl AutoResetEvent {
+    pub fn new() -> Self {
+        Self {
+            mutex: Mutex::new(false),
+            condvar: Condvar::new(),
+        }
+    }
+
+    pub fn wait(&self) {
+        let mut signaled = self.mutex.lock().unwrap();
+        while !*signaled {
+            signaled = self.condvar.wait(signaled).unwrap();
+        }
+        *signaled = false;
+    }
+
+    pub fn set(&self) {
+        let mut signaled = self.mutex.lock().unwrap();
+        *signaled = true;
+        self.condvar.notify_one();
+    }
+}
+
 pub type Vector2u = Vector2<u32>;
 pub type Vector2f = Vector2<f32>;
 

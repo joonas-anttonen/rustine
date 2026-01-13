@@ -108,6 +108,16 @@ impl Drop for Gui {
 }
 
 impl Gui {
+    /// Wakes up the GUI event loop by posting an empty event.
+    pub fn wake_up() {
+        unsafe {
+            ffi::rwlPostEmptyEvent();
+        }
+    }
+
+    /// Requests the GUI to quit.
+    ///
+    /// Automatically wakes up the GUI event loop.
     pub fn request_quit(&self) {
         unsafe {
             ffi::rwlWindowRequestClose(self.rwl_window);
@@ -130,9 +140,14 @@ impl Gui {
         gui.application.startup(&gui);
 
         while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) && !gui.should_close() {
-            gui.process_events();
-
             let frame_start = std::time::Instant::now();
+
+            if let gfx::LoopMode::Event = mode {
+                gui.wait_events();
+            } else {
+                gui.process_events();
+            }
+
             //let t = now.duration_since(start_instant).as_secs_f64();
             let dt = frame_start.duration_since(last_instant).as_secs_f32();
             frame_delta_times.push(dt as f64);
@@ -148,7 +163,7 @@ impl Gui {
                     pending.push_back(frame);
 
                     if let gfx::LoopMode::Event = mode {
-                        gfx.signal_work_available();
+                        gfx.wake_up();
                     }
                 }
             }
@@ -175,8 +190,6 @@ impl Gui {
                     gui.wait_events_timeout_ms(1);
                     remaining = target_frame_time.saturating_sub(frame_start.elapsed());
                 }
-
-                gui.wait_events_timeout_ms(1000);
             }
         }
 
@@ -409,11 +422,10 @@ impl Gui {
 
     unsafe extern "C" fn rwl_logical_size_callback(
         _window: ffi::RwlWindow,
-        width: u32,
-        height: u32,
+        _width: u32,
+        _height: u32,
     ) {
-        // Implement logical size callback handling here if needed, just log for now
-        debug!("Logical size changed: {}x{}", width, height);
+        // Implement when and if needed
     }
 
     unsafe extern "C" fn rwl_key_callback(

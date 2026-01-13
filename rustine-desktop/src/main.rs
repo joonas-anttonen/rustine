@@ -8,6 +8,7 @@ static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 extern "C" fn handle_sigterm(_signal: i32) {
     log::info!("SIGTERM");
     SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
+    rustine::gui::Gui::wake_up();
 }
 fn install_signal_handlers() {
     unsafe {
@@ -51,7 +52,9 @@ fn main() -> std::process::ExitCode {
 
     log::debug!("STARTUP");
 
-    let application = Box::new(MyApplication);
+    let application = Box::new(MyApplication {
+        state: std::cell::RefCell::new(MyApplicationState { frame_index: 0 }),
+    });
 
     {
         let gfx_builder = rustine::gfx::Gfx::builder(rustine::Platform::Wayland)
@@ -67,16 +70,17 @@ fn main() -> std::process::ExitCode {
 
         let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
         let gui = gui_builder.build(gfx.clone(), application);
+        let mode = rustine::gfx::LoopMode::Continuous;
 
         std::thread::scope(|scope| {
             scope.spawn(|| {
-                rustine::gfx::Gfx::run(gfx.clone(), &SHUTDOWN_FLAG, rustine::gfx::LoopMode::Event);
+                rustine::gfx::Gfx::run(gfx.clone(), &SHUTDOWN_FLAG, mode);
             });
 
-            rustine::gui::Gui::run(&gui, &SHUTDOWN_FLAG, rustine::gfx::LoopMode::Event);
+            rustine::gui::Gui::run(&gui, &SHUTDOWN_FLAG, mode);
 
             SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
-            gfx.lock().unwrap().signal_work_available();
+            gfx.lock().unwrap().wake_up();
         });
     }
 
@@ -85,7 +89,13 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-struct MyApplication;
+struct MyApplicationState {
+    frame_index: usize,
+}
+
+struct MyApplication {
+    state: std::cell::RefCell<MyApplicationState>,
+}
 
 impl rustine::gui::Application for MyApplication {
     fn startup(&self, _gui: &rustine::gui::Gui) {
@@ -146,6 +156,8 @@ impl rustine::gui::Application for MyApplication {
     }
 
     fn render(&self, _gui: &rustine::gui::Gui, frame: &mut rustine::gfx::RenderFrame) {
+        let mut state = self.state.borrow_mut();
+
         let w = frame.size.x as f32;
         let h = frame.size.y as f32;
 
@@ -157,8 +169,18 @@ impl rustine::gui::Application for MyApplication {
         //let content_w = w - SIDE_BAR_WIDTH;
         let content_h = h - TOP_BAR_HEIGHT;
 
-        let color = 0xFFFFFF_FFu32;
         let bar_color = 0x1B232F_FFu32;
+
+        // Fill background
+        frame.fill_rectangle(
+            &rustine::gfx::Rectangle {
+                x: 0.0,
+                y: 0.0,
+                w,
+                h,
+            },
+            bar_color,
+        );
 
         // Draw top bar
         frame.fill_rectangle(
@@ -186,14 +208,52 @@ impl rustine::gui::Application for MyApplication {
             rustine::gfx::fonts::get_font_metrics(rustine::gfx::fonts::DEPARTUREMONO_FONT_ID)
                 .expect("Font metrics exist");
 
+        // Switch text color every other frame between pastel red and green
+        let frame_indicator_color = if state.frame_index % 2 == 0 {
+            0xFFAAAA_FFu32
+        } else {
+            0xAAFFAA_FFu32
+        };
+
+        frame.fill_rectangle(
+            &rustine::gfx::Rectangle {
+                x: 4.0,
+                y: 4.0,
+                w: 10.0,
+                h: 10.0,
+            },
+            frame_indicator_color,
+        );
+
+        let text_color = 0xFFFFFF_FFu32;
+
+        let counts = rustine::alloc::counts();
+        //let count = counts.0 - counts.1;
+        let current = rustine::alloc::current_bytes();
+        let peak = rustine::alloc::peak_bytes();
+        let vram = rustine::gfx::Gfx::current_allocated_vram_bytes();
+        let rss = rustine::alloc::rss_bytes();
+
+        let txt = format!(
+            "FRAME {}\nALLOCS ({}) {}, peak: {} | VRAM: {} | RAM: {}",
+            state.frame_index.to_string(),
+            counts.0,
+            rustine::utilities::format_bytes_iec(current),
+            rustine::utilities::format_bytes_iec(peak),
+            rustine::utilities::format_bytes_iec(vram),
+            rustine::utilities::format_bytes_iec(rss.unwrap_or(0)),
+        );
+
         // Draw debug text
         frame.push_text(
-            "DEBUG",
+            txt.as_str(),
             content_x,
             content_y + text_font_metrics.ascender,
             1.0,
-            color,
+            text_color,
             rustine::gfx::fonts::DEPARTUREMONO_FONT_ID,
         );
+
+        state.frame_index += 1;
     }
 }

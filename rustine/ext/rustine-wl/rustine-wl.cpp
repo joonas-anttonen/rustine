@@ -10,6 +10,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <ctime>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -189,7 +190,6 @@ static void rwl_log(rwl_log_severity severity, const char* message) {
     }
 }
 
-static int g_wake_fd = -1;
 static std::vector<std::unique_ptr<struct rwl_window_internal>> g_windows;
 static rwl_window_internal* g_window_with_keyboard = nullptr;
 
@@ -872,16 +872,8 @@ rwl_status rwlStartup() {
         }
     }
 
-    g_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    if (g_wake_fd == -1) {
-        rwl_log(RWL_LOG_ERROR, "Failed to create wake eventfd");
-        return RWL_STATUS_INTERNAL_ERROR;
-    }
-
     g_display = wl_display_connect(nullptr);
     if (!g_display) {
-        close(g_wake_fd);
-        g_wake_fd = -1;
         rwl_log(RWL_LOG_ERROR, "Failed to connect to Wayland display");
         return RWL_STATUS_NO_DISPLAY;
     }
@@ -1001,11 +993,6 @@ rwl_status rwlShutdown() {
     if (g_display) {
         wl_display_disconnect(g_display);
         g_display = nullptr;
-    }
-
-    if (g_wake_fd != -1) {
-        close(g_wake_fd);
-        g_wake_fd = -1;
     }
 
     return RWL_STATUS_OK;
@@ -1267,80 +1254,97 @@ rwl_status rwlGetLogicalSize(rwl_window* window, uint32_t* width, uint32_t* heig
     return RWL_STATUS_OK;
 }
 
-// Internal helper to dispatch events with optional timeout (in milliseconds).
-// timeout_ms < 0 blocks indefinitely.
-static rwl_status rwl_wait_events_internal(int timeout_ms) {
+uint64_t get_posix_time_ns() {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        return 0;
+    }
+
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000ull + static_cast<uint64_t>(ts.tv_nsec);
+}
+
+bool rwl_poll(struct pollfd* fds, nfds_t count, double* timeout) {
+    for (;;) {
+        if (timeout) {
+            const uint64_t base = get_posix_time_ns();
+
+            const time_t seconds = (time_t)*timeout;
+            const long nanoseconds = (long)((*timeout - seconds) * 1e9);
+            const struct timespec ts = {seconds, nanoseconds};
+            const int result = ppoll(fds, count, &ts, NULL);
+            const int error = errno;  // clock_gettime may overwrite our error
+
+            *timeout -= (get_posix_time_ns() - base) / 1e9;
+
+            if (result > 0)
+                return true;
+            else if (result == -1 && error != EINTR && error != EAGAIN)
+                return false;
+            else if (*timeout <= 0.0)
+                return false;
+        } else {
+            const int result = poll(fds, count, -1);
+            if (result > 0)
+                return true;
+            else if (result == -1 && errno != EINTR && errno != EAGAIN)
+                return false;
+        }
+    }
+}
+
+static bool flush_display() {
+    while (wl_display_flush(g_display) == -1) {
+        if (errno != EAGAIN)
+            return false;
+
+        struct pollfd fd = {wl_display_get_fd(g_display), POLLOUT};
+        while (poll(&fd, 1, -1) == -1) {
+            if (errno != EINTR && errno != EAGAIN)
+                return false;
+        }
+    }
+
+    return true;
+}
+
+static rwl_status rwl_wait_events_internal(double* timeout) {
     if (!g_display) {
         return RWL_STATUS_NOT_INITIALIZED;
     }
 
-    struct pollfd pfds[2];
+    bool got_event = false;
+
+    struct pollfd fds[2];
     nfds_t nfds = 1;
-    pfds[0].fd = wl_display_get_fd(g_display);
-    pfds[0].events = POLLIN;
-    pfds[0].revents = 0;
+    fds[0].fd = wl_display_get_fd(g_display);
+    fds[0].events = POLLIN;
+    fds[0].revents = 0;
 
-    if (g_wake_fd != -1) {
-        pfds[1].fd = g_wake_fd;
-        pfds[1].events = POLLIN;
-        pfds[1].revents = 0;
-        nfds = 2;
-    }
-
-    // Prepare for reading; if there's pending work, dispatch it first.
-    while (wl_display_prepare_read(g_display) != 0) {
-        if (wl_display_dispatch_pending(g_display) == -1) {
-            return RWL_STATUS_INTERNAL_ERROR;
+    while (!got_event) {
+        while (wl_display_prepare_read(g_display) != 0) {
+            if (wl_display_dispatch_pending(g_display) > 0)
+                return RWL_STATUS_OK;
         }
-    }
 
-    int flush_result;
-    while ((flush_result = wl_display_flush(g_display)) == -1 && errno == EAGAIN) {
-        struct pollfd fd = {wl_display_get_fd(g_display), POLLOUT, 0};
-        if (poll(&fd, 1, -1) == -1 && errno != EINTR) {
+        // If an error other than EAGAIN happens, we have likely been disconnected
+        // from the Wayland session; try to handle that the best we can.
+        if (!flush_display()) {
             wl_display_cancel_read(g_display);
             rwl_request_close_all_windows();
-            return RWL_STATUS_INTERNAL_ERROR;
+            return RWL_STATUS_OK;
         }
-    }
 
-    if (flush_result == -1) {
-        wl_display_cancel_read(g_display);
-        rwl_log(RWL_LOG_ERROR, "Wayland connection error during flush; requesting window close");
-        rwl_request_close_all_windows();
-        return RWL_STATUS_INTERNAL_ERROR;
-    }
-
-    int poll_result;
-    do {
-        poll_result = poll(pfds, nfds, timeout_ms);
-    } while (poll_result == -1 && errno == EINTR);
-
-    bool display_ready = false;
-    bool wake_ready = false;
-    if (poll_result > 0) {
-        display_ready = (pfds[0].revents & POLLIN) != 0;
-        wake_ready = (nfds > 1) && (pfds[1].revents & POLLIN);
-    }
-
-    if (display_ready) {
-        if (wl_display_read_events(g_display) == -1) {
-            return RWL_STATUS_INTERNAL_ERROR;
+        if (!rwl_poll(fds, nfds, timeout)) {
+            wl_display_cancel_read(g_display);
+            return RWL_STATUS_OK;
         }
-        if (wl_display_dispatch_pending(g_display) == -1) {
-            return RWL_STATUS_INTERNAL_ERROR;
-        }
-    } else {
-        wl_display_cancel_read(g_display);
-    }
 
-    if (wake_ready) {
-        uint64_t value;
-        while (read(g_wake_fd, &value, sizeof(value)) == sizeof(value)) {}
-    }
-
-    if (poll_result == -1) {
-        return RWL_STATUS_INTERNAL_ERROR;
+        if (fds[0].revents & POLLIN) {
+            wl_display_read_events(g_display);
+            if (wl_display_dispatch_pending(g_display) > 0)
+                got_event = true;
+        } else
+            wl_display_cancel_read(g_display);
     }
 
     return RWL_STATUS_OK;
@@ -1348,12 +1352,13 @@ static rwl_status rwl_wait_events_internal(int timeout_ms) {
 
 rwl_status rwlPollEvents() {
     // Non-blocking: dispatch what is ready and return.
-    return rwl_wait_events_internal(0);
+    double timeout = 0.0;
+    return rwl_wait_events_internal(&timeout);
 }
 
 rwl_status rwlWaitEvents() {
     // Block until an event is available.
-    return rwl_wait_events_internal(-1);
+    return rwl_wait_events_internal(nullptr);
 }
 
 rwl_status rwlWaitEventsTimeout(uint64_t timeout_ns) {
@@ -1361,34 +1366,13 @@ rwl_status rwlWaitEventsTimeout(uint64_t timeout_ns) {
         return RWL_STATUS_NOT_INITIALIZED;
     }
 
-    // Vulkan uses UINT64_MAX for infinite
-    if (timeout_ns == std::numeric_limits<uint64_t>::max()) {
-        return rwlWaitEvents();
-    }
-
-    // Convert nanoseconds to milliseconds, rounding up to avoid premature
-    // timeouts.
-    uint64_t ms_u64 = (timeout_ns + 999999ull) / 1000000ull;
-    int timeout_ms;
-    if (ms_u64 > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
-        timeout_ms = std::numeric_limits<int>::max();
-    } else {
-        timeout_ms = static_cast<int>(ms_u64);
-    }
-
-    return rwl_wait_events_internal(timeout_ms);
+    double timeout = (double)timeout_ns / 1e9;
+    return rwl_wait_events_internal(&timeout);
 }
 
 rwl_status rwlPostEmptyEvent() {
-    if (g_wake_fd == -1) {
-        return RWL_STATUS_NOT_INITIALIZED;
-    }
-
-    uint64_t value = 1;
-    ssize_t written = write(g_wake_fd, &value, sizeof(value));
-    if (written == -1 && errno != EAGAIN) {
-        return RWL_STATUS_INTERNAL_ERROR;
-    }
+    wl_display_sync(g_display);
+    flush_display();
 
     return RWL_STATUS_OK;
 }

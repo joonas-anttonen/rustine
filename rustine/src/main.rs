@@ -134,9 +134,7 @@ fn main() {
 
 struct MyApplication;
 
-impl rustine::gui::Application for MyApplication {
-
-}
+impl rustine::gui::Application for MyApplication {}
 
 fn gui_thread_function(
     gui: &gui::Gui,
