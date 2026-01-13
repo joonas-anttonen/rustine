@@ -77,7 +77,7 @@ fn main() -> std::process::ExitCode {
 
         let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
         let gui = gui_builder.build(gfx.clone(), application);
-        let mode = rustine::gfx::LoopMode::Continuous;
+        let mode = rustine::gfx::LoopMode::Event;
 
         std::thread::scope(|scope| {
             scope.spawn(|| {
@@ -129,11 +129,16 @@ impl rustine::gui::Application for MyApplication {
     }
 
     fn on_key(&self, gui: &rustine::gui::Gui, _key: rustine::gui::KeyEvent) {
-        log::debug!("Application::on_key: {:?} {:?}", _key.key, _key.action);
+        if _key.key == rustine::gui::Key::UNKNOWN {
+            log::warning!("Application::on_key: {:?} {:?}", _key.key, _key.action);
+        }
 
         if _key.action != rustine::gui::Action::PRESS {
             return;
         }
+
+        // Assume the window is damaged after handling a key press
+        gui.mark_damaged();
 
         let mut state = self.state.borrow_mut();
         let partition_count = state.devices.iter().filter(|d| d.is_partition).count();
@@ -162,7 +167,8 @@ impl rustine::gui::Application for MyApplication {
                     if let Some(device) = state.devices.get(idx) {
                         if let Some(mount_info) = &device.mount_info {
                             let mount_path = &mount_info.mount_point;
-                            let dispatch_cmd = format!("[float] alacritty --command yazi {}", mount_path);
+                            let dispatch_cmd =
+                                format!("[float] alacritty --command yazi {}", mount_path);
                             match std::process::Command::new("hyprctl")
                                 .arg("dispatch")
                                 .arg("exec")
@@ -193,34 +199,66 @@ impl rustine::gui::Application for MyApplication {
                         if let Some(device) = state.devices.get(idx) {
                             if let Some(mount_info) = &device.mount_info {
                                 // Unmount
-                                match rustine_desktop::mount::umount_with_sudo(&mount_info.mount_point, &state.password_buffer) {
+                                match rustine_desktop::mount::umount_with_sudo(
+                                    &mount_info.mount_point,
+                                    &state.password_buffer,
+                                ) {
                                     Ok(_) => {
-                                        log::info!("Successfully unmounted {} from {}", device.path, mount_info.mount_point);
+                                        log::info!(
+                                            "Successfully unmounted {} from {}",
+                                            device.path,
+                                            mount_info.mount_point
+                                        );
                                         // Rescan drives after unmount
                                         match rustine_desktop::sysinfo::get_block_devices() {
                                             Ok(devices) => {
-                                                state.devices = devices.into_iter().filter(|d| d.is_partition).collect();
+                                                state.devices = devices
+                                                    .into_iter()
+                                                    .filter(|d| d.is_partition)
+                                                    .collect();
                                             }
-                                            Err(e) => log::error!("Failed to rescan block devices: {}", e),
+                                            Err(e) => {
+                                                log::error!("Failed to rescan block devices: {}", e)
+                                            }
                                         }
                                     }
-                                    Err(e) => log::error!("Failed to unmount {}: {}", device.path, e),
+                                    Err(e) => {
+                                        log::error!("Failed to unmount {}: {}", device.path, e)
+                                    }
                                 }
                             } else {
                                 // Mount
                                 let drive_name = device.path.split('/').last().unwrap_or("drive");
                                 let mount_path = format!("/media/{}", drive_name);
-                                let fs_type = device.fs_type.as_ref().map(|s| s.as_str()).unwrap_or("auto");
+                                let fs_type = device
+                                    .fs_type
+                                    .as_ref()
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("auto");
 
-                                match rustine_desktop::mount::mount_with_sudo(&device.path, &mount_path, fs_type, &state.password_buffer) {
+                                match rustine_desktop::mount::mount_with_sudo(
+                                    &device.path,
+                                    &mount_path,
+                                    fs_type,
+                                    &state.password_buffer,
+                                ) {
                                     Ok(_) => {
-                                        log::info!("Successfully mounted {} at {}", device.path, mount_path);
+                                        log::info!(
+                                            "Successfully mounted {} at {}",
+                                            device.path,
+                                            mount_path
+                                        );
                                         // Rescan drives after mount
                                         match rustine_desktop::sysinfo::get_block_devices() {
                                             Ok(devices) => {
-                                                state.devices = devices.into_iter().filter(|d| d.is_partition).collect();
+                                                state.devices = devices
+                                                    .into_iter()
+                                                    .filter(|d| d.is_partition)
+                                                    .collect();
                                             }
-                                            Err(e) => log::error!("Failed to rescan block devices: {}", e),
+                                            Err(e) => {
+                                                log::error!("Failed to rescan block devices: {}", e)
+                                            }
                                         }
                                     }
                                     Err(e) => log::error!("Failed to mount {}: {}", device.path, e),
@@ -249,9 +287,10 @@ impl rustine::gui::Application for MyApplication {
         }
     }
 
-    fn on_char(&self, _gui: &rustine::gui::Gui, c: char) {
-        log::debug!("Application::on_char: U+{:04X} ('{}')", c as u32, c);
-        
+    fn on_char(&self, gui: &rustine::gui::Gui, c: char) {
+        // Assume the window is damaged after handling a character input
+        gui.mark_damaged();
+
         let mut state = self.state.borrow_mut();
         if state.password_mode {
             // Collect password characters (no visual feedback)
@@ -406,7 +445,7 @@ impl rustine::gui::Application for MyApplication {
             if let Some(mounting_idx) = state.mounting_index {
                 // Calculate Y position for the password prompt (on top of the mounting line)
                 let prompt_y = content_y + (mounting_idx as f32 * line_height);
-                
+
                 // Draw semi-transparent background overlay for the prompt
                 let prompt_bg_color = 0x0D1117_EEu32;
                 frame.fill_rectangle(

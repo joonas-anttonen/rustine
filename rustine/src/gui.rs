@@ -7,6 +7,7 @@ use crate::gfx::{self, presentation, vulkan as vk};
 use crate::*;
 use crate::{debug, warning};
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub struct Parameters {
@@ -87,6 +88,7 @@ pub struct Gui {
     rwl_window: ffi::RwlWindow,
 
     application: Box<dyn Application>,
+    damaged: AtomicBool,
 }
 
 impl Drop for Gui {
@@ -125,6 +127,17 @@ impl Gui {
         }
     }
 
+    /// Marks the window as damaged, indicating that it needs to be redrawn.
+    pub fn mark_damaged(&self) {
+        self.damaged.store(true, Ordering::Release);
+    }
+
+    /// Checks if the window is damaged and clears the damaged flag.
+    /// Returns true if the window was marked as damaged.
+    fn is_damaged(&self) -> bool {
+        self.damaged.swap(false, Ordering::Acquire)
+    }
+
     pub fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: gfx::LoopMode) {
         info!("GUI START");
 
@@ -148,37 +161,40 @@ impl Gui {
                 gui.process_events();
             }
 
-            //let t = now.duration_since(start_instant).as_secs_f64();
-            let dt = frame_start.duration_since(last_instant).as_secs_f32();
-            frame_delta_times.push(dt as f64);
-            last_instant = frame_start;
+            // Only render if the window is damaged
+            if gui.is_damaged() {
+                //let t = now.duration_since(start_instant).as_secs_f64();
+                let dt = frame_start.duration_since(last_instant).as_secs_f32();
+                frame_delta_times.push(dt as f64);
+                last_instant = frame_start;
 
-            let mut frame = gfx::RenderFrame::new(gui.pixel_size());
-            gui.application.render(&gui, &mut frame);
+                let mut frame = gfx::RenderFrame::new(gui.pixel_size());
+                gui.application.render(&gui, &mut frame);
 
-            {
-                let gfx = gui.gfx.lock().unwrap();
+                {
+                    let gfx = gui.gfx.lock().unwrap();
 
-                if let Ok(mut pending) = gfx.render_mailbox().lock() {
-                    pending.push_back(frame);
+                    if let Ok(mut pending) = gfx.render_mailbox().lock() {
+                        pending.push_back(frame);
 
-                    if let gfx::LoopMode::Event = mode {
-                        gfx.wake_up();
+                        if let gfx::LoopMode::Event = mode {
+                            gfx.wake_up();
+                        }
                     }
                 }
-            }
 
-            if frame_start.duration_since(last_stat_instant).as_secs_f64() >= 1.0 {
-                if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
-                    debug!(
-                        "GUI frame dt -> min: {}, max: {}, mean: {}",
-                        utilities::format_duration(min as f64),
-                        utilities::format_duration(max as f64),
-                        utilities::format_duration(mean as f64)
-                    );
+                if frame_start.duration_since(last_stat_instant).as_secs_f64() >= 1.0 {
+                    if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
+                        debug!(
+                            "GUI frame dt -> min: {}, max: {}, mean: {}",
+                            utilities::format_duration(min as f64),
+                            utilities::format_duration(max as f64),
+                            utilities::format_duration(mean as f64)
+                        );
+                    }
+
+                    last_stat_instant = frame_start;
                 }
-
-                last_stat_instant = frame_start;
             }
 
             let elapsed = frame_start.elapsed();
@@ -331,6 +347,7 @@ impl Gui {
             gfx_surface: gfx_surface,
             rwl_window,
             application,
+            damaged: AtomicBool::new(true),
         });
 
         unsafe {
