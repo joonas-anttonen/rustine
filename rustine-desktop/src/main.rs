@@ -56,6 +56,7 @@ fn main() -> std::process::ExitCode {
         state: std::cell::RefCell::new(MyApplicationState {
             frame_index: 0,
             devices: Vec::new(),
+            selected_index: None,
         }),
     });
 
@@ -95,6 +96,7 @@ fn main() -> std::process::ExitCode {
 struct MyApplicationState {
     frame_index: usize,
     devices: Vec<sysinfo::BlockDevice>,
+    selected_index: Option<usize>,
 }
 
 struct MyApplication {
@@ -110,15 +112,8 @@ impl rustine::gui::Application for MyApplication {
         // Enumerate all block devices
         match sysinfo::get_block_devices() {
             Ok(devices) => {
-                let mounted_count = devices.iter().filter(|d| d.mount_info.is_some()).count();
-                let unmounted_count = devices.len() - mounted_count;
-                log::info!(
-                    "Found {} devices ({} mounted, {} unmounted)",
-                    devices.len(),
-                    mounted_count,
-                    unmounted_count
-                );
-                state.devices = devices;
+                state.devices = devices.into_iter().filter(|d| d.is_partition).collect();
+                state.selected_index = Some(0);
             }
             Err(e) => log::error!("Failed to get block devices: {}", e),
         }
@@ -127,8 +122,36 @@ impl rustine::gui::Application for MyApplication {
     fn on_key(&self, gui: &rustine::gui::Gui, _key: rustine::gui::KeyEvent) {
         log::debug!("Application::on_key: {:?} {:?}", _key.key, _key.action);
 
-        if _key.key == rustine::gui::Key::ESCAPE {
-            gui.request_quit();
+        if _key.action != rustine::gui::Action::PRESS {
+            return;
+        }
+
+        let mut state = self.state.borrow_mut();
+        let partition_count = state.devices.iter().filter(|d| d.is_partition).count();
+
+        match _key.key {
+            rustine::gui::Key::ESCAPE => {
+                gui.request_quit();
+            }
+            rustine::gui::Key::UP => {
+                if partition_count > 0 {
+                    state.selected_index = Some(match state.selected_index {
+                        Some(idx) if idx > 0 => idx - 1,
+                        Some(_) => partition_count - 1, // Wrap to bottom
+                        None => 0,
+                    });
+                }
+            }
+            rustine::gui::Key::DOWN => {
+                if partition_count > 0 {
+                    state.selected_index = Some(match state.selected_index {
+                        Some(idx) if idx < partition_count - 1 => idx + 1,
+                        Some(_) => 0, // Wrap to top
+                        None => 0,
+                    });
+                }
+            }
+            _ => {}
         }
     }
 
@@ -142,9 +165,18 @@ impl rustine::gui::Application for MyApplication {
         let w = frame.size.x as f32;
         let h = frame.size.y as f32;
 
+        let text_font_metrics =
+            rustine::gfx::fonts::get_font_metrics(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID)
+                .expect("Font metrics exist");
+
         const TOP_BAR_HEIGHT: f32 = 48.0;
         const SIDE_BAR_WIDTH: f32 = 48.0;
-        const LINE_HEIGHT: f32 = 20.0;
+        let line_height: f32 = text_font_metrics.ascender - text_font_metrics.descender;
+
+        const STATUS_LIGHT_WIDTH: f32 = 8.0;
+        let status_light_height: f32 = line_height - 2.0 - 2.0;
+        const STATUS_LIGHT_MARGIN: f32 = 10.0;
+        const TEXT_START_X: f32 = STATUS_LIGHT_MARGIN + STATUS_LIGHT_WIDTH + 8.0;
 
         let content_x = SIDE_BAR_WIDTH;
         let content_y = TOP_BAR_HEIGHT;
@@ -190,10 +222,6 @@ impl rustine::gui::Application for MyApplication {
             bar_color,
         );
 
-        let text_font_metrics =
-            rustine::gfx::fonts::get_font_metrics(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID)
-                .expect("Font metrics exist");
-
         // Title in top bar
         frame.push_text(
             "Drive Manager",
@@ -204,19 +232,29 @@ impl rustine::gui::Application for MyApplication {
             rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
         );
 
-        let mut y = content_y + text_font_metrics.ascender;
+        let mut y = content_y;
 
-        const STATUS_LIGHT_WIDTH: f32 = 4.0;
-        const STATUS_LIGHT_HEIGHT: f32 = 14.0;
-        const STATUS_LIGHT_MARGIN: f32 = 10.0;
-        const TEXT_START_X: f32 = STATUS_LIGHT_MARGIN + STATUS_LIGHT_WIDTH + 8.0;
+        let highlight_color = 0x21262D_FFu32;
 
         // Draw all drives in a flat list (partitions only)
-        for device in state.devices.iter().filter(|d| d.is_partition) {
-            let status_y = y - (STATUS_LIGHT_HEIGHT / 2.0) - 2.0;
-            
+        for (index, device) in state.devices.iter().enumerate() {
+            let is_selected = state.selected_index == Some(index);
+
+            // Draw highlight background for selected item
+            if is_selected {
+                frame.fill_rectangle(
+                    &rustine::gfx::Rectangle {
+                        x: content_x,
+                        y: y,
+                        w: _content_w,
+                        h: line_height,
+                    },
+                    highlight_color,
+                );
+            }
+
             let size_str = rustine::utilities::format_bytes_iec(device.size.unwrap_or(0) as usize);
-            
+
             // Determine color and text based on mount status
             let (status_color, drive_text) = if let Some(mount_info) = &device.mount_info {
                 // Mounted: green status light
@@ -235,14 +273,14 @@ impl rustine::gui::Application for MyApplication {
                 let text = format!("{} ({}) ({})", device.path, size_str, fs_str);
                 (unmounted_color, text)
             };
-            
+
             // Draw status light
             frame.fill_rectangle(
                 &rustine::gfx::Rectangle {
                     x: content_x + STATUS_LIGHT_MARGIN,
-                    y: status_y,
+                    y: y + 2.0,
                     w: STATUS_LIGHT_WIDTH,
-                    h: STATUS_LIGHT_HEIGHT,
+                    h: status_light_height,
                 },
                 status_color,
             );
@@ -250,12 +288,12 @@ impl rustine::gui::Application for MyApplication {
             frame.push_text(
                 &drive_text,
                 content_x + TEXT_START_X,
-                y - text_font_metrics.descender,
+                y + text_font_metrics.ascender,
                 1.0,
                 text_color,
                 rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
             );
-            y += LINE_HEIGHT;
+            y += line_height;
         }
 
         state.frame_index += 1;
