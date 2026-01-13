@@ -679,6 +679,14 @@ mod ffi {
             match self.0 {
                 Self::SPACE => crate::gui::input::Key::SPACE,
                 Self::ESCAPE => crate::gui::input::Key::ESCAPE,
+                Self::ENTER => crate::gui::input::Key::ENTER,
+                Self::TAB => crate::gui::input::Key::TAB,
+                Self::E => crate::gui::input::Key::E,
+                Self::M => crate::gui::input::Key::M,
+                Self::UP => crate::gui::input::Key::UP,
+                Self::DOWN => crate::gui::input::Key::DOWN,
+                Self::LEFT => crate::gui::input::Key::LEFT,
+                Self::RIGHT => crate::gui::input::Key::RIGHT,
                 _ => crate::gui::input::Key::UNKNOWN,
             }
         }

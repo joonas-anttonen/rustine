@@ -5,6 +5,14 @@ pub enum Key {
     UNKNOWN,
     SPACE,
     ESCAPE,
+    ENTER,
+    TAB,
+    E,
+    M,
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
