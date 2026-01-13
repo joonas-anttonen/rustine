@@ -55,6 +55,7 @@ fn main() -> std::process::ExitCode {
     let application = Box::new(MyApplication {
         state: std::cell::RefCell::new(MyApplicationState {
             frame_index: 0,
+            selected_tab: Tab::DriveManager,
             devices: Vec::new(),
             selected_index: None,
             password_mode: false,
@@ -96,8 +97,28 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Tab {
+    DriveManager,
+}
+
+impl Tab {
+    fn hotkey(&self) -> &'static str {
+        match self {
+            Tab::DriveManager => "F1",
+        }
+    }
+
+    fn title(&self) -> &'static str {
+        match self {
+            Tab::DriveManager => "Drive Manager",
+        }
+    }
+}
+
 struct MyApplicationState {
     frame_index: usize,
+    selected_tab: Tab,
     devices: Vec<sysinfo::BlockDevice>,
     selected_index: Option<usize>,
     password_mode: bool,
@@ -144,6 +165,9 @@ impl rustine::gui::Application for MyApplication {
         let partition_count = state.devices.iter().filter(|d| d.is_partition).count();
 
         match _key.key {
+            rustine::gui::Key::F1 => {
+                state.selected_tab = Tab::DriveManager;
+            }
             rustine::gui::Key::UP => {
                 if partition_count > 0 {
                     state.selected_index = Some(match state.selected_index {
@@ -366,10 +390,47 @@ impl rustine::gui::Application for MyApplication {
             bar_color,
         );
 
-        // Title in top bar
+        // Draw tab hotkey indicator and title in top bar
+        let tab_hotkey = state.selected_tab.hotkey();
+        let tab_title = state.selected_tab.title();
+        
+        //let hotkey_bg_color = 0x388BFD_FFu32;
+        let hotkey_selected_bg_color = 0x3FB950_FFu32;
+        let hotkey_text_color = 0x0D1117_FFu32;
+        
+        // Measure hotkey text width for background box
+        let hotkey_padding = 6.0;
+        let hotkey_height = line_height;
+        let hotkey_width = (tab_hotkey.len() as f32 * rustine::gfx::fonts::get_font_size(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID) / 2.0) + (hotkey_padding * 2.0);
+        
+        let hotkey_x = content_x + 10.0;
+        let hotkey_y = (TOP_BAR_HEIGHT - hotkey_height) / 2.0;
+        
+        // Draw hotkey background
+        frame.fill_rectangle(
+            &rustine::gfx::Rectangle {
+                x: hotkey_x,
+                y: hotkey_y,
+                w: hotkey_width,
+                h: hotkey_height,
+            },
+            hotkey_selected_bg_color,
+        );
+        
+        // Draw hotkey text
         frame.push_text(
-            "Drive Manager",
-            content_x + 10.0,
+            tab_hotkey,
+            hotkey_x + hotkey_padding,
+            (TOP_BAR_HEIGHT / 2.0) + (text_font_metrics.ascender / 2.0),
+            1.0,
+            hotkey_text_color,
+            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+        );
+        
+        // Draw tab title
+        frame.push_text(
+            tab_title,
+            hotkey_x + hotkey_width + 10.0,
             (TOP_BAR_HEIGHT / 2.0) + (text_font_metrics.ascender / 2.0),
             1.0,
             text_color,

@@ -704,6 +704,18 @@ mod ffi {
                 Self::DOWN => crate::gui::input::Key::DOWN,
                 Self::LEFT => crate::gui::input::Key::LEFT,
                 Self::RIGHT => crate::gui::input::Key::RIGHT,
+                Self::F1 => crate::gui::input::Key::F1,
+                Self::F2 => crate::gui::input::Key::F2,
+                Self::F3 => crate::gui::input::Key::F3,
+                Self::F4 => crate::gui::input::Key::F4,
+                Self::F5 => crate::gui::input::Key::F5,
+                Self::F6 => crate::gui::input::Key::F6,
+                Self::F7 => crate::gui::input::Key::F7,
+                Self::F8 => crate::gui::input::Key::F8,
+                Self::F9 => crate::gui::input::Key::F9,
+                Self::F10 => crate::gui::input::Key::F10,
+                Self::F11 => crate::gui::input::Key::F11,
+                Self::F12 => crate::gui::input::Key::F12,
                 _ => crate::gui::input::Key::UNKNOWN,
             }
         }
