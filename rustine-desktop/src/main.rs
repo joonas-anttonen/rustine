@@ -125,17 +125,17 @@ impl rustine::gui::Application for MyApplication {
                     log::info!("  (none)");
                 } else {
                     for drive in unmounted.iter().filter(|d| d.is_partition) {
-                        let size_str = if let Some(size) = drive.size {
-                            format!("{:.2} GB", size as f64 / 1_000_000_000.0)
-                        } else {
-                            "unknown size".to_string()
-                        };
                         let fs_str = drive
                             .fs_type
                             .as_ref()
                             .map(|s| format!("{}", s))
                             .unwrap_or_default();
-                        log::info!("{} ({}) ({})", drive.path, size_str, fs_str);
+                        log::info!(
+                            "{} ({}) ({})",
+                            drive.path,
+                            rustine::utilities::format_bytes_iec(drive.size.unwrap_or(0) as usize),
+                            fs_str
+                        );
                     }
                 }
             }
@@ -235,7 +235,7 @@ impl rustine::gui::Application for MyApplication {
         let rss = rustine::alloc::rss_bytes();
 
         let txt = format!(
-            "FRAME {}\nALLOCS ({}) {}, peak: {} | VRAM: {} | RAM: {}",
+            "FRAME {} \u{f293}\nALLOCS ({}) {}, peak: {} | VRAM: {} | RAM: {}",
             state.frame_index.to_string(),
             counts.0,
             rustine::utilities::format_bytes_iec(current),
@@ -251,7 +251,7 @@ impl rustine::gui::Application for MyApplication {
             content_y + text_font_metrics.ascender,
             1.0,
             text_color,
-            rustine::gfx::fonts::DEPARTUREMONO_FONT_ID,
+            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
         );
 
         state.frame_index += 1;

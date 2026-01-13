@@ -14,6 +14,34 @@ charset = "latin1"
 size = 22.0
 charset = "latin1"
 
+[fonts.CaskaydiaMono]
+size = 16.0
+charset = "unicode"
+codepoints = [
+    "0x0000-0x00ff",
+    "0xf1eb", # nf-fa-wifi
+    "0xf293", # nf-fa-bluetooth
+    "0xec19", # nf-cod-chip
+    "0xe745", # nf-dev-firefox
+    "0xe8da", # nf-dev-vscode
+    "0xe702", # nf-dev-git
+    "0xea68", # nf-cod-source_control
+    "0xea85", # nf-cod-terminal
+    "0xe843", # nf-dev-nixos
+    "0xf1b6", # nf-fa-steam
+    "0xe725", # nf-dev-git_branch
+    "0xeb51", # nf-cod-settings_gear
+    "0xf01d8", # nf-md-dots_horizontal
+    "0xf104", # nf-fa-angle_left
+    "0xf105", # nf-fa-angle_right
+    "0xf106", # nf-fa-angle_up
+    "0xf107", # nf-fa-angle_down
+    "0xf021", # nf-fa-refresh
+    "0xeb94", # nf-cod-menu
+    "0xea76", # nf-cod-close
+    "0xea60", # nf-cod-add
+]
+
 [fonts.NerdSymbolsMono]
 size = 22.0
 charset = "unicode"
