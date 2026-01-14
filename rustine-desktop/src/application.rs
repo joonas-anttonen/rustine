@@ -256,17 +256,25 @@ impl rustine::gui::Application for MyApplication {
                     if let Some(idx) = state.drives_list.selected {
                         if let Some(device) = state.devices.get(idx) {
                             if let Some(mount_info) = &device.mount_info {
-                                let mount_path = &mount_info.mount_point;
-                                let dispatch_cmd =
-                                    format!("[float] alacritty --command yazi {}", mount_path);
-                                match std::process::Command::new("hyprctl")
-                                    .arg("dispatch")
-                                    .arg("exec")
-                                    .arg(dispatch_cmd)
-                                    .spawn()
-                                {
-                                    Ok(_) => log::info!("Launched yazi at {}", mount_path),
-                                    Err(e) => log::error!("Failed to launch yazi: {}", e),
+                                let mount_path = PathBuf::from(&mount_info.mount_point);
+                                
+                                // Switch to Files tab and navigate to the mounted folder
+                                state.selected_tab = Tab::Files;
+                                match files::get_contents(&mount_path, state.show_hidden_files) {
+                                    Ok(entries) => {
+                                        state.files_dir = mount_path.clone();
+                                        state.files_entries = entries;
+                                        state.files_list.selected = if state.files_entries.is_empty() {
+                                            None
+                                        } else {
+                                            Some(0)
+                                        };
+                                    }
+                                    Err(e) => log::error!(
+                                        "Failed to read directory {}: {}",
+                                        mount_path.display(),
+                                        e
+                                    ),
                                 }
                             }
                         }
@@ -425,7 +433,7 @@ impl rustine::gui::Application for MyApplication {
         let content_h = h - TOP_BAR_HEIGHT - STATUS_BAR_HEIGHT;
 
         let bar_color = 0x1B232F_FFu32;
-        let bg_color = 0x0D1117_FFu32;
+        let bg_color = 0x1B232F_FFu32;
         let text_color = 0xFFFFFF_FFu32;
         let mounted_color = 0x3FB950_FFu32;
         let unmounted_color = 0x79C0FF_FFu32;
