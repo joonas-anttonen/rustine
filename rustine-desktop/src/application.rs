@@ -1,8 +1,9 @@
 use crate::{files, list, mount, preview, sysinfo};
+use rustine::ConcurrentMailbox;
 use rustine::{gfx, gui::Key, log};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -43,12 +44,13 @@ struct MyApplicationState {
     files_preview_open: bool,
     files_preview_entry: Option<files::EntryInfo>,
     preview_image: gfx::Image,
-    preview_request_queue: Arc<Mutex<VecDeque<preview::PreviewRequest>>>,
+    preview_request_queue: Arc<ConcurrentMailbox<preview::PreviewRequest>>,
 }
 
 pub struct MyApplication {
     state: std::cell::RefCell<MyApplicationState>,
     exit_flag: Arc<AtomicBool>,
+    preview_request_flag: Arc<AtomicBool>,
 }
 
 impl MyApplication {
@@ -70,36 +72,47 @@ impl MyApplication {
                 files_preview_open: false,
                 files_preview_entry: None,
                 preview_image: gfx::Image::default(),
-                preview_request_queue: Arc::new(Mutex::new(VecDeque::new())),
+                preview_request_queue: ConcurrentMailbox::new(),
             }),
             exit_flag: Arc::new(AtomicBool::new(false)),
+            preview_request_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
 impl Drop for MyApplication {
     fn drop(&mut self) {
-        self.exit_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.exit_flag
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.preview_request_flag
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
 impl rustine::gui::Application for MyApplication {
-    fn startup(&self, _gui: &rustine::gui::Gui) {
+    fn startup(&self, gui: &rustine::gui::Gui) {
         log::debug!("Application::startup");
 
         let mut state = self.state.borrow_mut();
 
         // Create the dynamic image for preview
-        state.preview_image = _gui.create_dynamic_image();
-        
+        state.preview_image = gui.create_dynamic_image();
+
         // Spawn the preview worker thread
-        let image_mailbox = _gui.image_mailbox();
+        let image_mailbox = gui.image_mailbox();
         let request_queue = Arc::clone(&state.preview_request_queue);
         let preview_image_id = state.preview_image.id;
         let exit_flag = Arc::clone(&self.exit_flag);
-        
+        let preview_request_flag = Arc::clone(&self.preview_request_flag);
+
         std::thread::spawn(move || {
-            preview::preview_worker_thread(request_queue, image_mailbox, preview_image_id, &exit_flag);
+            preview::preview_worker_thread(
+                request_queue,
+                image_mailbox,
+                preview_image_id,
+                &exit_flag,
+                &preview_request_flag,
+            );
         });
 
         // Enumerate all block devices
@@ -125,7 +138,10 @@ impl rustine::gui::Application for MyApplication {
                     None
                 } else {
                     if let Some(last_name) = state.folder_selection_map.get(&state.files_dir) {
-                        state.files_entries.iter().position(|e| &e.name == last_name)
+                        state
+                            .files_entries
+                            .iter()
+                            .position(|e| &e.name == last_name)
                     } else {
                         Some(0)
                     }
@@ -175,10 +191,11 @@ impl rustine::gui::Application for MyApplication {
                                 if let Some(entry) = state.files_entries.get(idx) {
                                     let entry_path = entry.path.clone();
                                     state.files_preview_entry = Some(entry.clone());
-                                    if let Ok(mut queue) = state.preview_request_queue.lock() {
-                                        queue.clear();
-                                        queue.push_back(preview::PreviewRequest::Load(entry_path));
-                                    }
+                                    state
+                                        .preview_request_queue
+                                        .push(preview::PreviewRequest::Load(entry_path));
+                                    self.preview_request_flag
+                                        .store(true, std::sync::atomic::Ordering::Relaxed);
                                 }
                             }
                         }
@@ -198,10 +215,11 @@ impl rustine::gui::Application for MyApplication {
                                 if let Some(entry) = state.files_entries.get(idx) {
                                     let entry_path = entry.path.clone();
                                     state.files_preview_entry = Some(entry.clone());
-                                    if let Ok(mut queue) = state.preview_request_queue.lock() {
-                                        queue.clear();
-                                        queue.push_back(preview::PreviewRequest::Load(entry_path));
-                                    }
+                                    state
+                                        .preview_request_queue
+                                        .push(preview::PreviewRequest::Load(entry_path));
+                                    self.preview_request_flag
+                                        .store(true, std::sync::atomic::Ordering::Relaxed);
                                 }
                             }
                         }
@@ -237,9 +255,14 @@ impl rustine::gui::Application for MyApplication {
                                     state.files_entries = entries;
                                     state.files_list.selected = if state.files_entries.is_empty() {
                                         None
-                                    } else if let Some(last_name) = state.folder_selection_map.get(&target) {
+                                    } else if let Some(last_name) =
+                                        state.folder_selection_map.get(&target)
+                                    {
                                         // Try to restore the previously selected item
-                                        state.files_entries.iter().position(|e| &e.name == last_name)
+                                        state
+                                            .files_entries
+                                            .iter()
+                                            .position(|e| &e.name == last_name)
                                     } else {
                                         Some(0)
                                     };
@@ -277,9 +300,13 @@ impl rustine::gui::Application for MyApplication {
                             state.files_entries = entries;
                             state.files_list.selected = if state.files_entries.is_empty() {
                                 None
-                            } else if let Some(last_name) = state.folder_selection_map.get(&parent) {
+                            } else if let Some(last_name) = state.folder_selection_map.get(&parent)
+                            {
                                 // Try to restore the previously selected item
-                                state.files_entries.iter().position(|e| &e.name == last_name)
+                                state
+                                    .files_entries
+                                    .iter()
+                                    .position(|e| &e.name == last_name)
                             } else {
                                 Some(0)
                             };
@@ -299,9 +326,14 @@ impl rustine::gui::Application for MyApplication {
 
                             if len == 0 {
                                 state.files_list.selected = None;
-                            } else if let Some(last_name) = state.folder_selection_map.get(&state.files_dir) {
+                            } else if let Some(last_name) =
+                                state.folder_selection_map.get(&state.files_dir)
+                            {
                                 // Try to find and select the previously saved file
-                                state.files_list.selected = state.files_entries.iter().position(|e| &e.name == last_name);
+                                state.files_list.selected = state
+                                    .files_entries
+                                    .iter()
+                                    .position(|e| &e.name == last_name);
                             } else {
                                 // Otherwise try to keep roughly the same position
                                 let previous = state.files_list.selected.unwrap_or(0);
@@ -321,18 +353,20 @@ impl rustine::gui::Application for MyApplication {
                             if let Some(entry) = state.files_entries.get(idx) {
                                 let entry_path = entry.path.clone();
                                 state.files_preview_entry = Some(entry.clone());
-                                if let Ok(mut queue) = state.preview_request_queue.lock() {
-                                    queue.clear();
-                                    queue.push_back(preview::PreviewRequest::Load(entry_path));
-                                }
+                                state
+                                    .preview_request_queue
+                                    .push(preview::PreviewRequest::Load(entry_path));
+                                self.preview_request_flag
+                                    .store(true, std::sync::atomic::Ordering::Relaxed);
                             }
                         }
                     } else {
                         // Clear preview when closing
-                        if let Ok(mut queue) = state.preview_request_queue.lock() {
-                            queue.clear();
-                            queue.push_back(preview::PreviewRequest::Clear);
-                        }
+                        state
+                            .preview_request_queue
+                            .push(preview::PreviewRequest::Clear);
+                        self.preview_request_flag
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
             }
@@ -342,18 +376,19 @@ impl rustine::gui::Application for MyApplication {
                         if let Some(device) = state.devices.get(idx) {
                             if let Some(mount_info) = &device.mount_info {
                                 let mount_path = PathBuf::from(&mount_info.mount_point);
-                                
+
                                 // Switch to Files tab and navigate to the mounted folder
                                 state.selected_tab = Tab::Files;
                                 match files::get_contents(&mount_path, state.show_hidden_files) {
                                     Ok(entries) => {
                                         state.files_dir = mount_path.clone();
                                         state.files_entries = entries;
-                                        state.files_list.selected = if state.files_entries.is_empty() {
-                                            None
-                                        } else {
-                                            Some(0)
-                                        };
+                                        state.files_list.selected =
+                                            if state.files_entries.is_empty() {
+                                                None
+                                            } else {
+                                                Some(0)
+                                            };
                                     }
                                     Err(e) => log::error!(
                                         "Failed to read directory {}: {}",
@@ -625,13 +660,19 @@ impl rustine::gui::Application for MyApplication {
                     state.drives_list.scroll_offset,
                     |frame, index, y, _is_selected| {
                         if let Some(device) = state.devices.get(index) {
-                            let size_str =
-                                rustine::utilities::format_bytes_iec(device.size.unwrap_or(0) as usize);
+                            let size_str = rustine::utilities::format_bytes_iec(
+                                device.size.unwrap_or(0) as usize,
+                            );
 
-                            let (status_color, drive_text) = if let Some(mount_info) = &device.mount_info {
+                            let (status_color, drive_text) = if let Some(mount_info) =
+                                &device.mount_info
+                            {
                                 let text = format!(
                                     "{} ({}) -> {} ({})",
-                                    device.path, size_str, mount_info.mount_point, mount_info.fs_type
+                                    device.path,
+                                    size_str,
+                                    mount_info.mount_point,
+                                    mount_info.fs_type
                                 );
                                 (mounted_color, text)
                             } else {
@@ -669,7 +710,8 @@ impl rustine::gui::Application for MyApplication {
                 // Draw password entry prompt if in password mode
                 if state.password_mode {
                     if let Some(mounting_idx) = state.mounting_index {
-                        let prompt_y = content_y + (mounting_idx as f32 * line_height) - state.drives_list.scroll_offset;
+                        let prompt_y = content_y + (mounting_idx as f32 * line_height)
+                            - state.drives_list.scroll_offset;
                         let prompt_bg_color = 0x0D1117_EEu32;
 
                         frame.fill_rectangle(
@@ -696,9 +738,13 @@ impl rustine::gui::Application for MyApplication {
             }
             Tab::Files => {
                 // Calculate layout based on preview panel state
-                let preview_width = if state.files_preview_open { content_w / 2.0 } else { 0.0 };
+                let preview_width = if state.files_preview_open {
+                    content_w / 2.0
+                } else {
+                    0.0
+                };
                 let list_width = content_w - preview_width;
-                
+
                 // Render the file list
                 list::render_list(
                     frame,
@@ -741,13 +787,13 @@ impl rustine::gui::Application for MyApplication {
                         }
                     },
                 );
-                
+
                 // Render the preview panel if open
                 if state.files_preview_open {
                     let preview_x = content_x + list_width;
                     let preview_panel_bg_color = 0x0D1117_FFu32;
                     let preview_border_color = 0x30363D_FFu32;
-                    
+
                     // Draw preview panel background
                     frame.fill_rectangle(
                         &rustine::gfx::Rectangle {
@@ -758,7 +804,7 @@ impl rustine::gui::Application for MyApplication {
                         },
                         preview_panel_bg_color,
                     );
-                    
+
                     // Draw preview panel border (left edge)
                     frame.fill_rectangle(
                         &rustine::gfx::Rectangle {
@@ -769,13 +815,13 @@ impl rustine::gui::Application for MyApplication {
                         },
                         preview_border_color,
                     );
-                    
+
                     // Display preview content
                     if let Some(ref entry) = state.files_preview_entry {
                         let preview_padding = 10.0;
                         let preview_text_x = preview_x + preview_padding;
                         let preview_text_y = content_y + preview_padding;
-                        
+
                         // Show the entry name as a title
                         frame.push_text(
                             &entry.name,
@@ -785,12 +831,12 @@ impl rustine::gui::Application for MyApplication {
                             text_color,
                             rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
                         );
-                        
+
                         // Calculate image display area (below the title)
                         let image_area_y = preview_text_y + line_height + preview_padding;
                         let image_area_w = preview_width - (preview_padding * 2.0);
                         let image_area_h = content_h - line_height - (preview_padding * 3.0);
-                        
+
                         // Always render the preview image - gfx will handle it if pixel buffer exists
                         frame.push_image(
                             &state.preview_image,

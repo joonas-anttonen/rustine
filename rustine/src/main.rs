@@ -1,4 +1,5 @@
 use rustine::Vector2f;
+use rustine::io::webp::WebPResult;
 use rustine::*;
 use rustine::{error, info};
 use rustine::{gfx, gui, io, log::*, version::Version};
@@ -380,17 +381,24 @@ fn load_and_display_webp(
     // If single frame, load it normally
     if frame_count == 1 {
         let mut frame = vec![0u8; (width * height * 4) as usize];
-        if decoder.next_frame(&mut frame).is_ok() {
-            if let Ok(mut pending) = mailbox.lock() {
-                pending.push_back((
-                    target_image_id,
-                    io::Image {
-                        width,
-                        height,
-                        format: gfx::Format::R8G8B8A8_UNORM,
-                        pixels: frame,
-                    },
-                ));
+        match decoder.next_frame(&mut frame) {
+            WebPResult::EndOfStream => return, // End of frames
+            WebPResult::Error(err) => {
+                log::error!("WebP decoding error: {}", err);
+                return;
+            }
+            WebPResult::Ok(_) => {
+                if let Ok(mut pending) = mailbox.lock() {
+                    pending.push_back((
+                        target_image_id,
+                        io::Image {
+                            width,
+                            height,
+                            format: gfx::Format::R8G8B8A8_UNORM,
+                            pixels: frame,
+                        },
+                    ));
+                }
             }
         }
         return;
@@ -401,7 +409,12 @@ fn load_and_display_webp(
     loop {
         let mut frame = vec![0u8; (width * height * 4) as usize];
         match decoder.next_frame(&mut frame) {
-            Ok(timestamp_ms) => {
+            WebPResult::EndOfStream => break, // End of frames
+            WebPResult::Error(err) => {
+                log::error!("WebP decoding error: {}", err);
+                break;
+            }
+            WebPResult::Ok(timestamp_ms) => {
                 if let Ok(mut pending) = mailbox.lock() {
                     pending.push_back((
                         target_image_id,
@@ -434,7 +447,6 @@ fn load_and_display_webp(
                     return;
                 }
             }
-            Err(_) => break, // End of frames
         }
     }
 }
@@ -445,14 +457,15 @@ fn load_webp_image(path: &Path) -> Option<io::Image> {
     let width = decoder.width();
     let height = decoder.height();
     let mut frame = vec![0u8; (width * height * 4) as usize];
-    decoder.next_frame(&mut frame).ok()?;
-
-    Some(io::Image {
-        width,
-        height,
-        format: gfx::Format::R8G8B8A8_UNORM,
-        pixels: frame,
-    })
+    match decoder.next_frame(&mut frame) {
+        WebPResult::Ok(_) => Some(io::Image {
+            width,
+            height,
+            format: gfx::Format::R8G8B8A8_UNORM,
+            pixels: frame,
+        }),
+        _ => None,
+    }
 }
 
 fn collect_webp_images(root: &Path) -> Vec<PathBuf> {

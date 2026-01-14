@@ -2,6 +2,12 @@
 
 use std::ptr;
 
+pub enum WebPResult {
+    Ok(u32),
+    EndOfStream,
+    Error(String),
+}
+
 /// A safe wrapper around the native WebP decoder.
 /// Automatically frees resources when dropped.
 pub struct WebPDecoder {
@@ -93,10 +99,10 @@ impl WebPDecoder {
     /// # Returns
     /// * `Ok(timestamp_ms)` - Frame timestamp in milliseconds
     /// * `Err(String)` - Error description or end of stream
-    pub fn next_frame(&mut self, rgba_out: &mut [u8]) -> Result<u32, String> {
+    pub fn next_frame(&mut self, rgba_out: &mut [u8]) -> WebPResult {
         let required_size = (self.width as usize) * (self.height as usize) * 4;
         if rgba_out.len() < required_size {
-            return Err(format!(
+            return WebPResult::Error(format!(
                 "Output buffer too small: {} bytes, need {}",
                 rgba_out.len(),
                 required_size
@@ -114,11 +120,11 @@ impl WebPDecoder {
         };
 
         match status {
-            ffi::RwpStatus::Ok => Ok(timestamp_ms),
-            ffi::RwpStatus::InvalidArgument => Err("Invalid arguments".to_string()),
-            ffi::RwpStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
-            ffi::RwpStatus::DecodeFailed => Err("Failed to decode frame".to_string()),
-            ffi::RwpStatus::EndOfStream => Err("End of stream reached".to_string()),
+            ffi::RwpStatus::Ok => WebPResult::Ok(timestamp_ms),
+            ffi::RwpStatus::InvalidArgument => WebPResult::Error("Invalid arguments".to_string()),
+            ffi::RwpStatus::AllocationFailed => WebPResult::Error("Memory allocation failed".to_string()),
+            ffi::RwpStatus::DecodeFailed => WebPResult::Error("Failed to decode frame".to_string()),
+            ffi::RwpStatus::EndOfStream => WebPResult::EndOfStream,
         }
     }
 

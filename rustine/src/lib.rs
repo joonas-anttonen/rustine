@@ -9,10 +9,44 @@ pub use ringbuffer::RingBuffer;
 pub mod version;
 pub use version::Version;
 
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
-pub struct AutoResetEvent
-{
+pub struct ConcurrentMailbox<T> {
+    mailbox: Mutex<std::collections::VecDeque<T>>,
+    event: AutoResetEvent,
+}
+
+impl<T> ConcurrentMailbox<T> {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            mailbox: Mutex::new(std::collections::VecDeque::new()),
+            event: AutoResetEvent::new(),
+        })
+    }
+
+    pub fn wait(&self) {
+        self.event.wait();
+    }
+
+    pub fn push(&self, item: T) {
+        if let Ok(mut pending) = self.mailbox.lock() {
+            pending.push_back(item);
+            self.event.set();
+        }
+    }
+
+    pub fn pop(&self) -> Option<T> {
+        if let Ok(mut pending) = self.mailbox.lock() {
+            let request = pending.pop_front();
+            pending.clear();
+            request
+        } else {
+            None
+        }
+    }
+}
+
+pub struct AutoResetEvent {
     mutex: Mutex<bool>,
     condvar: Condvar,
 }
