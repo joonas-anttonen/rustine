@@ -55,7 +55,7 @@ fn main() -> std::process::ExitCode {
     let application = Box::new(MyApplication {
         state: std::cell::RefCell::new(MyApplicationState {
             frame_index: 0,
-            selected_tab: Tab::DriveManager,
+            selected_tab: Tab::Drives,
             devices: Vec::new(),
             selected_index: None,
             password_mode: false,
@@ -99,19 +99,19 @@ fn main() -> std::process::ExitCode {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
-    DriveManager,
+    Drives,
 }
 
 impl Tab {
     fn hotkey(&self) -> &'static str {
         match self {
-            Tab::DriveManager => "F1",
+            Tab::Drives => "F1",
         }
     }
 
     fn title(&self) -> &'static str {
         match self {
-            Tab::DriveManager => "Drive Manager",
+            Tab::Drives => "Drives",
         }
     }
 }
@@ -166,7 +166,7 @@ impl rustine::gui::Application for MyApplication {
 
         match _key.key {
             rustine::gui::Key::F1 => {
-                state.selected_tab = Tab::DriveManager;
+                state.selected_tab = Tab::Drives;
             }
             rustine::gui::Key::UP => {
                 if partition_count > 0 {
@@ -337,8 +337,7 @@ impl rustine::gui::Application for MyApplication {
             rustine::gfx::fonts::get_font_metrics(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID)
                 .expect("Font metrics exist");
 
-        const TOP_BAR_HEIGHT: f32 = 48.0;
-        const SIDE_BAR_WIDTH: f32 = 48.0;
+        const TOP_BAR_HEIGHT: f32 = 32.0;
         let line_height: f32 = text_font_metrics.ascender - text_font_metrics.descender;
 
         const STATUS_LIGHT_WIDTH: f32 = 8.0;
@@ -346,10 +345,10 @@ impl rustine::gui::Application for MyApplication {
         const STATUS_LIGHT_MARGIN: f32 = 10.0;
         const TEXT_START_X: f32 = STATUS_LIGHT_MARGIN + STATUS_LIGHT_WIDTH + 8.0;
 
-        let content_x = SIDE_BAR_WIDTH;
+        let content_x = 0.0;
         let content_y = TOP_BAR_HEIGHT;
-        let _content_w = w - SIDE_BAR_WIDTH;
-        let content_h = h - TOP_BAR_HEIGHT;
+        let content_w = w;
+        let _content_h = h - TOP_BAR_HEIGHT;
 
         let bar_color = 0x1B232F_FFu32;
         let bg_color = 0x0D1117_FFu32;
@@ -379,33 +378,25 @@ impl rustine::gui::Application for MyApplication {
             bar_color,
         );
 
-        // Draw side bar
-        frame.fill_rectangle(
-            &rustine::gfx::Rectangle {
-                x: 0.0,
-                y: TOP_BAR_HEIGHT,
-                w: SIDE_BAR_WIDTH,
-                h: content_h,
-            },
-            bar_color,
-        );
-
         // Draw tab hotkey indicator and title in top bar
         let tab_hotkey = state.selected_tab.hotkey();
         let tab_title = state.selected_tab.title();
-        
+
         //let hotkey_bg_color = 0x388BFD_FFu32;
         let hotkey_selected_bg_color = 0x3FB950_FFu32;
         let hotkey_text_color = 0x0D1117_FFu32;
-        
+
         // Measure hotkey text width for background box
         let hotkey_padding = 6.0;
         let hotkey_height = line_height;
-        let hotkey_width = (tab_hotkey.len() as f32 * rustine::gfx::fonts::get_font_size(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID) / 2.0) + (hotkey_padding * 2.0);
-        
+        let hotkey_width = (tab_hotkey.len() as f32
+            * rustine::gfx::fonts::get_font_size(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID)
+            / 2.0)
+            + (hotkey_padding * 2.0);
+
         let hotkey_x = content_x + 10.0;
         let hotkey_y = (TOP_BAR_HEIGHT - hotkey_height) / 2.0;
-        
+
         // Draw hotkey background
         frame.fill_rectangle(
             &rustine::gfx::Rectangle {
@@ -416,7 +407,7 @@ impl rustine::gui::Application for MyApplication {
             },
             hotkey_selected_bg_color,
         );
-        
+
         // Draw hotkey text
         frame.push_text(
             tab_hotkey,
@@ -426,7 +417,7 @@ impl rustine::gui::Application for MyApplication {
             hotkey_text_color,
             rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
         );
-        
+
         // Draw tab title
         frame.push_text(
             tab_title,
@@ -451,7 +442,7 @@ impl rustine::gui::Application for MyApplication {
                     &rustine::gfx::Rectangle {
                         x: content_x,
                         y: y,
-                        w: _content_w,
+                        w: content_w,
                         h: line_height,
                     },
                     highlight_color,
@@ -513,7 +504,7 @@ impl rustine::gui::Application for MyApplication {
                     &rustine::gfx::Rectangle {
                         x: content_x,
                         y: prompt_y,
-                        w: _content_w,
+                        w: content_w,
                         h: line_height,
                     },
                     prompt_bg_color,
