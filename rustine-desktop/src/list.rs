@@ -111,6 +111,14 @@ pub fn render_list<F>(
 ) where
     F: FnMut(&mut RenderFrame, usize, f32, bool),
 {
+    // Push scissor to clip content to the viewport
+    frame.push_scissor(Rectangle {
+        x: content_x,
+        y: content_y,
+        w: content_w,
+        h: content_h,
+    });
+
     let adjusted_y = content_y - scroll_offset;
 
     for idx in 0..count {
@@ -161,4 +169,7 @@ pub fn render_list<F>(
             SCROLLBAR_COLOR,
         );
     }
+
+    // Pop scissor to restore previous clipping state
+    frame.pop_scissor();
 }

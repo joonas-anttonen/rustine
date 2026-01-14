@@ -111,7 +111,7 @@ pub enum Fit {
     CENTER,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Rectangle {
     pub x: f32,
     pub y: f32,
@@ -374,6 +374,20 @@ fn earclip_triangulate(points: &[Vector2f]) -> Vec<[Vector2f; 3]> {
     triangles
 }
 
+/// Compare two optional scissor rectangles for equality.
+fn scissors_equal(a: &Option<Rectangle>, b: &Option<Rectangle>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(r1), Some(r2)) => {
+            (r1.x - r2.x).abs() < 1e-6
+                && (r1.y - r2.y).abs() < 1e-6
+                && (r1.w - r2.w).abs() < 1e-6
+                && (r1.h - r2.h).abs() < 1e-6
+        }
+        _ => false,
+    }
+}
+
 /// Pre-computed render frame: all vertices and indices are pre-built by UI thread.
 #[derive(Clone)]
 pub struct RenderFrame {
@@ -383,6 +397,8 @@ pub struct RenderFrame {
     pub size: Vector2u,
     /// Descriptors for quads that need dynamic refitting based on pixel buffer dimensions.
     pub image_descriptors: Vec<ImageDescriptor>,
+    /// Stack of scissor rectangles. The top of the stack is applied to new draw commands.
+    scissor_stack: Vec<Option<Rectangle>>,
 }
 
 impl RenderFrame {
@@ -393,11 +409,29 @@ impl RenderFrame {
             batches: Vec::with_capacity(16),
             image_descriptors: Vec::with_capacity(64),
             size,
+            scissor_stack: Vec::new(),
         }
     }
 
     pub fn push_batch(&mut self, batch: DrawBatch) {
         self.batches.push(batch);
+    }
+
+    /// Push a new scissor rectangle onto the stack.
+    /// All subsequent draw commands will use this scissor until it's popped.
+    pub fn push_scissor(&mut self, scissor: Rectangle) {
+        self.scissor_stack.push(Some(scissor));
+    }
+
+    /// Pop the current scissor rectangle from the stack.
+    /// Subsequent draw commands will use the previous scissor (or none if stack becomes empty).
+    pub fn pop_scissor(&mut self) {
+        self.scissor_stack.pop();
+    }
+
+    /// Get the current scissor rectangle from the top of the stack.
+    fn get_current_scissor(&self) -> Option<Rectangle> {
+        self.scissor_stack.last().and_then(|&s| s)
     }
 
     pub fn push_quad(
@@ -447,12 +481,17 @@ impl RenderFrame {
             self.batches.push(DrawBatch::new());
         }
 
+        let current_scissor = self.get_current_scissor();
         let batch = self.batches.last_mut().expect("batch exists");
 
         let can_merge = batch
             .commands
             .last()
-            .map(|cmd| cmd.image_id == image_id && cmd.image_fallback_id == image_fallback_id)
+            .map(|cmd| {
+                cmd.image_id == image_id
+                    && cmd.image_fallback_id == image_fallback_id
+                    && scissors_equal(&cmd.scissor, &current_scissor)
+            })
             .unwrap_or(false);
 
         if can_merge {
@@ -460,12 +499,9 @@ impl RenderFrame {
                 cmd.index_count += 6;
             }
         } else {
-            batch.push_command(DrawCommand::new(
-                index_offset,
-                6,
-                image_id,
-                image_fallback_id,
-            ));
+            let mut cmd = DrawCommand::new(index_offset, 6, image_id, image_fallback_id);
+            cmd.scissor = current_scissor;
+            batch.push_command(cmd);
         }
     }
 
@@ -505,12 +541,17 @@ impl RenderFrame {
             self.batches.push(DrawBatch::new());
         }
 
+        let current_scissor = self.get_current_scissor();
         let batch = self.batches.last_mut().expect("batch exists");
 
         let can_merge = batch
             .commands
             .last()
-            .map(|cmd| cmd.image_id == image_id && cmd.image_fallback_id == image_fallback_id)
+            .map(|cmd| {
+                cmd.image_id == image_id
+                    && cmd.image_fallback_id == image_fallback_id
+                    && scissors_equal(&cmd.scissor, &current_scissor)
+            })
             .unwrap_or(false);
 
         if can_merge {
@@ -518,12 +559,9 @@ impl RenderFrame {
                 cmd.index_count += 3;
             }
         } else {
-            batch.push_command(DrawCommand::new(
-                index_offset,
-                3,
-                image_id,
-                image_fallback_id,
-            ));
+            let mut cmd = DrawCommand::new(index_offset, 3, image_id, image_fallback_id);
+            cmd.scissor = current_scissor;
+            batch.push_command(cmd);
         }
     }
 
