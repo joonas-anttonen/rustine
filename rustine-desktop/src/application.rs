@@ -422,7 +422,7 @@ impl rustine::gui::Application for MyApplication {
         let content_x = 0.0;
         let content_y = TOP_BAR_HEIGHT;
         let content_w = w;
-        let _content_h = h - TOP_BAR_HEIGHT - STATUS_BAR_HEIGHT;
+        let content_h = h - TOP_BAR_HEIGHT - STATUS_BAR_HEIGHT;
 
         let bar_color = 0x1B232F_FFu32;
         let bg_color = 0x0D1117_FFu32;
@@ -513,6 +513,10 @@ impl rustine::gui::Application for MyApplication {
 
         let highlight_color = 0x21262D_FFu32;
 
+        // Update scroll offsets to keep selected items in view
+        state.drives_list.update_scroll(line_height, content_h);
+        state.files_list.update_scroll(line_height, content_h);
+
         match state.selected_tab {
             Tab::Drives => {
                 list::render_list(
@@ -520,10 +524,12 @@ impl rustine::gui::Application for MyApplication {
                     content_x,
                     content_w,
                     content_y,
+                    content_h,
                     line_height,
                     highlight_color,
                     state.drives_list.selected,
                     state.devices.len(),
+                    state.drives_list.scroll_offset,
                     |frame, index, y, _is_selected| {
                         if let Some(device) = state.devices.get(index) {
                             let size_str =
@@ -570,7 +576,7 @@ impl rustine::gui::Application for MyApplication {
                 // Draw password entry prompt if in password mode
                 if state.password_mode {
                     if let Some(mounting_idx) = state.mounting_index {
-                        let prompt_y = content_y + (mounting_idx as f32 * line_height);
+                        let prompt_y = content_y + (mounting_idx as f32 * line_height) - state.drives_list.scroll_offset;
                         let prompt_bg_color = 0x0D1117_EEu32;
 
                         frame.fill_rectangle(
@@ -601,10 +607,12 @@ impl rustine::gui::Application for MyApplication {
                     content_x,
                     content_w,
                     content_y,
+                    content_h,
                     line_height,
                     highlight_color,
                     state.files_list.selected,
                     state.files_entries.len(),
+                    state.files_list.scroll_offset,
                     |frame, index, y, _is_selected| {
                         if let Some(entry) = state.files_entries.get(index) {
                             let status_color = match entry.entry_type {

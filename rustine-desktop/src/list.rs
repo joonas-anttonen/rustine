@@ -4,15 +4,23 @@ use rustine::gfx::{Rectangle, RenderFrame};
 #[derive(Debug, Clone, Default)]
 pub struct ListState {
     pub selected: Option<usize>,
+    /// Starting Y offset for rendering. Adjusted based on selected item to keep it in view.
+    pub scroll_offset: f32,
 }
 
 impl ListState {
     pub fn new() -> Self {
-        Self { selected: None }
+        Self {
+            selected: None,
+            scroll_offset: 0.0,
+        }
     }
 
     pub fn with_selected(selected: Option<usize>) -> Self {
-        Self { selected }
+        Self {
+            selected,
+            scroll_offset: 0.0,
+        }
     }
 
     /// Move selection to the previous item, wrapping to the end.
@@ -54,26 +62,65 @@ impl ListState {
             }
         }
     }
+
+    /// Update scroll offset to ensure the selected item is visible in the viewport.
+    ///
+    /// Given the content height and line height, adjusts `scroll_offset` so that
+    /// the selected item is brought into view. The selected item will only trigger
+    /// scrolling if it goes completely outside the viewport.
+    pub fn update_scroll(&mut self, line_height: f32, content_height: f32) {
+        let Some(selected_idx) = self.selected else {
+            return;
+        };
+
+        let item_top = selected_idx as f32 * line_height;
+        let item_bottom = item_top + line_height;
+
+        let viewport_top = self.scroll_offset;
+        let viewport_bottom = self.scroll_offset + content_height;
+
+        // Only scroll if the item is completely outside the viewport
+        // If item is completely above viewport, scroll to show it at the top
+        if item_bottom <= viewport_top {
+            self.scroll_offset = item_top.max(0.0);
+        }
+        // If item is completely below viewport, scroll to show it at the bottom
+        else if item_top >= viewport_bottom {
+            self.scroll_offset = (item_bottom - content_height).max(0.0);
+        }
+        // Otherwise item is at least partially visible, don't change scroll_offset
+    }
 }
 
 /// Render a vertical list with shared selection/highlight handling.
 ///
 /// The caller is responsible for drawing item contents inside `render_item`.
+/// The `start_y` parameter is adjusted by the list's scroll offset.
 pub fn render_list<F>(
     frame: &mut RenderFrame,
     content_x: f32,
     content_w: f32,
-    start_y: f32,
+    content_y: f32,
+    content_h: f32,
     line_height: f32,
     highlight_color: u32,
     selected: Option<usize>,
     count: usize,
+    scroll_offset: f32,
     mut render_item: F,
 ) where
     F: FnMut(&mut RenderFrame, usize, f32, bool),
 {
+    let adjusted_y = content_y - scroll_offset;
+
     for idx in 0..count {
-        let y = start_y + idx as f32 * line_height;
+        let y = adjusted_y + idx as f32 * line_height;
+
+        // Skip items that are completely outside the viewport
+        if y + line_height < content_y || y > content_y + content_h {
+            continue;
+        }
+
         let is_selected = selected == Some(idx);
 
         if is_selected {
@@ -89,5 +136,29 @@ pub fn render_list<F>(
         }
 
         render_item(frame, idx, y, is_selected);
+    }
+
+    // Draw scrollbar if not all items fit in view
+    let total_height = count as f32 * line_height;
+    if total_height > content_h {
+        const SCROLLBAR_WIDTH: f32 = 2.0;
+        const SCROLLBAR_MARGIN: f32 = 2.0;
+        const SCROLLBAR_COLOR: u32 = 0xFFFFFF_FFu32;
+
+        let scrollbar_x = content_x + content_w - SCROLLBAR_WIDTH - SCROLLBAR_MARGIN;
+        
+        // Calculate scrollbar position and height
+        let scrollbar_height = (content_h / total_height) * content_h;
+        let scrollbar_y = content_y + (scroll_offset / total_height) * content_h;
+
+        frame.fill_rectangle(
+            &Rectangle {
+                x: scrollbar_x,
+                y: scrollbar_y,
+                w: SCROLLBAR_WIDTH,
+                h: scrollbar_height,
+            },
+            SCROLLBAR_COLOR,
+        );
     }
 }
