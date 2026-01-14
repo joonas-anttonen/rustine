@@ -38,6 +38,8 @@ struct MyApplicationState {
     password_mode: bool,
     password_buffer: String,
     mounting_index: Option<usize>,
+    files_preview_open: bool,
+    files_preview_entry: Option<files::EntryInfo>,
 }
 
 pub struct MyApplication {
@@ -60,6 +62,8 @@ impl MyApplication {
                 password_mode: false,
                 password_buffer: String::new(),
                 mounting_index: None,
+                files_preview_open: false,
+                files_preview_entry: None,
             }),
         }
     }
@@ -136,7 +140,15 @@ impl rustine::gui::Application for MyApplication {
                 let files_len = state.files_entries.len();
                 match state.selected_tab {
                     Tab::Drives => state.drives_list.select_prev(drives_len),
-                    Tab::Files => state.files_list.select_prev(files_len),
+                    Tab::Files => {
+                        state.files_list.select_prev(files_len);
+                        // Update preview if open
+                        if state.files_preview_open {
+                            if let Some(idx) = state.files_list.selected {
+                                state.files_preview_entry = state.files_entries.get(idx).cloned();
+                            }
+                        }
+                    }
                 }
             }
             Key::DOWN => {
@@ -144,7 +156,15 @@ impl rustine::gui::Application for MyApplication {
                 let files_len = state.files_entries.len();
                 match state.selected_tab {
                     Tab::Drives => state.drives_list.select_next(drives_len),
-                    Tab::Files => state.files_list.select_next(files_len),
+                    Tab::Files => {
+                        state.files_list.select_next(files_len);
+                        // Update preview if open
+                        if state.files_preview_open {
+                            if let Some(idx) = state.files_list.selected {
+                                state.files_preview_entry = state.files_entries.get(idx).cloned();
+                            }
+                        }
+                    }
                 }
             }
             Key::RIGHT => {
@@ -248,6 +268,17 @@ impl rustine::gui::Application for MyApplication {
                             }
                         }
                         Err(e) => log::error!("Failed to get directory contents: {}", e),
+                    }
+                }
+            }
+            Key::TAB => {
+                if state.selected_tab == Tab::Files {
+                    state.files_preview_open = !state.files_preview_open;
+                    // Update preview entry based on current selection
+                    if state.files_preview_open {
+                        if let Some(idx) = state.files_list.selected {
+                            state.files_preview_entry = state.files_entries.get(idx).cloned();
+                        }
                     }
                 }
             }
@@ -610,10 +641,15 @@ impl rustine::gui::Application for MyApplication {
                 }
             }
             Tab::Files => {
+                // Calculate layout based on preview panel state
+                let preview_width = if state.files_preview_open { content_w / 2.0 } else { 0.0 };
+                let list_width = content_w - preview_width;
+                
+                // Render the file list
                 list::render_list(
                     frame,
                     content_x,
-                    content_w,
+                    list_width,
                     content_y,
                     content_h,
                     line_height,
@@ -651,13 +687,95 @@ impl rustine::gui::Application for MyApplication {
                         }
                     },
                 );
+                
+                // Render the preview panel if open
+                if state.files_preview_open {
+                    let preview_x = content_x + list_width;
+                    let preview_panel_bg_color = 0x0D1117_FFu32;
+                    let preview_border_color = 0x30363D_FFu32;
+                    
+                    // Draw preview panel background
+                    frame.fill_rectangle(
+                        &rustine::gfx::Rectangle {
+                            x: preview_x,
+                            y: content_y,
+                            w: preview_width,
+                            h: content_h,
+                        },
+                        preview_panel_bg_color,
+                    );
+                    
+                    // Draw preview panel border (left edge)
+                    frame.fill_rectangle(
+                        &rustine::gfx::Rectangle {
+                            x: preview_x,
+                            y: content_y,
+                            w: 1.0,
+                            h: content_h,
+                        },
+                        preview_border_color,
+                    );
+                    
+                    // Display preview content placeholder
+                    if let Some(ref entry) = state.files_preview_entry {
+                        let preview_padding = 10.0;
+                        let preview_text_x = preview_x + preview_padding;
+                        let preview_text_y = content_y + line_height + preview_padding;
+                        
+                        // Show the entry name as a title
+                        frame.push_text(
+                            &entry.name,
+                            preview_text_x,
+                            preview_text_y,
+                            1.0,
+                            text_color,
+                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                        );
+                        
+                        // Show entry type and path
+                        let entry_type_str = match entry.entry_type {
+                            files::EntryType::Directory => "Directory",
+                            files::EntryType::File => "File",
+                            files::EntryType::Symlink => "Symlink",
+                            files::EntryType::Other => "Other",
+                        };
+                        
+                        frame.push_text(
+                            entry_type_str,
+                            preview_text_x,
+                            preview_text_y + line_height,
+                            1.0,
+                            0x8B949E_FFu32,
+                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                        );
+                        
+                        frame.push_text(
+                            &format!("{}", entry.path.display()),
+                            preview_text_x,
+                            preview_text_y + (line_height * 2.0),
+                            1.0,
+                            0x8B949E_FFu32,
+                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                        );
+                    } else {
+                        let preview_text = "No item selected";
+                        frame.push_text(
+                            preview_text,
+                            preview_x + 10.0,
+                            content_y + 20.0,
+                            1.0,
+                            0x6E7681_FFu32,
+                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                        );
+                    }
+                }
             }
         }
 
         // Status bar at the bottom
         let status_bar_color = 0x161B22_FFu32;
         let status_text = match state.selected_tab {
-            Tab::Files => format!("{}", state.files_dir.display()),
+            Tab::Files => format!("{} | TAB toggle preview", state.files_dir.display()),
             Tab::Drives => "↑/↓ select | M mount/unmount | E open".to_string(),
         };
 
