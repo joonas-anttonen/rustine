@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, non_camel_case_types)]
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
@@ -13,6 +13,12 @@ pub enum Key {
     DOWN,
     LEFT,
     RIGHT,
+    PERIOD,
+    MINUS,
+    PAGE_UP,
+    PAGE_DOWN,
+    HOME,
+    END,
     F1,
     F2,
     F3,
