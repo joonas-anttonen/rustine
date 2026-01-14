@@ -19,6 +19,8 @@ size = 16.0
 charset = "unicode"
 codepoints = [
     "0x0000-0x00ff",
+    "0x2191", # ↑ Upward Arrow
+    "0x2193", # ↓ Downward Arrow
     "0xf1eb", # nf-fa-wifi
     "0xf293", # nf-fa-bluetooth
     "0xec19", # nf-cod-chip
