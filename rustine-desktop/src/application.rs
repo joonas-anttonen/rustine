@@ -1,5 +1,6 @@
 use crate::{files, list, mount, sysinfo};
 use rustine::{gui::Key, log};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -32,6 +33,8 @@ struct MyApplicationState {
     files_entries: Vec<files::EntryInfo>,
     files_dir: PathBuf,
     files_list: list::ListState,
+    show_hidden_files: bool,
+    folder_selection_map: HashMap<PathBuf, String>,
     password_mode: bool,
     password_buffer: String,
     mounting_index: Option<usize>,
@@ -52,6 +55,8 @@ impl MyApplication {
                 files_entries: Vec::new(),
                 files_dir: PathBuf::from("/"),
                 files_list: list::ListState::new(),
+                show_hidden_files: false,
+                folder_selection_map: HashMap::new(),
                 password_mode: false,
                 password_buffer: String::new(),
                 mounting_index: None,
@@ -82,13 +87,17 @@ impl rustine::gui::Application for MyApplication {
             Err(e) => log::error!("Failed to get block devices: {}", e),
         }
 
-        match files::get_contents(&state.files_dir) {
+        match files::get_contents(&state.files_dir, state.show_hidden_files) {
             Ok(entries) => {
                 state.files_entries = entries;
                 state.files_list.selected = if state.files_entries.is_empty() {
                     None
                 } else {
-                    Some(0)
+                    if let Some(last_name) = state.folder_selection_map.get(&state.files_dir) {
+                        state.files_entries.iter().position(|e| &e.name == last_name)
+                    } else {
+                        Some(0)
+                    }
                 };
             }
             Err(e) => log::error!("Failed to get directory contents: {}", e),
@@ -141,29 +150,44 @@ impl rustine::gui::Application for MyApplication {
             Key::RIGHT => {
                 if state.selected_tab == Tab::Files {
                     if let Some(idx) = state.files_list.selected {
-                        if let Some(entry) = state.files_entries.get(idx) {
+                        let target_path = if let Some(entry) = state.files_entries.get(idx) {
                             let is_dir = matches!(entry.entry_type, files::EntryType::Directory)
                                 || (entry.entry_type == files::EntryType::Symlink
                                     && entry.path.is_dir());
 
                             if is_dir {
+                                // Save current selection
+                                let entry_name = entry.name.clone();
+                                let current_dir = state.files_dir.clone();
                                 let target = entry.path.clone();
-                                match files::get_contents(&target) {
-                                    Ok(entries) => {
-                                        state.files_dir = target;
-                                        state.files_entries = entries;
-                                        state.files_list.selected = if state.files_entries.is_empty() {
-                                            None
-                                        } else {
-                                            Some(0)
-                                        };
-                                    }
-                                    Err(e) => log::error!(
-                                        "Failed to enter directory {}: {}",
-                                        target.display(),
-                                        e
-                                    ),
+                                state.folder_selection_map.insert(current_dir, entry_name);
+                                Some(target)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        if let Some(target) = target_path {
+                            match files::get_contents(&target, state.show_hidden_files) {
+                                Ok(entries) => {
+                                    state.files_dir = target.clone();
+                                    state.files_entries = entries;
+                                    state.files_list.selected = if state.files_entries.is_empty() {
+                                        None
+                                    } else if let Some(last_name) = state.folder_selection_map.get(&target) {
+                                        // Try to restore the previously selected item
+                                        state.files_entries.iter().position(|e| &e.name == last_name)
+                                    } else {
+                                        Some(0)
+                                    };
                                 }
+                                Err(e) => log::error!(
+                                    "Failed to enter directory {}: {}",
+                                    target.display(),
+                                    e
+                                ),
                             }
                         }
                     }
@@ -171,23 +195,59 @@ impl rustine::gui::Application for MyApplication {
             }
             Key::LEFT => {
                 if state.selected_tab == Tab::Files {
+                    // Save current selection before leaving
+                    if let Some(idx) = state.files_list.selected {
+                        if let Some(entry) = state.files_entries.get(idx) {
+                            let entry_name = entry.name.clone();
+                            let current_dir = state.files_dir.clone();
+                            state.folder_selection_map.insert(current_dir, entry_name);
+                        }
+                    }
+
                     let parent = state
                         .files_dir
                         .parent()
                         .map(|p| p.to_path_buf())
                         .unwrap_or_else(|| state.files_dir.clone());
 
-                    match files::get_contents(&parent) {
+                    match files::get_contents(&parent, state.show_hidden_files) {
                         Ok(entries) => {
-                            state.files_dir = parent;
+                            state.files_dir = parent.clone();
                             state.files_entries = entries;
                             state.files_list.selected = if state.files_entries.is_empty() {
                                 None
+                            } else if let Some(last_name) = state.folder_selection_map.get(&parent) {
+                                // Try to restore the previously selected item
+                                state.files_entries.iter().position(|e| &e.name == last_name)
                             } else {
                                 Some(0)
                             };
                         }
                         Err(e) => log::error!("Failed to go up to {}: {}", parent.display(), e),
+                    }
+                }
+            }
+            Key::PERIOD => {
+                if state.selected_tab == Tab::Files {
+                    state.show_hidden_files = !state.show_hidden_files;
+
+                    match files::get_contents(&state.files_dir, state.show_hidden_files) {
+                        Ok(entries) => {
+                            state.files_entries = entries;
+                            let len = state.files_entries.len();
+
+                            if len == 0 {
+                                state.files_list.selected = None;
+                            } else if let Some(last_name) = state.folder_selection_map.get(&state.files_dir) {
+                                // Try to find and select the previously saved file
+                                state.files_list.selected = state.files_entries.iter().position(|e| &e.name == last_name);
+                            } else {
+                                // Otherwise try to keep roughly the same position
+                                let previous = state.files_list.selected.unwrap_or(0);
+                                state.files_list.selected = Some(previous.min(len - 1));
+                            }
+                        }
+                        Err(e) => log::error!("Failed to get directory contents: {}", e),
                     }
                 }
             }

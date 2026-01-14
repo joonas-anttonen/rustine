@@ -1,5 +1,11 @@
 # GitHub Copilot Instructions
 
+## Build and testing
+- Assume building and testing is always appropriate at the end of a set of changes.
+- Prefer to run builds and tests automatically with `cargo build` and `cargo test`.
+- Prefer using direct terminal commands for building and testing.
+- Avoid relying on IDE or editor-specific build and test features.
+
 ## Project goals
 - Focus on writing clean, efficient, and idiomatic Rust code.
 - Learn Rust best practices and patterns.

@@ -27,7 +27,7 @@ pub struct EntryInfo {
 }
 
 /// Returns the contents of `directory` with their names and types.
-pub fn get_contents(directory: impl AsRef<Path>) -> io::Result<Vec<EntryInfo>> {
+pub fn get_contents(directory: impl AsRef<Path>, show_hidden: bool) -> io::Result<Vec<EntryInfo>> {
 	let mut entries = Vec::new();
 	let dir_path = directory.as_ref();
 
@@ -39,6 +39,10 @@ pub fn get_contents(directory: impl AsRef<Path>) -> io::Result<Vec<EntryInfo>> {
 			.to_string_lossy()
 			.into_owned();
 
+		if !show_hidden && name.starts_with('.') {
+			continue;
+		}
+
 		let entry_type = classify_entry(&entry, &path);
 
 		entries.push(EntryInfo {
@@ -48,7 +52,19 @@ pub fn get_contents(directory: impl AsRef<Path>) -> io::Result<Vec<EntryInfo>> {
 		});
 	}
 
-	entries.sort_by(|a, b| a.name.cmp(&b.name));
+	entries.sort_by(|a, b| {
+		let type_order = |entry_type: &EntryType| match entry_type {
+			EntryType::Directory => 0,
+			EntryType::File => 1,
+			EntryType::Symlink => 2,
+			EntryType::Other => 3,
+		};
+
+		let a_order = type_order(&a.entry_type);
+		let b_order = type_order(&b.entry_type);
+
+		a_order.cmp(&b_order).then_with(|| a.name.cmp(&b.name))
+	});
 
 	Ok(entries)
 }
