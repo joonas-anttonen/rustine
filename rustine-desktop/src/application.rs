@@ -1,7 +1,9 @@
-use crate::{files, list, mount, sysinfo};
-use rustine::{gui::Key, log};
-use std::collections::HashMap;
+use crate::{files, list, mount, preview, sysinfo};
+use rustine::{gfx, gui::Key, log};
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -40,10 +42,13 @@ struct MyApplicationState {
     mounting_index: Option<usize>,
     files_preview_open: bool,
     files_preview_entry: Option<files::EntryInfo>,
+    preview_image: gfx::Image,
+    preview_request_queue: Arc<Mutex<VecDeque<preview::PreviewRequest>>>,
 }
 
 pub struct MyApplication {
     state: std::cell::RefCell<MyApplicationState>,
+    exit_flag: Arc<AtomicBool>,
 }
 
 impl MyApplication {
@@ -64,8 +69,17 @@ impl MyApplication {
                 mounting_index: None,
                 files_preview_open: false,
                 files_preview_entry: None,
+                preview_image: gfx::Image::default(),
+                preview_request_queue: Arc::new(Mutex::new(VecDeque::new())),
             }),
+            exit_flag: Arc::new(AtomicBool::new(false)),
         }
+    }
+}
+
+impl Drop for MyApplication {
+    fn drop(&mut self) {
+        self.exit_flag.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -74,6 +88,19 @@ impl rustine::gui::Application for MyApplication {
         log::debug!("Application::startup");
 
         let mut state = self.state.borrow_mut();
+
+        // Create the dynamic image for preview
+        state.preview_image = _gui.create_dynamic_image();
+        
+        // Spawn the preview worker thread
+        let image_mailbox = _gui.image_mailbox();
+        let request_queue = Arc::clone(&state.preview_request_queue);
+        let preview_image_id = state.preview_image.id;
+        let exit_flag = Arc::clone(&self.exit_flag);
+        
+        std::thread::spawn(move || {
+            preview::preview_worker_thread(request_queue, image_mailbox, preview_image_id, &exit_flag);
+        });
 
         // Enumerate all block devices
         match sysinfo::get_block_devices() {
@@ -145,7 +172,14 @@ impl rustine::gui::Application for MyApplication {
                         // Update preview if open
                         if state.files_preview_open {
                             if let Some(idx) = state.files_list.selected {
-                                state.files_preview_entry = state.files_entries.get(idx).cloned();
+                                if let Some(entry) = state.files_entries.get(idx) {
+                                    let entry_path = entry.path.clone();
+                                    state.files_preview_entry = Some(entry.clone());
+                                    if let Ok(mut queue) = state.preview_request_queue.lock() {
+                                        queue.clear();
+                                        queue.push_back(preview::PreviewRequest::Load(entry_path));
+                                    }
+                                }
                             }
                         }
                     }
@@ -161,7 +195,14 @@ impl rustine::gui::Application for MyApplication {
                         // Update preview if open
                         if state.files_preview_open {
                             if let Some(idx) = state.files_list.selected {
-                                state.files_preview_entry = state.files_entries.get(idx).cloned();
+                                if let Some(entry) = state.files_entries.get(idx) {
+                                    let entry_path = entry.path.clone();
+                                    state.files_preview_entry = Some(entry.clone());
+                                    if let Ok(mut queue) = state.preview_request_queue.lock() {
+                                        queue.clear();
+                                        queue.push_back(preview::PreviewRequest::Load(entry_path));
+                                    }
+                                }
                             }
                         }
                     }
@@ -277,7 +318,20 @@ impl rustine::gui::Application for MyApplication {
                     // Update preview entry based on current selection
                     if state.files_preview_open {
                         if let Some(idx) = state.files_list.selected {
-                            state.files_preview_entry = state.files_entries.get(idx).cloned();
+                            if let Some(entry) = state.files_entries.get(idx) {
+                                let entry_path = entry.path.clone();
+                                state.files_preview_entry = Some(entry.clone());
+                                if let Ok(mut queue) = state.preview_request_queue.lock() {
+                                    queue.clear();
+                                    queue.push_back(preview::PreviewRequest::Load(entry_path));
+                                }
+                            }
+                        }
+                    } else {
+                        // Clear preview when closing
+                        if let Ok(mut queue) = state.preview_request_queue.lock() {
+                            queue.clear();
+                            queue.push_back(preview::PreviewRequest::Clear);
                         }
                     }
                 }
@@ -716,46 +770,39 @@ impl rustine::gui::Application for MyApplication {
                         preview_border_color,
                     );
                     
-                    // Display preview content placeholder
+                    // Display preview content
                     if let Some(ref entry) = state.files_preview_entry {
                         let preview_padding = 10.0;
                         let preview_text_x = preview_x + preview_padding;
-                        let preview_text_y = content_y + line_height + preview_padding;
+                        let preview_text_y = content_y + preview_padding;
                         
                         // Show the entry name as a title
                         frame.push_text(
                             &entry.name,
                             preview_text_x,
-                            preview_text_y,
+                            preview_text_y + text_font_metrics.ascender,
                             1.0,
                             text_color,
                             rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
                         );
                         
-                        // Show entry type and path
-                        let entry_type_str = match entry.entry_type {
-                            files::EntryType::Directory => "Directory",
-                            files::EntryType::File => "File",
-                            files::EntryType::Symlink => "Symlink",
-                            files::EntryType::Other => "Other",
-                        };
+                        // Calculate image display area (below the title)
+                        let image_area_y = preview_text_y + line_height + preview_padding;
+                        let image_area_w = preview_width - (preview_padding * 2.0);
+                        let image_area_h = content_h - line_height - (preview_padding * 3.0);
                         
-                        frame.push_text(
-                            entry_type_str,
-                            preview_text_x,
-                            preview_text_y + line_height,
-                            1.0,
-                            0x8B949E_FFu32,
-                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
-                        );
-                        
-                        frame.push_text(
-                            &format!("{}", entry.path.display()),
-                            preview_text_x,
-                            preview_text_y + (line_height * 2.0),
-                            1.0,
-                            0x8B949E_FFu32,
-                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                        // Always render the preview image - gfx will handle it if pixel buffer exists
+                        frame.push_image(
+                            &state.preview_image,
+                            None,
+                            rustine::gfx::Rectangle {
+                                x: preview_x + preview_padding,
+                                y: image_area_y,
+                                w: image_area_w,
+                                h: image_area_h,
+                            },
+                            rustine::gfx::Fit::FIT_KEEP_ASPECT,
+                            0xFFFFFF_FFu32,
                         );
                     } else {
                         let preview_text = "No item selected";

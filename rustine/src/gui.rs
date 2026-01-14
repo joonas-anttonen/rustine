@@ -410,6 +410,16 @@ impl Gui {
         Vector2u::new(width, height)
     }
 
+    pub fn create_dynamic_image(&self) -> gfx::Image {
+        let mut gfx = self.gfx.lock().unwrap();
+        gfx.create_dynamic_image()
+    }
+
+    pub fn image_mailbox(&self) -> Arc<Mutex<std::collections::VecDeque<(u32, crate::io::Image)>>> {
+        let gfx = self.gfx.lock().unwrap();
+        gfx.image_mailbox()
+    }
+
     unsafe extern "C" fn rwl_pixel_size_callback(window: ffi::RwlWindow, width: u32, height: u32) {
         unsafe {
             let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;

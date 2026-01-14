@@ -6,3 +6,4 @@ pub mod mount;
 pub mod application;
 pub mod files;
 pub mod list;
+pub mod preview;
