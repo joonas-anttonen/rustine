@@ -35,6 +35,9 @@
 
           directx-shader-compiler
           directx-shader-compiler.dev
+
+          ffmpeg
+          ffmpeg.dev
       
         ];
 

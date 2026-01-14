@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod ffmpeg;
 pub mod webp;
 
 #[derive(Clone)]

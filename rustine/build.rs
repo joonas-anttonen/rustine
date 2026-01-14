@@ -71,6 +71,7 @@ fn main() {
     build_bitmap_fonts(&project_dir, &out_dir);
     build_rustine_vma(&project_dir, &out_dir, generator);
     build_rustine_webp(&project_dir, &out_dir, generator);
+    build_rustine_ffmpeg(&project_dir, &out_dir, generator);
     build_rustine_dxc(&project_dir, &out_dir, generator);
     build_rustine_wl(&project_dir, &out_dir, generator);
 }
@@ -93,6 +94,29 @@ fn build_rustine_webp(project_dir: &Path, out_dir: &Path, generator: &'static st
     rerun_if_changed(rustine_webp_dir.join("rustine-webp.cpp"));
     rerun_if_changed(rustine_webp_dir.join("rustine-webp.hpp"));
     rerun_if_changed(project_dir.join("ext").join("libwebp"));
+}
+
+fn build_rustine_ffmpeg(project_dir: &Path, out_dir: &Path, generator: &'static str) {
+    let destination_dir = cmake::Config::new(project_dir.join("ext").join("rustine-ffmpeg"))
+        .generator(generator)
+        .out_dir(out_dir.join("rustine-ffmpeg"))
+        .always_configure(true)
+        .build();
+
+    let lib_dir = prefer_lib64(&destination_dir);
+    link_search(&lib_dir);
+    link_static("rustine-ffmpeg");
+    
+    // Link FFmpeg libraries
+    link_dynamic("avcodec");
+    link_dynamic("avformat");
+    link_dynamic("avutil");
+    link_dynamic("swscale");
+
+    let rustine_ffmpeg_dir = project_dir.join("ext").join("rustine-ffmpeg");
+    rerun_if_changed(rustine_ffmpeg_dir.join("CMakeLists.txt"));
+    rerun_if_changed(rustine_ffmpeg_dir.join("rustine-ffmpeg.cpp"));
+    rerun_if_changed(rustine_ffmpeg_dir.join("rustine-ffmpeg.hpp"));
 }
 
 fn build_rustine_vma(project_dir: &Path, out_dir: &Path, generator: &'static str) {
