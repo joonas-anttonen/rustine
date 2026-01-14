@@ -429,6 +429,8 @@ impl Gui {
                 let gui = &mut *gui_ptr;
                 let mut gfx = gui.gfx.lock().unwrap();
 
+                gui.mark_damaged();
+
                 // When minimized, width and height can be zero
                 // but we can't create a swapchain with zero dimensions
                 if width == 0 || height == 0 {

@@ -20,6 +20,8 @@
           cargo
           rust-analyzer
 
+          valgrind
+
           renderdoc
 
           vulkan-headers

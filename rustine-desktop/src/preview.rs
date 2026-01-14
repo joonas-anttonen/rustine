@@ -159,6 +159,107 @@ impl PreviewHandler for WebPPreviewHandler {
     }
 }
 
+struct FfmpegPreviewHandler;
+
+impl PreviewHandler for FfmpegPreviewHandler {
+    fn can_handle(&self, path: &Path) -> bool {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| {
+                matches!(
+                    &ext.to_ascii_lowercase()[..],
+                    "mp4" | "mkv" | "webm" | "mov" | "avi" | "flv" | "m4v"
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    fn handle(
+        &self,
+        path: &Path,
+        image_mailbox: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
+        target_image_id: u32,
+        exit_flag: &AtomicBool,
+    ) -> PreviewStatus {
+        let path_str = match path.to_str() {
+            Some(s) => s,
+            None => return PreviewStatus::Error(format!("Invalid path: {:?}", path)),
+        };
+
+        let mut decoder = match io::ffmpeg::VideoDecoder::from_path(path_str) {
+            Ok(d) => d,
+            Err(err) => {
+                return PreviewStatus::Error(format!(
+                    "Failed to create FFmpeg VideoDecoder for {:?}: {}",
+                    path, err
+                ));
+            }
+        };
+
+        let width = decoder.width();
+        let height = decoder.height();
+
+        let mut prev_timestamp = 0u32;
+
+        loop {
+            if exit_flag.load(Ordering::Relaxed) {
+                return PreviewStatus::Ok;
+            }
+
+            let mut frame = vec![0u8; (width * height * 4) as usize];
+            match decoder.next_frame(&mut frame) {
+                Ok(timestamp_ms) => {
+                    if let Ok(mut pending) = image_mailbox.lock() {
+                        pending.push_back((
+                            target_image_id,
+                            io::Image {
+                                width,
+                                height,
+                                format: rustine::gfx::Format::R8G8B8A8_UNORM,
+                                pixels: frame,
+                            },
+                        ));
+                    }
+
+                    // Calculate frame duration and sleep
+                    let frame_duration = timestamp_ms.saturating_sub(prev_timestamp);
+                    if frame_duration > 0 {
+                        let duration = std::time::Duration::from_millis(frame_duration as u64);
+                        let mut remaining = duration;
+                        while remaining > std::time::Duration::from_millis(0)
+                            && !exit_flag.load(Ordering::Relaxed)
+                        {
+                            let step = std::time::Duration::from_millis(50).min(remaining);
+                            std::thread::sleep(step);
+                            remaining = remaining.saturating_sub(step);
+                        }
+                    }
+
+                    prev_timestamp = timestamp_ms;
+                }
+                Err(err) => {
+                    // Treat end-of-stream by resetting to loop the preview; other errors are fatal
+                    if err.to_lowercase().contains("end of stream") {
+                        match decoder.reset() {
+                            Ok(_) => continue,
+                            Err(e) => {
+                                log::error!("FFmpeg reset error: {}", e);
+                                return PreviewStatus::Error(format!(
+                                    "FFmpeg decoding error on reset: {}",
+                                    e
+                                ));
+                            }
+                        }
+                    } else {
+                        log::error!("FFmpeg decoding error: {}", err);
+                        return PreviewStatus::Error(format!("FFmpeg decoding error: {}", err));
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn preview_worker_thread(
     request_queue: Arc<ConcurrentMailbox<PreviewRequest>>,
     image_mailbox: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
@@ -168,7 +269,9 @@ pub fn preview_worker_thread(
 ) {
     rustine::log::Log::global().set_current_thread_name("preview-worker");
 
-    let handlers: Vec<Box<dyn PreviewHandler + Send>> = vec![Box::new(WebPPreviewHandler)];
+    // Handlers for different preview types (WebP first, then FFmpeg for video)
+    let handlers: Vec<Box<dyn PreviewHandler + Send>> =
+        vec![Box::new(WebPPreviewHandler), Box::new(FfmpegPreviewHandler)];
 
     loop {
         if exit_flag.load(Ordering::Relaxed) {
