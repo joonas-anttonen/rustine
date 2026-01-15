@@ -33,11 +33,20 @@ pub struct PreviewFrame {
 
 pub struct WebPPreviewHandler;
 
+impl WebPPreviewHandler {
+    pub const SUPPORTED_EXTENSIONS: &'static [&'static str] = &["webp"];
+}
+
 impl PreviewHandler for WebPPreviewHandler {
     fn can_handle(&self, path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("webp"))
+            .map(|ext| {
+                let lower = ext.to_ascii_lowercase();
+                WebPPreviewHandler::SUPPORTED_EXTENSIONS
+                    .iter()
+                    .any(|&s| s == lower.as_str())
+            })
             .unwrap_or(false)
     }
 
@@ -161,15 +170,20 @@ impl PreviewHandler for WebPPreviewHandler {
 
 struct FfmpegPreviewHandler;
 
+impl FfmpegPreviewHandler {
+    pub const SUPPORTED_EXTENSIONS: &'static [&'static str] =
+        &["mp4", "mkv", "webm", "mov", "avi", "flv", "m4v"];
+}
+
 impl PreviewHandler for FfmpegPreviewHandler {
     fn can_handle(&self, path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| {
-                matches!(
-                    &ext.to_ascii_lowercase()[..],
-                    "mp4" | "mkv" | "webm" | "mov" | "avi" | "flv" | "m4v"
-                )
+                let lower = ext.to_ascii_lowercase();
+                FfmpegPreviewHandler::SUPPORTED_EXTENSIONS
+                    .iter()
+                    .any(|&s| s == lower.as_str())
             })
             .unwrap_or(false)
     }
@@ -258,6 +272,25 @@ impl PreviewHandler for FfmpegPreviewHandler {
             }
         }
     }
+}
+
+pub fn can_preview(path: &std::path::Path) -> bool {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase());
+
+    let mut can_handle = WebPPreviewHandler::SUPPORTED_EXTENSIONS
+        .iter()
+        .any(|&s| Some(s) == extension.as_deref());
+
+    if !can_handle {
+        can_handle = FfmpegPreviewHandler::SUPPORTED_EXTENSIONS
+            .iter()
+            .any(|&s| Some(s) == extension.as_deref());
+    }
+
+    can_handle
 }
 
 pub fn preview_worker_thread(

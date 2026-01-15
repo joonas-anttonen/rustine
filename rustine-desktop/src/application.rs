@@ -1,6 +1,5 @@
 use crate::{files, list, mount, preview, sysinfo};
-use rustine::ConcurrentMailbox;
-use rustine::{gfx, gui::Key, log};
+use rustine::{ConcurrentMailbox, gfx, gui::Key, log};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,6 +41,7 @@ struct MyApplicationState {
     password_buffer: String,
     mounting_index: Option<usize>,
     files_preview_open: bool,
+    files_preview_valid: bool,
     files_preview_entry: Option<files::EntryInfo>,
     preview_image: gfx::Image,
     preview_request_queue: Arc<ConcurrentMailbox<preview::PreviewRequest>>,
@@ -70,12 +70,48 @@ impl MyApplication {
                 password_buffer: String::new(),
                 mounting_index: None,
                 files_preview_open: false,
+                files_preview_valid: false,
                 files_preview_entry: None,
                 preview_image: gfx::Image::default(),
                 preview_request_queue: ConcurrentMailbox::new(),
             }),
             exit_flag: Arc::new(AtomicBool::new(false)),
             preview_request_flag: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn update_preview(&self, state: &mut std::cell::RefMut<'_, MyApplicationState>) {
+        if state.files_preview_open {
+            if let Some(idx) = state.files_list.selected {
+                if let Some(entry) = state.files_entries.get(idx) {
+                    let entry_path = entry.path.clone();
+                    state.files_preview_entry = Some(entry.clone());
+
+                    if preview::can_preview(&entry_path) {
+                        state.files_preview_valid = true;
+                        state
+                            .preview_request_queue
+                            .push(preview::PreviewRequest::Load(entry_path));
+                        self.preview_request_flag
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                    } else {
+                        state.files_preview_valid = false;
+                        state
+                            .preview_request_queue
+                            .push(preview::PreviewRequest::Clear);
+                        self.preview_request_flag
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+        } else {
+            state.files_preview_valid = false;
+            // Clear preview when closing
+            state
+                .preview_request_queue
+                .push(preview::PreviewRequest::Clear);
+            self.preview_request_flag
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }
@@ -151,12 +187,12 @@ impl rustine::gui::Application for MyApplication {
         }
     }
 
-    fn on_key(&self, gui: &rustine::gui::Gui, _key: rustine::gui::KeyEvent) {
-        if _key.key == Key::UNKNOWN {
-            log::warning!("Application::on_key: {:?} {:?}", _key.key, _key.action);
+    fn on_key(&self, gui: &rustine::gui::Gui, key: rustine::gui::KeyEvent) {
+        if key.key == Key::UNKNOWN {
+            log::warning!("Application::on_key: {:?} {:?}", key.key, key.action);
         }
 
-        if _key.action != rustine::gui::Action::PRESS {
+        if key.action != rustine::gui::Action::PRESS {
             return;
         }
 
@@ -165,7 +201,7 @@ impl rustine::gui::Application for MyApplication {
 
         let mut state = self.state.borrow_mut();
 
-        match _key.key {
+        match key.key {
             Key::F1 => {
                 state.selected_tab = Tab::Drives;
                 if state.drives_list.selected.is_none() && !state.devices.is_empty() {
@@ -186,19 +222,7 @@ impl rustine::gui::Application for MyApplication {
                     Tab::Files => {
                         state.files_list.select_prev(files_len);
                         // Update preview if open
-                        if state.files_preview_open {
-                            if let Some(idx) = state.files_list.selected {
-                                if let Some(entry) = state.files_entries.get(idx) {
-                                    let entry_path = entry.path.clone();
-                                    state.files_preview_entry = Some(entry.clone());
-                                    state
-                                        .preview_request_queue
-                                        .push(preview::PreviewRequest::Load(entry_path));
-                                    self.preview_request_flag
-                                        .store(true, std::sync::atomic::Ordering::Relaxed);
-                                }
-                            }
-                        }
+                        self.update_preview(&mut state);
                     }
                 }
             }
@@ -210,19 +234,7 @@ impl rustine::gui::Application for MyApplication {
                     Tab::Files => {
                         state.files_list.select_next(files_len);
                         // Update preview if open
-                        if state.files_preview_open {
-                            if let Some(idx) = state.files_list.selected {
-                                if let Some(entry) = state.files_entries.get(idx) {
-                                    let entry_path = entry.path.clone();
-                                    state.files_preview_entry = Some(entry.clone());
-                                    state
-                                        .preview_request_queue
-                                        .push(preview::PreviewRequest::Load(entry_path));
-                                    self.preview_request_flag
-                                        .store(true, std::sync::atomic::Ordering::Relaxed);
-                                }
-                            }
-                        }
+                        self.update_preview(&mut state);
                     }
                 }
             }
@@ -275,6 +287,8 @@ impl rustine::gui::Application for MyApplication {
                             }
                         }
                     }
+
+                    self.update_preview(&mut state);
                 }
             }
             Key::LEFT => {
@@ -313,6 +327,8 @@ impl rustine::gui::Application for MyApplication {
                         }
                         Err(e) => log::error!("Failed to go up to {}: {}", parent.display(), e),
                     }
+
+                    self.update_preview(&mut state);
                 }
             }
             Key::PERIOD => {
@@ -348,26 +364,7 @@ impl rustine::gui::Application for MyApplication {
                 if state.selected_tab == Tab::Files {
                     state.files_preview_open = !state.files_preview_open;
                     // Update preview entry based on current selection
-                    if state.files_preview_open {
-                        if let Some(idx) = state.files_list.selected {
-                            if let Some(entry) = state.files_entries.get(idx) {
-                                let entry_path = entry.path.clone();
-                                state.files_preview_entry = Some(entry.clone());
-                                state
-                                    .preview_request_queue
-                                    .push(preview::PreviewRequest::Load(entry_path));
-                                self.preview_request_flag
-                                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                            }
-                        }
-                    } else {
-                        // Clear preview when closing
-                        state
-                            .preview_request_queue
-                            .push(preview::PreviewRequest::Clear);
-                        self.preview_request_flag
-                            .store(true, std::sync::atomic::Ordering::Relaxed);
-                    }
+                    self.update_preview(&mut state);
                 }
             }
             Key::E => {
@@ -528,15 +525,14 @@ impl rustine::gui::Application for MyApplication {
         }
     }
 
-    fn render(&self, _gui: &rustine::gui::Gui, frame: &mut rustine::gfx::RenderFrame) {
+    fn render(&self, _gui: &rustine::gui::Gui, frame: &mut gfx::RenderFrame) {
         let mut state = self.state.borrow_mut();
 
         let w = frame.size.x as f32;
         let h = frame.size.y as f32;
 
-        let text_font_metrics =
-            rustine::gfx::fonts::get_font_metrics(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID)
-                .expect("Font metrics exist");
+        let text_font_metrics = gfx::fonts::get_font_metrics(gfx::fonts::CASKAYDIAMONO_FONT_ID)
+            .expect("Font metrics exist");
 
         const TOP_BAR_HEIGHT: f32 = 32.0;
         let line_height: f32 = text_font_metrics.ascender - text_font_metrics.descender;
@@ -560,7 +556,7 @@ impl rustine::gui::Application for MyApplication {
 
         // Fill background
         frame.fill_rectangle(
-            &rustine::gfx::Rectangle {
+            &gfx::Rectangle {
                 x: 0.0,
                 y: 0.0,
                 w,
@@ -571,7 +567,7 @@ impl rustine::gui::Application for MyApplication {
 
         // Draw top bar
         frame.fill_rectangle(
-            &rustine::gfx::Rectangle {
+            &gfx::Rectangle {
                 x: 0.0,
                 y: 0.0,
                 w,
@@ -594,11 +590,11 @@ impl rustine::gui::Application for MyApplication {
             let tab_title = tab.title();
             let is_selected_tab = *tab == state.selected_tab;
             let hotkey_width = (tab_hotkey.len() as f32
-                * rustine::gfx::fonts::get_font_size(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID)
+                * gfx::fonts::get_font_size(gfx::fonts::CASKAYDIAMONO_FONT_ID)
                 / 2.0)
                 + (hotkey_padding * 2.0);
             let title_width = tab_title.len() as f32
-                * rustine::gfx::fonts::get_font_size(rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID)
+                * gfx::fonts::get_font_size(gfx::fonts::CASKAYDIAMONO_FONT_ID)
                 / 2.0;
 
             let hotkey_y = (TOP_BAR_HEIGHT - hotkey_height) / 2.0;
@@ -609,7 +605,7 @@ impl rustine::gui::Application for MyApplication {
             };
 
             frame.fill_rectangle(
-                &rustine::gfx::Rectangle {
+                &gfx::Rectangle {
                     x: tab_x,
                     y: hotkey_y,
                     w: hotkey_width,
@@ -624,7 +620,7 @@ impl rustine::gui::Application for MyApplication {
                 (TOP_BAR_HEIGHT / 2.0) + (text_font_metrics.ascender / 2.0),
                 1.0,
                 hotkey_text_color,
-                rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                gfx::fonts::CASKAYDIAMONO_FONT_ID,
             );
 
             frame.push_text(
@@ -633,7 +629,7 @@ impl rustine::gui::Application for MyApplication {
                 (TOP_BAR_HEIGHT / 2.0) + (text_font_metrics.ascender / 2.0),
                 1.0,
                 text_color,
-                rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                gfx::fonts::CASKAYDIAMONO_FONT_ID,
             );
 
             tab_x += hotkey_width + title_width + 28.0;
@@ -686,7 +682,7 @@ impl rustine::gui::Application for MyApplication {
                             };
 
                             frame.fill_rectangle(
-                                &rustine::gfx::Rectangle {
+                                &gfx::Rectangle {
                                     x: content_x + STATUS_LIGHT_MARGIN,
                                     y: y + 2.0,
                                     w: STATUS_LIGHT_WIDTH,
@@ -701,7 +697,7 @@ impl rustine::gui::Application for MyApplication {
                                 y + text_font_metrics.ascender,
                                 1.0,
                                 text_color,
-                                rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                                gfx::fonts::CASKAYDIAMONO_FONT_ID,
                             );
                         }
                     },
@@ -715,7 +711,7 @@ impl rustine::gui::Application for MyApplication {
                         let prompt_bg_color = 0x0D1117_EEu32;
 
                         frame.fill_rectangle(
-                            &rustine::gfx::Rectangle {
+                            &gfx::Rectangle {
                                 x: content_x,
                                 y: prompt_y,
                                 w: content_w,
@@ -731,7 +727,7 @@ impl rustine::gui::Application for MyApplication {
                             prompt_y + text_font_metrics.ascender,
                             1.0,
                             text_color,
-                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                            gfx::fonts::CASKAYDIAMONO_FONT_ID,
                         );
                     }
                 }
@@ -767,7 +763,7 @@ impl rustine::gui::Application for MyApplication {
                             };
 
                             frame.fill_rectangle(
-                                &rustine::gfx::Rectangle {
+                                &gfx::Rectangle {
                                     x: content_x + STATUS_LIGHT_MARGIN,
                                     y: y + 2.0,
                                     w: STATUS_LIGHT_WIDTH,
@@ -782,7 +778,7 @@ impl rustine::gui::Application for MyApplication {
                                 y + text_font_metrics.ascender,
                                 1.0,
                                 text_color,
-                                rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                                gfx::fonts::CASKAYDIAMONO_FONT_ID,
                             );
                         }
                     },
@@ -796,7 +792,7 @@ impl rustine::gui::Application for MyApplication {
 
                     // Draw preview panel background
                     frame.fill_rectangle(
-                        &rustine::gfx::Rectangle {
+                        &gfx::Rectangle {
                             x: preview_x,
                             y: content_y,
                             w: preview_width,
@@ -807,7 +803,7 @@ impl rustine::gui::Application for MyApplication {
 
                     // Draw preview panel border (left edge)
                     frame.fill_rectangle(
-                        &rustine::gfx::Rectangle {
+                        &gfx::Rectangle {
                             x: preview_x,
                             y: content_y,
                             w: 1.0,
@@ -817,23 +813,11 @@ impl rustine::gui::Application for MyApplication {
                     );
 
                     // Display preview content
-                    if let Some(ref entry) = state.files_preview_entry {
-                        let preview_padding = 10.0;
-                        let preview_text_x = preview_x + preview_padding;
-                        let preview_text_y = content_y + preview_padding;
-
-                        // Show the entry name as a title
-                        frame.push_text(
-                            &entry.name,
-                            preview_text_x,
-                            preview_text_y + text_font_metrics.ascender,
-                            1.0,
-                            text_color,
-                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
-                        );
+                    if state.files_preview_entry.is_some() && state.files_preview_valid {
+                        let preview_padding = 0.0;
 
                         // Calculate image display area (below the title)
-                        let image_area_y = preview_text_y + line_height + preview_padding;
+                        let image_area_y = line_height + preview_padding;
                         let image_area_w = preview_width - (preview_padding * 2.0);
                         let image_area_h = content_h - line_height - (preview_padding * 3.0);
 
@@ -841,24 +825,24 @@ impl rustine::gui::Application for MyApplication {
                         frame.push_image(
                             &state.preview_image,
                             None,
-                            rustine::gfx::Rectangle {
+                            gfx::Rectangle {
                                 x: preview_x + preview_padding,
                                 y: image_area_y,
                                 w: image_area_w,
                                 h: image_area_h,
                             },
-                            rustine::gfx::Fit::FIT_KEEP_ASPECT,
+                            gfx::Fit::FIT_KEEP_ASPECT,
                             0xFFFFFF_FFu32,
                         );
                     } else {
-                        let preview_text = "No item selected";
+                        let preview_text = "No preview";
                         frame.push_text(
                             preview_text,
                             preview_x + 10.0,
                             content_y + 20.0,
                             1.0,
                             0x6E7681_FFu32,
-                            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                            gfx::fonts::CASKAYDIAMONO_FONT_ID,
                         );
                     }
                 }
@@ -874,7 +858,7 @@ impl rustine::gui::Application for MyApplication {
 
         let status_y = h - STATUS_BAR_HEIGHT;
         frame.fill_rectangle(
-            &rustine::gfx::Rectangle {
+            &gfx::Rectangle {
                 x: 0.0,
                 y: status_y,
                 w,
@@ -889,7 +873,7 @@ impl rustine::gui::Application for MyApplication {
             status_y + (STATUS_BAR_HEIGHT / 2.0) + (text_font_metrics.ascender / 2.0),
             1.0,
             text_color,
-            rustine::gfx::fonts::CASKAYDIAMONO_FONT_ID,
+            gfx::fonts::CASKAYDIAMONO_FONT_ID,
         );
 
         state.frame_index += 1;
