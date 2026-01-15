@@ -126,6 +126,416 @@ static void rffmpeg_free_decoder_internal(rffmpeg_decoder* dec) {
     }
 }
 
+// --- Encoder (mirror of decoder pattern) ---
+
+struct rffmpeg_encoder {
+    AVCodecContext* codec_ctx = nullptr;
+    SwsContext* sws_ctx = nullptr;
+    AVPacket* packet = nullptr;
+    AVFrame* frame = nullptr;
+    uint8_t* frame_buffer = nullptr;
+
+    uint32_t width = 0;
+    uint32_t height = 0;
+    int64_t pts = 0;
+    // Muxer / output
+    AVFormatContext* fmt_ctx = nullptr;
+    AVStream* stream = nullptr;
+    bool file_opened = false;
+};
+
+static void rffmpeg_free_encoder_internal(rffmpeg_encoder* enc) {
+    if (!enc) {
+        return;
+    }
+
+    if (enc->frame) {
+        av_frame_free(&enc->frame);
+    }
+
+    if (enc->packet) {
+        av_packet_free(&enc->packet);
+    }
+
+    if (enc->frame_buffer) {
+        av_free(enc->frame_buffer);
+        enc->frame_buffer = nullptr;
+    }
+
+    if (enc->sws_ctx) {
+        sws_freeContext(enc->sws_ctx);
+        enc->sws_ctx = nullptr;
+    }
+
+    if (enc->codec_ctx) {
+        avcodec_free_context(&enc->codec_ctx);
+    }
+
+    if (enc->fmt_ctx) {
+        if (enc->file_opened && enc->fmt_ctx->pb) {
+            avio_closep(&enc->fmt_ctx->pb);
+        }
+        avformat_free_context(enc->fmt_ctx);
+        enc->fmt_ctx = nullptr;
+        enc->stream = nullptr;
+    }
+}
+
+extern "C" rffmpeg_status rffmpegEncoderCreate(uint32_t width, uint32_t height, rffmpeg_encoder** out_encoder) {
+    if (!out_encoder || width == 0 || height == 0) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    rffmpeg_encoder* enc = new (std::nothrow) rffmpeg_encoder();
+    if (!enc) {
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    memset(enc, 0, sizeof(rffmpeg_encoder));
+    enc->width = width;
+    enc->height = height;
+
+    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    if (!codec) {
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->codec_ctx = avcodec_alloc_context3(codec);
+    if (!enc->codec_ctx) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->codec_ctx->bit_rate = 400000;
+    enc->codec_ctx->width = width;
+    enc->codec_ctx->height = height;
+    enc->codec_ctx->time_base = AVRational{1, 25};
+    enc->codec_ctx->framerate = AVRational{25, 1};
+
+    // Prefer YUVJ420P for MJPEG if available, fall back to codec default
+    enc->codec_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
+    if (codec->pix_fmts) {
+        bool supported = false;
+        for (const AVPixelFormat* p = codec->pix_fmts; *p != AV_PIX_FMT_NONE; ++p) {
+            if (*p == enc->codec_ctx->pix_fmt) {
+                supported = true;
+                break;
+            }
+        }
+        if (!supported) {
+            enc->codec_ctx->pix_fmt = codec->pix_fmts[0];
+        }
+    }
+
+    if (avcodec_open2(enc->codec_ctx, codec, nullptr) < 0) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    enc->packet = av_packet_alloc();
+    enc->frame = av_frame_alloc();
+
+    if (!enc->packet || !enc->frame) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->frame->format = enc->codec_ctx->pix_fmt;
+    enc->frame->width = enc->codec_ctx->width;
+    enc->frame->height = enc->codec_ctx->height;
+
+    int alloc_ret = av_image_alloc(enc->frame->data,
+        enc->frame->linesize,
+        enc->width,
+        enc->height,
+        enc->codec_ctx->pix_fmt,
+        32);
+    if (alloc_ret < 0) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->frame_buffer = enc->frame->data[0];
+
+    enc->sws_ctx = sws_getContext(enc->width,
+        enc->height,
+        AV_PIX_FMT_RGBA,
+        enc->width,
+        enc->height,
+        enc->codec_ctx->pix_fmt,
+        SWS_BILINEAR,
+        nullptr,
+        nullptr,
+        nullptr);
+
+    if (!enc->sws_ctx) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    *out_encoder = enc;
+    return RFFMPEG_STATUS_OK;
+}
+
+// New API: create-to-path, encode frames written to file, finish, destroy
+extern "C" rffmpeg_status rffmpegEncoderCreateToPath(const char* path,
+    uint32_t width,
+    uint32_t height,
+    double fps,
+    int64_t bitrate,
+    rffmpeg_encoder** out_encoder) {
+    if (!path || !out_encoder || width == 0 || height == 0 || fps <= 0.0) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    rffmpeg_encoder* enc = new (std::nothrow) rffmpeg_encoder();
+    if (!enc) {
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    memset(enc, 0, sizeof(rffmpeg_encoder));
+    enc->width = width;
+    enc->height = height;
+
+    // Allocate format context for output file
+    AVFormatContext* fmt_ctx = nullptr;
+    if (avformat_alloc_output_context2(&fmt_ctx, nullptr, nullptr, path) < 0 || !fmt_ctx) {
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->fmt_ctx = fmt_ctx;
+
+    // Choose codec (prefer H264), fallback to MJPEG if not available
+    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    if (!codec) {
+        codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    }
+    if (!codec) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->codec_ctx = avcodec_alloc_context3(codec);
+    if (!enc->codec_ctx) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->codec_ctx->width = width;
+    enc->codec_ctx->height = height;
+    enc->codec_ctx->time_base = AVRational{1, static_cast<int>(fps)};
+    enc->codec_ctx->framerate = AVRational{static_cast<int>(fps), 1};
+    enc->codec_ctx->bit_rate = bitrate > 0 ? bitrate : 400000;
+
+    // set pixel format preference
+    AVPixelFormat target_pix_fmt = AV_PIX_FMT_YUV420P;
+    if (codec->id == AV_CODEC_ID_MJPEG) {
+        // allow YUVJ420P for MJPEG if available
+        target_pix_fmt = AV_PIX_FMT_YUVJ420P;
+    }
+
+    enc->codec_ctx->pix_fmt = target_pix_fmt;
+    if (codec->pix_fmts) {
+        bool ok = false;
+        for (const AVPixelFormat* p = codec->pix_fmts; *p != AV_PIX_FMT_NONE; ++p) {
+            if (*p == enc->codec_ctx->pix_fmt) {
+                ok = true;
+                break;
+            }
+        }
+        if (!ok) {
+            enc->codec_ctx->pix_fmt = codec->pix_fmts[0];
+        }
+    }
+
+    // Add stream to format context
+    AVStream* st = avformat_new_stream(fmt_ctx, nullptr);
+    if (!st) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+    enc->stream = st;
+
+    if (fmt_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
+        enc->codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    }
+
+    // Open codec
+    if (avcodec_open2(enc->codec_ctx, codec, nullptr) < 0) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    // Copy codec parameters to stream
+    if (avcodec_parameters_from_context(st->codecpar, enc->codec_ctx) < 0) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    st->time_base = enc->codec_ctx->time_base;
+
+    enc->packet = av_packet_alloc();
+    enc->frame = av_frame_alloc();
+    if (!enc->packet || !enc->frame) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->frame->format = enc->codec_ctx->pix_fmt;
+    enc->frame->width = enc->codec_ctx->width;
+    enc->frame->height = enc->codec_ctx->height;
+
+    int alloc_ret = av_image_alloc(enc->frame->data,
+        enc->frame->linesize,
+        enc->width,
+        enc->height,
+        enc->codec_ctx->pix_fmt,
+        32);
+    if (alloc_ret < 0) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+    enc->frame_buffer = enc->frame->data[0];
+
+    enc->sws_ctx = sws_getContext(enc->width,
+        enc->height,
+        AV_PIX_FMT_RGBA,
+        enc->width,
+        enc->height,
+        enc->codec_ctx->pix_fmt,
+        SWS_BILINEAR,
+        nullptr,
+        nullptr,
+        nullptr);
+
+    if (!enc->sws_ctx) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    // Open output file
+    if (!(fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
+        if (avio_open(&fmt_ctx->pb, path, AVIO_FLAG_WRITE) < 0) {
+            rffmpeg_free_encoder_internal(enc);
+            delete enc;
+            return RFFMPEG_STATUS_ALLOCATION_FAILED;
+        }
+        enc->file_opened = true;
+    }
+
+    // Write header
+    if (avformat_write_header(fmt_ctx, nullptr) < 0) {
+        rffmpeg_free_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    *out_encoder = enc;
+    return RFFMPEG_STATUS_OK;
+}
+
+// helper to encode available packets and mux them
+static rffmpeg_status rffmpeg_encoder_drain_packets(rffmpeg_encoder* enc) {
+    if (!enc) return RFFMPEG_STATUS_INVALID_ARGUMENT;
+
+    while (true) {
+        int ret = avcodec_receive_packet(enc->codec_ctx, enc->packet);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            return RFFMPEG_STATUS_OK;
+        }
+        if (ret < 0) {
+            return RFFMPEG_STATUS_ENCODE_FAILED;
+        }
+
+        // rescale packet timestamps to stream timebase
+        av_packet_rescale_ts(enc->packet, enc->codec_ctx->time_base, enc->stream->time_base);
+        enc->packet->stream_index = enc->stream->index;
+
+        if (av_interleaved_write_frame(enc->fmt_ctx, enc->packet) < 0) {
+            av_packet_unref(enc->packet);
+            return RFFMPEG_STATUS_ENCODE_FAILED;
+        }
+
+        av_packet_unref(enc->packet);
+    }
+}
+
+extern "C" rffmpeg_status rffmpegEncoderEncode(rffmpeg_encoder* encoder,
+    const uint8_t* rgba_in,
+    size_t rgba_size) {
+    if (!encoder || !rgba_in) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    size_t required = static_cast<size_t>(encoder->width) * encoder->height * 4;
+    if (rgba_size < required) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    // Convert RGBA -> encoder pixel format into enc->frame
+    const uint8_t* src_slices[1] = { rgba_in };
+    int src_stride[1] = { static_cast<int>(encoder->width * 4) };
+
+    sws_scale(encoder->sws_ctx,
+        src_slices,
+        src_stride,
+        0,
+        encoder->height,
+        encoder->frame->data,
+        encoder->frame->linesize);
+
+    encoder->frame->pts = encoder->pts++;
+
+    int ret = avcodec_send_frame(encoder->codec_ctx, encoder->frame);
+    if (ret < 0) {
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    // drain produced packets and write them to muxer
+    return rffmpeg_encoder_drain_packets(encoder);
+}
+
+extern "C" rffmpeg_status rffmpegEncoderFinish(rffmpeg_encoder* encoder) {
+    if (!encoder) return RFFMPEG_STATUS_INVALID_ARGUMENT;
+
+    // send NULL frame to flush encoder
+    int ret = avcodec_send_frame(encoder->codec_ctx, nullptr);
+    if (ret < 0) {
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    rffmpeg_status status = rffmpeg_encoder_drain_packets(encoder);
+    if (status != RFFMPEG_STATUS_OK) return status;
+
+    if (av_write_trailer(encoder->fmt_ctx) < 0) {
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    return RFFMPEG_STATUS_OK;
+}
+
+extern "C" void rffmpegEncoderDestroy(rffmpeg_encoder* encoder) {
+    if (!encoder) return;
+
+    rffmpeg_free_encoder_internal(encoder);
+    delete encoder;
+}
+
 // Forward declaration of helper function
 static rffmpeg_status rffmpeg_init_decoder_common(rffmpeg_decoder* dec,
     uint32_t* out_width,
@@ -311,11 +721,11 @@ static rffmpeg_status rffmpeg_init_decoder_common(rffmpeg_decoder* dec,
     // will provide the correct alignment and padding required by sws_scale.
     const int rgba_align = 32;  // give swscale room for vectorized writes
     int alloc_ret = av_image_alloc(dec->rgba_frame->data,
-                                   dec->rgba_frame->linesize,
-                                   dec->width,
-                                   dec->height,
-                                   AV_PIX_FMT_RGBA,
-                                   rgba_align);
+        dec->rgba_frame->linesize,
+        dec->width,
+        dec->height,
+        AV_PIX_FMT_RGBA,
+        rgba_align);
     if (alloc_ret < 0) {
         rffmpeg_free_decoder_internal(dec);
         delete dec;

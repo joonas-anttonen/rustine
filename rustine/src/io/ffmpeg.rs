@@ -65,6 +65,7 @@ impl VideoDecoder {
             ffi::RffmpegStatus::InvalidArgument => Err("Invalid arguments provided".to_string()),
             ffi::RffmpegStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
             ffi::RffmpegStatus::DecodeFailed => Err("Failed to decode video data".to_string()),
+            ffi::RffmpegStatus::EncodeFailed => Err("Failed to encode frame".to_string()),
             ffi::RffmpegStatus::EndOfStream => Err("Unexpected end of stream".to_string()),
         }
     }
@@ -78,9 +79,9 @@ impl VideoDecoder {
     /// * `Ok(VideoDecoder)` - Successfully created decoder
     /// * `Err(String)` - Error description
     pub fn from_path(path: &str) -> Result<Self, String> {
-        let c_path = std::ffi::CString::new(path)
-            .map_err(|_| "Path contains null bytes".to_string())?;
-        
+        let c_path =
+            std::ffi::CString::new(path).map_err(|_| "Path contains null bytes".to_string())?;
+
         let mut decoder: *mut ffi::RffmpegDecoder = ptr::null_mut();
         let mut width: u32 = 0;
         let mut height: u32 = 0;
@@ -112,6 +113,7 @@ impl VideoDecoder {
             ffi::RffmpegStatus::InvalidArgument => Err("Invalid arguments provided".to_string()),
             ffi::RffmpegStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
             ffi::RffmpegStatus::DecodeFailed => Err("Failed to decode video at path".to_string()),
+            ffi::RffmpegStatus::EncodeFailed => Err("Failed to encode frame".to_string()),
             ffi::RffmpegStatus::EndOfStream => Err("Unexpected end of stream".to_string()),
         }
     }
@@ -174,6 +176,7 @@ impl VideoDecoder {
             ffi::RffmpegStatus::InvalidArgument => Err("Invalid arguments".to_string()),
             ffi::RffmpegStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
             ffi::RffmpegStatus::DecodeFailed => Err("Failed to decode frame".to_string()),
+            ffi::RffmpegStatus::EncodeFailed => Err("Failed to encode frame".to_string()),
             ffi::RffmpegStatus::EndOfStream => Err("End of stream reached".to_string()),
         }
     }
@@ -199,12 +202,18 @@ mod ffi {
         InvalidArgument = 1,
         AllocationFailed = 2,
         DecodeFailed = 3,
-        EndOfStream = 4,
+        EncodeFailed = 4,
+        EndOfStream = 5,
     }
 
     /// Opaque decoder state handle
     #[repr(C)]
     pub struct RffmpegDecoder {
+        _private: [u8; 0],
+    }
+
+    #[repr(C)]
+    pub struct RffmpegEncoder {
         _private: [u8; 0],
     }
 
@@ -221,11 +230,10 @@ mod ffi {
             out_fps: *mut f64,
             out_duration_sec: *mut f64,
         ) -> RffmpegStatus;
-
         /// Create a decoder from a file or URL path.
         /// Returns metadata via out parameters when successful.
         pub fn rffmpegDecoderCreateFromPath(
-            path: *const std::os::raw::c_char,
+            path: *const std::ffi::c_char,
             out_decoder: *mut *mut RffmpegDecoder,
             out_width: *mut u32,
             out_height: *mut u32,
@@ -233,7 +241,6 @@ mod ffi {
             out_fps: *mut f64,
             out_duration_sec: *mut f64,
         ) -> RffmpegStatus;
-
         /// Fetch the next RGBA frame. The buffer must be at least width * height * 4 bytes.
         pub fn rffmpegDecoderNext(
             decoder: *mut RffmpegDecoder,
@@ -241,11 +248,118 @@ mod ffi {
             rgba_capacity: usize,
             out_timestamp_ms: *mut u32,
         ) -> RffmpegStatus;
-
         /// Reset the decoder to the first frame.
         pub fn rffmpegDecoderReset(decoder: *mut RffmpegDecoder) -> RffmpegStatus;
-
         /// Destroy the decoder and free resources.
         pub fn rffmpegDecoderDestroy(decoder: *mut RffmpegDecoder);
+
+        pub fn rffmpegEncoderCreateToPath(
+            path: *const std::ffi::c_char,
+            width: u32,
+            height: u32,
+            fps: f64,
+            bitrate: u64,
+            out_encoder: *mut *mut RffmpegEncoder,
+        ) -> RffmpegStatus;
+        pub fn rffmpegEncoderEncode(
+            encoder: *mut RffmpegEncoder,
+            rgba_in: *const u8,
+            rgba_size: usize,
+        ) -> RffmpegStatus;
+        pub fn rffmpegEncoderFinish(encoder: *mut RffmpegEncoder) -> RffmpegStatus;
+        pub fn rffmpegEncoderDestroy(encoder: *mut RffmpegEncoder);
+    }
+}
+
+/// A safe wrapper around the native FFmpeg video encoder.
+/// Automatically frees resources when dropped.
+pub struct VideoEncoder {
+    encoder: *mut ffi::RffmpegEncoder,
+    width: u32,
+    height: u32,
+    fps: f64,
+}
+
+impl Drop for VideoEncoder {
+    fn drop(&mut self) {
+        if !self.encoder.is_null() {
+            unsafe {
+                ffi::rffmpegEncoderDestroy(self.encoder);
+            }
+        }
+    }
+}
+
+impl VideoEncoder {
+    /// Create an encoder writing to `path` with the provided parameters.
+    pub fn create_to_path(
+        path: &str,
+        width: u32,
+        height: u32,
+        fps: f64,
+        bitrate: u64,
+    ) -> Result<Self, String> {
+        let c_path = std::ffi::CString::new(path).map_err(|_| "Path contains null bytes".to_string())?;
+
+        let mut encoder: *mut ffi::RffmpegEncoder = std::ptr::null_mut();
+
+        let status = unsafe {
+            ffi::rffmpegEncoderCreateToPath(
+                c_path.as_ptr(),
+                width,
+                height,
+                fps,
+                bitrate,
+                &mut encoder,
+            )
+        };
+
+        match status {
+            ffi::RffmpegStatus::Ok => Ok(VideoEncoder {
+                encoder,
+                width,
+                height,
+                fps,
+            }),
+            ffi::RffmpegStatus::InvalidArgument => Err("Invalid arguments provided".to_string()),
+            ffi::RffmpegStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
+            ffi::RffmpegStatus::DecodeFailed => Err("Decoder failure during encode".to_string()),
+            ffi::RffmpegStatus::EncodeFailed => Err("Failed to initialize encoder".to_string()),
+            ffi::RffmpegStatus::EndOfStream => Err("Unexpected end of stream".to_string()),
+        }
+    }
+
+    /// Encode a single RGBA frame. `rgba_in` must be exactly `width*height*4` bytes.
+    pub fn encode_frame(&mut self, rgba_in: &[u8]) -> Result<(), String> {
+        let required_size = (self.width as usize) * (self.height as usize) * 4;
+        if rgba_in.len() < required_size {
+            return Err(format!(
+                "Input buffer too small: {} bytes, need {}",
+                rgba_in.len(),
+                required_size
+            ));
+        }
+
+        let status = unsafe { ffi::rffmpegEncoderEncode(self.encoder, rgba_in.as_ptr(), rgba_in.len()) };
+
+        match status {
+            ffi::RffmpegStatus::Ok => Ok(()),
+            ffi::RffmpegStatus::InvalidArgument => Err("Invalid arguments".to_string()),
+            ffi::RffmpegStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
+            ffi::RffmpegStatus::DecodeFailed => Err("Decode failure during encode".to_string()),
+            ffi::RffmpegStatus::EncodeFailed => Err("Failed to encode frame".to_string()),
+            ffi::RffmpegStatus::EndOfStream => Err("End of stream".to_string()),
+        }
+    }
+
+    /// Finalize the encoding and flush remaining packets to disk.
+    pub fn finish(&mut self) -> Result<(), String> {
+        let status = unsafe { ffi::rffmpegEncoderFinish(self.encoder) };
+
+        match status {
+            ffi::RffmpegStatus::Ok => Ok(()),
+            ffi::RffmpegStatus::InvalidArgument => Err("Invalid encoder".to_string()),
+            _ => Err("Failed to finish encoding".to_string()),
+        }
     }
 }
