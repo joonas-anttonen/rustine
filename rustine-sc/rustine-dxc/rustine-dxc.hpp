@@ -18,8 +18,8 @@ typedef enum rdxc_status {
 // Shader stage types
 typedef enum rdxc_shader_stage {
     RDXC_SHADER_STAGE_VERTEX = 1,
-    RDXC_SHADER_STAGE_FRAGMENT = 2,
-    RDXC_SHADER_STAGE_COMPUTE = 4,
+    RDXC_SHADER_STAGE_FRAGMENT = 16,
+    RDXC_SHADER_STAGE_COMPUTE = 32,
 } rdxc_shader_stage;
 
 // Opaque compiler instance

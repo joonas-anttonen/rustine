@@ -184,41 +184,9 @@ impl Gfx {
         )
         .unwrap();
 
-        let mut test_shader_program: ShaderProgram = ShaderProgram::new("test_shader_program");
-        let test_shader_compiler = Compiler::new().unwrap();
-        let test_shader_stage = test_shader_compiler
-            .compile(Stage::VERTEX, OVERLAY_SHADER)
-            .unwrap();
-        test_shader_program.add_stage(test_shader_stage);
-        let test_shader_stage = test_shader_compiler
-            .compile(Stage::FRAGMENT, OVERLAY_SHADER)
-            .unwrap();
-        test_shader_program.add_stage(test_shader_stage);
-
-        /*let test_pipeline_params = pipeline::Parameters {
-            shader: test_shader_program,
-            topology: Topology::Triangles,
-            winding: Winding::CounterClockwise,
-            culling: Culling::None,
-            raster: Raster::Fill,
-            samples: Samples::X1,
-            depth_comparison: Comparison::Always,
-            depth_write: false,
-            depth_test: false,
-            bindings: vec![],
-            attributes: vec![],
-            push_constants: vec![],
-            descriptors: vec![
-                Descriptor::new(0, DescriptorType::SampledImage, Stage::Fragment),
-                Descriptor::new(1, DescriptorType::Sampler, Stage::Fragment),
-            ],
-            attachments: vec![Attachment::new(
-                Format::B8G8R8A8_UNORM,
-                AttachmentBlend::straight_alpha_blend(),
-            )],
-        };*/
         let test_pipeline_params = pipeline::Parameters {
-            shader: test_shader_program,
+            shader: shaders::get_shaderprogram(shaders::OVERLAY_SHADER_ID)
+                .expect("Failed to get overlay shader program"),
             topology: Topology::Triangles,
             winding: Winding::CounterClockwise,
             culling: Culling::Back,

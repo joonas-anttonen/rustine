@@ -8,6 +8,7 @@ mod ringbuffer;
 pub use ringbuffer::RingBuffer;
 pub mod version;
 pub use version::Version;
+pub use rustinesc::*;
 
 use std::sync::{Arc, Condvar, Mutex};
 

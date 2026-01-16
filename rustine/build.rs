@@ -1,10 +1,6 @@
 use fontdue::Font;
+use rustinesc::Compiler;
 use std::{collections::HashMap, env, fs, path::Path, path::PathBuf};
-
-/// println!("cargo:rerun-if-changed={}"...
-fn rerun_if_changed<P: AsRef<Path>>(path: P) {
-    println!("cargo:rerun-if-changed={}", path.as_ref().display());
-}
 
 /// Parse codepoint specification strings like "0x1234-0x5678" or "0xabcd"
 fn parse_codepoint_spec(spec: &str, codepoints: &mut Vec<char>) {
@@ -32,6 +28,11 @@ fn parse_codepoint_spec(spec: &str, codepoints: &mut Vec<char>) {
             }
         }
     }
+}
+
+/// println!("cargo:rerun-if-changed={}"...
+fn rerun_if_changed<P: AsRef<Path>>(path: P) {
+    println!("cargo:rerun-if-changed={}", path.as_ref().display());
 }
 
 /// println!("cargo:rustc-link-lib=static={}"...
@@ -68,11 +69,13 @@ fn main() {
 
     link_dynamic("vulkan");
 
+    let shaders_dir = project_dir.join("src/gfx/shaders");
+    build_shaders(&shaders_dir, &out_dir);
+
     build_bitmap_fonts(&project_dir, &out_dir);
     build_rustine_vma(&project_dir, &out_dir, generator);
     build_rustine_webp(&project_dir, &out_dir, generator);
     build_rustine_ffmpeg(&project_dir, &out_dir, generator);
-    build_rustine_dxc(&project_dir, &out_dir, generator);
     build_rustine_wl(&project_dir, &out_dir, generator);
 }
 
@@ -106,7 +109,7 @@ fn build_rustine_ffmpeg(project_dir: &Path, out_dir: &Path, generator: &'static 
     let lib_dir = prefer_lib64(&destination_dir);
     link_search(&lib_dir);
     link_static("rustine-ffmpeg");
-    
+
     // Link FFmpeg libraries
     link_dynamic("avcodec");
     link_dynamic("avformat");
@@ -145,14 +148,6 @@ fn build_rustine_wl(project_dir: &Path, out_dir: &Path, generator: &'static str)
     link_dynamic("xkbcommon");
     link_dynamic("stdc++");
 
-    // GLFW
-    //link_dynamic("wayland-egl");
-    //link_dynamic("wayland-cursor");
-    //link_dynamic("udev");
-    //link_dynamic("dl");
-    //link_dynamic("pthread");
-    //link_dynamic("m");
-
     // Allow multiple definitions to resolve fractional-scale symbol conflict with GLFW
     println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
 
@@ -162,63 +157,165 @@ fn build_rustine_wl(project_dir: &Path, out_dir: &Path, generator: &'static str)
     rerun_if_changed(rustine_wl_dir.join("rustine-wl.hpp"));
 }
 
-fn build_rustine_dxc(project_dir: &Path, out_dir: &Path, generator: &'static str) {
-    let dxc_include_dir = env::var("DXC_INCLUDE_DIR")
-        .expect("DXC_INCLUDE_DIR environment variable must be set to the DXC include directory (containing dxcapi.h)");
-    let dxc_lib_dir = env::var("DXC_LIB_DIR")
-        .expect("DXC_LIB_DIR environment variable must be set to the DXC library directory (containing libdxcompiler.so or dxcompiler.dll)");
-
-    let destination_dir = cmake::Config::new(project_dir.join("ext").join("rustine-dxc"))
-        .generator(generator)
-        .out_dir(out_dir.join("rustine-dxc"))
-        .always_configure(true)
-        .env("DXC_INCLUDE_DIR", &dxc_include_dir)
-        .build();
-
-    let lib_dir = prefer_lib64(&destination_dir);
-    link_search(&lib_dir);
-    link_static("rustine-dxc");
-
-    // Get the target directory where the binary will be located
-    let target_dir = PathBuf::from(
-        env::var("CARGO_TARGET_DIR")
-            .unwrap_or_else(|_| project_dir.join("target").to_string_lossy().into_owned()),
-    );
-    let profile = env::var("PROFILE").expect("PROFILE environment variable not set");
-    let bin_dir = target_dir.join(&profile);
-
-    // Copy DXC libraries to both OUT_DIR (for linking) and the binary output directory (for runtime)
-    let src_compiler = PathBuf::from(&dxc_lib_dir).join("libdxcompiler.so");
-
-    if src_compiler.exists() {
-        let dst_compiler_out = out_dir.join("libdxcompiler.so");
-        // Try to copy to out_dir, but don't fail if we can't (e.g., read-only Nix store)
-        if let Err(e) = fs::copy(&src_compiler, &dst_compiler_out) {
-            eprintln!("Warning: Could not copy libdxcompiler.so to out_dir: {}", e);
+fn build_shaders(shaders_dir: &Path, out_dir: &Path) {
+    // *.hlsl
+    let mut shader_files: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&shaders_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext.to_string_lossy().to_lowercase() == "hlsl" {
+                        shader_files.push(path);
+                    }
+                }
+            }
         }
-
-        let dst_compiler_bin = bin_dir.join("libdxcompiler.so");
-        // Try to copy to bin_dir, but don't fail if we can't (e.g., read-only Nix store)
-        if let Err(e) = fs::copy(&src_compiler, &dst_compiler_bin) {
-            eprintln!("Warning: Could not copy libdxcompiler.so to bin_dir: {}", e);
-        }
-    } else {
-        eprintln!(
-            "Warning: libdxcompiler.so not found at {}",
-            src_compiler.display()
-        );
     }
 
-    // Add the DXC library directory to the search path so the dynamic linker can find it
-    link_search(&dxc_lib_dir);
-    link_dynamic("dl");
-    // Use $ORIGIN to find libdxcompiler.so relative to the binary
-    println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN:{}", dxc_lib_dir);
+    // Sort for deterministic ordering
+    shader_files.sort();
 
-    let rustine_dxc_dir = project_dir.join("ext").join("rustine-dxc");
-    rerun_if_changed(rustine_dxc_dir.join("CMakeLists.txt"));
-    rerun_if_changed(rustine_dxc_dir.join("rustine-dxc.cpp"));
-    rerun_if_changed(rustine_dxc_dir.join("rustine-dxc.hpp"));
+    // Compile shaders
+    let config_path = shaders_dir.join("shaders.toml");
+
+    // If there's no shaders.toml, nothing to do
+    if !config_path.exists() {
+        for shader in &shader_files {
+            rerun_if_changed(shader);
+        }
+        return;
+    }
+
+    let config_content = fs::read_to_string(&config_path).expect("Failed to read shaders.toml");
+    let config =
+        toml::from_str::<toml::Value>(&config_content).expect("Failed to parse shaders.toml");
+
+    let mut module_code = String::new();
+    module_code.push_str("// Auto-generated shader modules\n\n");
+    module_code.push_str("// Generated bytecode blobs and accessor\n\n");
+
+    // Generate shader IDs starting from u32::MAX - 2
+    let mut shader_id = u32::MAX - 2u32;
+    let mut shader_info: Vec<(String, u32, Vec<String>)> = Vec::new();
+
+    // Create a compiler instance (build-dependency)
+    let compiler = Compiler::new().expect("Failed to create shader compiler");
+
+    if let Some(shaders_table) = config.get("shaders").and_then(|v| v.as_table()) {
+        for (name, shader_config) in shaders_table {
+            let mut stages_vec: Vec<String> = Vec::new();
+            if let Some(table) = shader_config.as_table() {
+                if let Some(stages) = table.get("stages").and_then(|v| v.as_array()) {
+                    for s in stages {
+                        if let Some(s_str) = s.as_str() {
+                            stages_vec.push(s_str.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Attempt to compile each requested stage
+            let shader_path = shaders_dir.join(format!("{}.hlsl", name));
+            let source = fs::read_to_string(&shader_path).unwrap_or_else(|_| {
+                panic!("Failed to read shader source: {}", shader_path.display())
+            });
+
+            // For each stage, compile and emit a byte array
+            for stage_name in &stages_vec {
+                let stage_enum = match stage_name.as_str() {
+                    "vertex" => rustinesc::Stage::VERTEX,
+                    "fragment" => rustinesc::Stage::FRAGMENT,
+                    "compute" => rustinesc::Stage::COMPUTE,
+                    other => panic!("Unknown shader stage '{}' for shader '{}'", other, name),
+                };
+
+                let compiled = compiler
+                    .compile(stage_enum, &source)
+                    .unwrap_or_else(|e| match e {
+                        rustinesc::CompilerStatus::CompilationFailed(msg) => panic!(
+                            "Shader compilation failed for {}:{} => {}",
+                            name, stage_name, msg
+                        ),
+                        _ => panic!("Shader compilation error for {}:{}", name, stage_name),
+                    });
+
+                // Emit a const byte array
+                let const_name = format!("{}_{}", name.to_uppercase(), stage_name.to_uppercase());
+                module_code.push_str(&format!("pub static {}: &[u8] = &[\n", const_name));
+                if compiled.bytecode.is_empty() {
+                    module_code.push_str("];\n");
+                } else {
+                    // write in hex for readability
+                    for chunk in compiled.bytecode.chunks(16) {
+                        module_code.push_str("    ");
+                        for b in chunk {
+                            module_code.push_str(&format!("0x{:02x}, ", b));
+                        }
+                        module_code.push_str("\n");
+                    }
+                    module_code.push_str("];\n");
+                }
+                module_code.push_str("\n");
+
+                // mark shader source for rerun
+                rerun_if_changed(&shader_path);
+            }
+
+            // store info for registry generation
+            shader_info.push((name.clone(), shader_id, stages_vec));
+            shader_id -= 1;
+        }
+    }
+
+    // Generate constants and get_shaderprogram function
+    for (name, id, _stages) in &shader_info {
+        let const_name = format!("{}_SHADER_ID", name.to_uppercase());
+        module_code.push_str(&format!(
+            "pub const {}: u32 = {};// shader id\n",
+            const_name, id
+        ));
+    }
+
+    module_code.push_str("\nuse std::vec::Vec;\n\n");
+    module_code
+        .push_str("pub fn get_shaderprogram(id: u32) -> Option<::rustinesc::ShaderProgram> {\n");
+    module_code.push_str("    match id {\n");
+    for (name, id, stages) in &shader_info {
+        module_code.push_str(&format!("        {} => {{\n", id));
+        module_code.push_str(&format!("            let mut stages = Vec::new();\n"));
+        for stage_name in stages {
+            let const_name = format!("{}_{}", name.to_uppercase(), stage_name.to_uppercase());
+            let stage_enum = match stage_name.as_str() {
+                "vertex" => "rustinesc::Stage::VERTEX",
+                "fragment" => "rustinesc::Stage::FRAGMENT",
+                "compute" => "rustinesc::Stage::COMPUTE",
+                _ => panic!("unsupported stage"),
+            };
+            module_code.push_str(&format!(
+                "            if !{}.is_empty() {{\n                stages.push(rustinesc::Shader {{ stage: {}, entry_point: \"{}\".to_string(), bytecode: {}.to_vec() }});\n            }}\n",
+                const_name, stage_enum, stage_name, const_name
+            ));
+        }
+        module_code.push_str(&format!(
+            "            Some(rustinesc::ShaderProgram {{ name: \"{}\".to_string(), stages }})\n",
+            name
+        ));
+        module_code.push_str("        },\n");
+    }
+    module_code.push_str("        _ => None,\n");
+    module_code.push_str("    }\n");
+    module_code.push_str("}\n");
+
+    // write generated file
+    rerun_if_changed(&config_path);
+    let output_path = out_dir.join("shaders.rs");
+    fs::write(&output_path, module_code).expect("Failed to write generated shaders file");
+
+    // Tell Cargo to rerun build script if any shader changes
+    for shader in &shader_files {
+        rerun_if_changed(shader);
+    }
 }
 
 /// Character set specification for a font
@@ -242,22 +339,27 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     // Load font configuration
     let mut font_configs: HashMap<String, (f32, CharsetSpec)> = HashMap::new();
     if config_path.exists() {
-        let config_content = fs::read_to_string(&config_path)
-            .expect("Failed to read fonts.toml");
+        let config_content = fs::read_to_string(&config_path).expect("Failed to read fonts.toml");
         if let Ok(config) = toml::from_str::<toml::Value>(&config_content) {
             if let Some(fonts_table) = config.get("fonts").and_then(|v| v.as_table()) {
                 for (name, font_config) in fonts_table {
                     if let Some(table) = font_config.as_table() {
-                        let size = table.get("size").and_then(|v| v.as_float()).unwrap_or(16.0) as f32;
-                        let charset_str = table.get("charset").and_then(|v| v.as_str()).unwrap_or("latin1");
-                        
+                        let size =
+                            table.get("size").and_then(|v| v.as_float()).unwrap_or(16.0) as f32;
+                        let charset_str = table
+                            .get("charset")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("latin1");
+
                         let charset_spec = match charset_str {
                             "latin1" => CharsetSpec {
                                 charset_type: CharsetType::Latin1,
                             },
                             "unicode" => {
                                 let mut codepoints = Vec::new();
-                                if let Some(codepoints_array) = table.get("codepoints").and_then(|v| v.as_array()) {
+                                if let Some(codepoints_array) =
+                                    table.get("codepoints").and_then(|v| v.as_array())
+                                {
                                     for cp_value in codepoints_array {
                                         if let Some(cp_str) = cp_value.as_str() {
                                             parse_codepoint_spec(cp_str, &mut codepoints);
@@ -267,18 +369,24 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
                                 CharsetSpec {
                                     charset_type: CharsetType::Unicode(codepoints),
                                 }
-                            },
+                            }
                             _ => CharsetSpec {
                                 charset_type: CharsetType::Latin1,
                             },
                         };
-                        
+
                         font_configs.insert(name.clone(), (size, charset_spec));
                     } else if let Some(size) = font_config.as_float() {
                         // Backwards compatibility: simple float value defaults to latin1
-                        font_configs.insert(name.clone(), (size as f32, CharsetSpec {
-                            charset_type: CharsetType::Latin1,
-                        }));
+                        font_configs.insert(
+                            name.clone(),
+                            (
+                                size as f32,
+                                CharsetSpec {
+                                    charset_type: CharsetType::Latin1,
+                                },
+                            ),
+                        );
                     }
                 }
             }
@@ -319,7 +427,7 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     module_code.push_str("    pub u1: f32,\n");
     module_code.push_str("    pub v1: f32,\n");
     module_code.push_str("}\n\n");
-    
+
     module_code.push_str("pub struct FontMetrics {\n");
     module_code.push_str("    pub ascender: f32,\n");
     module_code.push_str("    pub descender: f32,\n");
@@ -338,15 +446,21 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
 
         // Get font config from config, default to latin1 at 16.0
         let (font_size, charset_spec) = font_configs.get(font_name).cloned().unwrap_or_else(|| {
-            (16.0, CharsetSpec {
-                charset_type: CharsetType::Latin1,
-            })
+            (
+                16.0,
+                CharsetSpec {
+                    charset_type: CharsetType::Latin1,
+                },
+            )
         });
 
         build_bitmap_font(&font_path, font_name, font_size, &charset_spec, out_dir);
-        
-        module_code.push_str(&format!("include!(concat!(env!(\"OUT_DIR\"), \"/{}.rs\"));\n", font_name));
-        
+
+        module_code.push_str(&format!(
+            "include!(concat!(env!(\"OUT_DIR\"), \"/{}.rs\"));\n",
+            font_name
+        ));
+
         // Store font info for the registry
         font_info.push((font_name.to_string(), font_id));
         font_id -= 1;
@@ -365,12 +479,18 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     module_code.push_str("\n// Auto-generated font sizes\n");
     for (font_name, _id) in font_info.iter() {
         let (font_size, _) = font_configs.get(font_name).cloned().unwrap_or_else(|| {
-            (16.0, CharsetSpec {
-                charset_type: CharsetType::Latin1,
-            })
+            (
+                16.0,
+                CharsetSpec {
+                    charset_type: CharsetType::Latin1,
+                },
+            )
         });
         let const_name = format!("{}_FONT_SIZE", font_name.to_uppercase());
-        module_code.push_str(&format!("pub const {}: f32 = {}f32;\n", const_name, font_size));
+        module_code.push_str(&format!(
+            "pub const {}: f32 = {}f32;\n",
+            const_name, font_size
+        ));
     }
 
     // Generate font data structure and registry
@@ -397,7 +517,9 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     module_code.push_str("}\n\n");
 
     // Generate glyph metrics accessor function using HashMap lookups
-    module_code.push_str("pub fn get_glyph_metrics(font_id: u32, ch: char) -> Option<&'static GlyphMetrics> {\n");
+    module_code.push_str(
+        "pub fn get_glyph_metrics(font_id: u32, ch: char) -> Option<&'static GlyphMetrics> {\n",
+    );
     module_code.push_str("    match font_id {\n");
     for (font_name, id) in font_info.iter() {
         let get_lookup_fn = format!("get_{}_lookup", font_name.to_lowercase());
@@ -411,14 +533,13 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     module_code.push_str("}\n\n");
 
     // Generate function to get all metrics for a font
-    module_code.push_str("pub fn get_all_metrics(font_id: u32) -> Option<&'static [(char, GlyphMetrics)]> {\n");
+    module_code.push_str(
+        "pub fn get_all_metrics(font_id: u32) -> Option<&'static [(char, GlyphMetrics)]> {\n",
+    );
     module_code.push_str("    match font_id {\n");
     for (font_name, id) in font_info.iter() {
         let metrics_const = format!("{}_METRICS", font_name.to_uppercase());
-        module_code.push_str(&format!(
-            "        {} => Some(&{}),\n",
-            id, metrics_const
-        ));
+        module_code.push_str(&format!("        {} => Some(&{}),\n", id, metrics_const));
     }
     module_code.push_str("        _ => None,\n");
     module_code.push_str("    }\n");
@@ -466,13 +587,21 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     fs::write(&output_path, module_code).expect("Failed to write generated fonts file");
 }
 
-fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, charset_spec: &CharsetSpec, out_dir: &Path) {
+fn build_bitmap_font(
+    font_path: &Path,
+    font_name: &str,
+    font_size: f32,
+    charset_spec: &CharsetSpec,
+    out_dir: &Path,
+) {
     let font_data = fs::read(font_path).expect("Failed to read font file");
     let font =
         Font::from_bytes(font_data.as_slice(), Default::default()).expect("Failed to load font");
 
     // Capture vertical metrics from the font
-    let horizontal_line_metrics = font.horizontal_line_metrics(font_size).expect("Failed to get horizontal line metrics");
+    let horizontal_line_metrics = font
+        .horizontal_line_metrics(font_size)
+        .expect("Failed to get horizontal line metrics");
     let ascender = horizontal_line_metrics.ascent;
     let descender = horizontal_line_metrics.descent;
     let line_gap = horizontal_line_metrics.line_gap;
@@ -486,7 +615,7 @@ fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, charset_
         CharsetType::Latin1 => {
             // Skip control characters (0-31) to save space
             (32u8..=255u8).map(|b| b as char).collect()
-        },
+        }
         CharsetType::Unicode(codepoints) => codepoints.clone(),
     };
 
@@ -630,13 +759,22 @@ fn build_bitmap_font(font_path: &Path, font_name: &str, font_size: f32, charset_
 
     // Generate HashMap lookup for O(1) glyph access
     let lookup_const = format!("{}_LOOKUP", font_name.to_uppercase());
-    glyph_code.push_str(&format!("static {}: OnceLock<HashMap<char, &'static GlyphMetrics>> = OnceLock::new();\n\n", lookup_const));
-    
+    glyph_code.push_str(&format!(
+        "static {}: OnceLock<HashMap<char, &'static GlyphMetrics>> = OnceLock::new();\n\n",
+        lookup_const
+    ));
+
     let get_lookup_fn = format!("get_{}_lookup", font_name.to_lowercase());
-    glyph_code.push_str(&format!("fn {}() -> &'static HashMap<char, &'static GlyphMetrics> {{\n", get_lookup_fn));
+    glyph_code.push_str(&format!(
+        "fn {}() -> &'static HashMap<char, &'static GlyphMetrics> {{\n",
+        get_lookup_fn
+    ));
     glyph_code.push_str(&format!("    {}.get_or_init(|| {{\n", lookup_const));
     glyph_code.push_str("        let mut map = HashMap::new();\n");
-    glyph_code.push_str(&format!("        for (ch, metrics) in {}.iter() {{\n", metrics_const));
+    glyph_code.push_str(&format!(
+        "        for (ch, metrics) in {}.iter() {{\n",
+        metrics_const
+    ));
     glyph_code.push_str("            map.insert(*ch, metrics);\n");
     glyph_code.push_str("        }\n");
     glyph_code.push_str("        map\n");

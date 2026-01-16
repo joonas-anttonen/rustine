@@ -1,11 +1,18 @@
+#![allow(dead_code)]
+
 use std::ffi::{CStr, CString};
 use std::ptr;
 
-use crate::gfx::vulkan as vk;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompilerStatus {
+    Ok,
+    Error,
+    CompilationFailed(String),
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Status {
+pub enum RdxStatus {
     Ok = 0,
     InvalidArgument = 1,
     CompilationFailed = 2,
@@ -28,22 +35,9 @@ impl std::ops::BitOr for Stage {
     }
 }
 impl Stage {
-    pub const VERTEX: Stage = Stage(1);
-    pub const FRAGMENT: Stage = Stage(2);
-    pub const COMPUTE: Stage = Stage(4);
-    pub fn to_vk(&self) -> vk::VkShaderStageFlags {
-        let mut vk = 0u32;
-        if *self & Self::VERTEX == Self::VERTEX {
-            vk = vk | vk::VkShaderStageFlags::VERTEX_BIT.0;
-        }
-        if *self & Self::FRAGMENT == Self::FRAGMENT {
-            vk = vk | vk::VkShaderStageFlags::FRAGMENT_BIT.0;
-        }
-        if *self & Self::COMPUTE == Self::COMPUTE {
-            vk = vk | vk::VkShaderStageFlags::COMPUTE_BIT.0;
-        }
-        vk::VkShaderStageFlags(vk)
-    }
+    pub const VERTEX: Stage = Stage(VkShaderStageFlags::VERTEX_BIT.0);
+    pub const FRAGMENT: Stage = Stage(VkShaderStageFlags::FRAGMENT_BIT.0);
+    pub const COMPUTE: Stage = Stage(VkShaderStageFlags::COMPUTE_BIT.0);
 }
 
 pub struct Shader {
@@ -87,7 +81,7 @@ type rdxc_compiler = std::ffi::c_void;
 
 #[link(name = "rustine-dxc", kind = "static")]
 unsafe extern "C" {
-    fn rdxcCompilerCreate(out_compiler: *mut *mut rdxc_compiler) -> Status;
+    fn rdxcCompilerCreate(out_compiler: *mut *mut rdxc_compiler) -> RdxStatus;
 
     fn rdxcCompileToSpirv(
         compiler: *mut rdxc_compiler,
@@ -98,7 +92,7 @@ unsafe extern "C" {
         defines: *const *const i8,
         define_count: usize,
         out_result: *mut RdxcShaderResult,
-    ) -> Status;
+    ) -> RdxStatus;
 
     fn rdxcShaderResultDestroy(result: *mut RdxcShaderResult);
     fn rdxcCompilerDestroy(compiler: *mut rdxc_compiler);
@@ -120,32 +114,32 @@ impl Drop for Compiler {
 
 impl Compiler {
     /// Creates a new instance of the DXC compiler.
-    pub fn new() -> Result<Self, Status> {
+    pub fn new() -> Result<Self, CompilerStatus> {
         let mut handle = ptr::null_mut();
         let status = unsafe { rdxcCompilerCreate(&mut handle) };
 
-        if status != Status::Ok {
-            return Err(status);
+        if status != RdxStatus::Ok {
+            return Err(CompilerStatus::Error);
         }
 
         Ok(Self { handle })
     }
 
     /// Compiles the given shader source code to SPIR-V bytecode.
-    pub fn compile(&self, stage: Stage, source: &str) -> Result<Shader, String> {
+    pub fn compile(&self, stage: Stage, source: &str) -> Result<Shader, CompilerStatus> {
         let entry_point = match stage {
-            Stage::VERTEX => "vertex",
-            Stage::FRAGMENT => "fragment",
-            Stage::COMPUTE => "compute",
-            _ => "main",
-        };
-        let entry_point_c = CString::new(entry_point).map_err(|_| "Invalid entry point string")?;
+            Stage::VERTEX => Ok("vertex"),
+            Stage::FRAGMENT => Ok("fragment"),
+            Stage::COMPUTE => Ok("compute"),
+            _ => Err(CompilerStatus::Error),
+        }?;
+        let entry_point_c = CString::new(entry_point).map_err(|_| CompilerStatus::Error)?;
 
         let define_cstrings: Vec<CString> = ["RUSTINE"]
             .iter()
             .map(|s| CString::new(*s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| "Invalid define string")?;
+            .map_err(|_| CompilerStatus::Error)?;
 
         let define_ptrs: Vec<*const i8> = define_cstrings.iter().map(|s| s.as_ptr()).collect();
 
@@ -174,7 +168,8 @@ impl Compiler {
 
         let bytecode = if !result.bytecode.is_null() && result.bytecode_size > 0 {
             unsafe {
-                Vec::from_raw_parts(result.bytecode, result.bytecode_size, result.bytecode_size)
+                // Copy the bytecode from the raw pointer
+                std::slice::from_raw_parts(result.bytecode, result.bytecode_size).to_vec()
             }
         } else {
             Vec::new()
@@ -182,18 +177,30 @@ impl Compiler {
 
         let error_message = if !result.error_message.is_null() {
             unsafe {
-                let c_str = CStr::from_ptr(result.error_message);
-                let message = c_str.to_string_lossy().into_owned();
-                libc::free(result.error_message as *mut libc::c_void);
-                Some(message)
+                Some(
+                    CStr::from_ptr(result.error_message)
+                        .to_string_lossy()
+                        .into_owned()
+                        .trim()
+                        .to_string(),
+                )
             }
         } else {
             None
         };
 
-        if status != Status::Ok {
-            crate::error!("{}", error_message.as_deref().unwrap_or("Unknown error"));
-            return Err(error_message.unwrap_or_else(|| "Unknown error".to_string()));
+        unsafe {
+            rdxcShaderResultDestroy(&mut result);
+        }
+
+        if status != RdxStatus::Ok {
+            if status == RdxStatus::CompilationFailed {
+                return Err(CompilerStatus::CompilationFailed(
+                    error_message.unwrap_or_else(|| "Unknown error".to_string()),
+                ));
+            } else {
+                return Err(CompilerStatus::Error);
+            }
         }
 
         Ok(Shader {
@@ -202,4 +209,36 @@ impl Compiler {
             bytecode,
         })
     }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VkShaderStageFlags(pub u32);
+impl VkShaderStageFlags {
+    pub const VERTEX_BIT: Self = Self(0x00000001);
+    pub const TESSELLATION_CONTROL_BIT: Self = Self(0x00000002);
+    pub const TESSELLATION_EVALUATION_BIT: Self = Self(0x00000004);
+    pub const GEOMETRY_BIT: Self = Self(0x00000008);
+    pub const FRAGMENT_BIT: Self = Self(0x00000010);
+    pub const COMPUTE_BIT: Self = Self(0x00000020);
+    pub const ALL_GRAPHICS: Self = Self(0x0000001F);
+    pub const ALL: Self = Self(0x7FFFFFFF);
+    pub const RAYGEN_BIT_KHR: Self = Self(0x00000100);
+    pub const ANY_HIT_BIT_KHR: Self = Self(0x00000200);
+    pub const CLOSEST_HIT_BIT_KHR: Self = Self(0x00000400);
+    pub const MISS_BIT_KHR: Self = Self(0x00000800);
+    pub const INTERSECTION_BIT_KHR: Self = Self(0x00001000);
+    pub const CALLABLE_BIT_KHR: Self = Self(0x00002000);
+    pub const TASK_BIT_EXT: Self = Self(0x00000040);
+    pub const MESH_BIT_EXT: Self = Self(0x00000080);
+    pub const SUBPASS_SHADING_BIT_HUAWEI: Self = Self(0x00004000);
+    pub const CLUSTER_CULLING_BIT_HUAWEI: Self = Self(0x00080000);
+    pub const RAYGEN_BIT_NV: Self = Self(0x00000100);
+    pub const ANY_HIT_BIT_NV: Self = Self(0x00000200);
+    pub const CLOSEST_HIT_BIT_NV: Self = Self(0x00000400);
+    pub const MISS_BIT_NV: Self = Self(0x00000800);
+    pub const INTERSECTION_BIT_NV: Self = Self(0x00001000);
+    pub const CALLABLE_BIT_NV: Self = Self(0x00002000);
+    pub const TASK_BIT_NV: Self = Self(0x00000040);
+    pub const MESH_BIT_NV: Self = Self(0x00000080);
 }

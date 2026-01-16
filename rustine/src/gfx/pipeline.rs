@@ -289,7 +289,7 @@ impl Pipeline {
                     sType: vk::VkStructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
                     pNext: std::ptr::null(),
                     flags: 0,
-                    stage: stage.stage.to_vk(),
+                    stage: vk::VkShaderStageFlags(stage.stage.0),
                     module: shader_module,
                     pName: stage.entry_point.as_ptr() as *const i8,
                     pSpecializationInfo: std::ptr::null(),
@@ -360,7 +360,7 @@ impl Pipeline {
                     binding: descriptor.binding,
                     descriptorType: descriptor.descriptor_type.to_vk(),
                     descriptorCount: descriptor.descriptor_count,
-                    stageFlags: descriptor.stage.to_vk(),
+                    stageFlags: vk::VkShaderStageFlags(descriptor.stage.0),
                     pImmutableSamplers: std::ptr::null(),
                 }
             })
@@ -400,7 +400,7 @@ impl Pipeline {
                     panic!("Invalid operation: push constant range offset must be a multiple of 4");
                 }
                 vk::VkPushConstantRange {
-                    stageFlags: range.stage_flags.to_vk(),
+                    stageFlags: vk::VkShaderStageFlags(range.stage_flags.0),
                     offset: range.offset,
                     size: range.size,
                 }

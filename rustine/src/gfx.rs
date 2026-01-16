@@ -22,11 +22,10 @@ pub use command::CommandPool;
 pub mod buffer;
 pub use buffer::MemoryBuffer;
 pub use buffer::PixelBuffer;
-pub mod compiler;
-pub use compiler::*;
 pub mod pipeline;
 
 pub mod fonts;
+pub mod shaders;
 
 use crate::*;
 

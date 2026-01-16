@@ -1,0 +1,2 @@
+[shaders.overlay]
+stages = [ "vertex", "fragment" ]

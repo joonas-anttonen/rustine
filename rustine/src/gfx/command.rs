@@ -462,7 +462,7 @@ impl CommandBuffer {
             vk::vkCmdPushConstants(
                 self.handle,
                 pipeline.pipeline_layout(),
-                stage.to_vk(),
+                vk::VkShaderStageFlags(stage.0),
                 0,
                 std::mem::size_of::<T>() as u32,
                 data as *const T as *const std::ffi::c_void,

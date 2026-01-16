@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = [ "rustine", "rustine-sc", "rustine-desktop" ]
