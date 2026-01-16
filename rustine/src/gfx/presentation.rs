@@ -1,6 +1,7 @@
 use crate::{error, vk_call, warning};
 use crate::{gfx::PixelBuffer, gfx::vulkan as vk, gfx::*};
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 pub enum AcquireStatus {
@@ -50,7 +51,7 @@ pub struct SharedImageProvider {
     output_frame: PixelBuffer,
 }
 impl SharedImageProvider {
-    pub fn new(allocator: &Arc<allocator::Allocator>, parameters: Parameters) -> Self {
+    pub fn new(allocator: &Rc<allocator::Allocator>, parameters: Parameters) -> Self {
         let output_frame = allocator
             .create_external_pixel_buffer(
                 Format::B8G8R8A8_UNORM,

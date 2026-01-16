@@ -3,6 +3,7 @@ use crate::{Parameters, RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -48,7 +49,7 @@ pub struct Gfx {
     pixel_buffers: HashMap<u32, Arc<PixelBuffer>>,
     released_images: Arc<Mutex<VecDeque<u32>>>,
     queue: Queue,
-    allocator: Arc<allocator::Allocator>,
+    allocator: Rc<allocator::Allocator>,
     device: Arc<Device>,
     instance: Instance,
     frame_n: u64,
@@ -166,7 +167,7 @@ impl Gfx {
     pub fn new(
         instance: Instance,
         device: Arc<Device>,
-        allocator: Arc<allocator::Allocator>,
+        allocator: Rc<allocator::Allocator>,
     ) -> Self {
         let linear_sampler = Sampler::new(
             device.clone(),
@@ -386,7 +387,7 @@ impl Gfx {
         &self.device
     }
 
-    pub fn allocator(&self) -> &Arc<allocator::Allocator> {
+    pub fn allocator(&self) -> &Rc<allocator::Allocator> {
         &self.allocator
     }
 

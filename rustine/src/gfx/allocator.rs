@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::rc::Rc;
 use std::sync::{Arc, atomic};
 
 use crate::gfx::vulkan as vk;
@@ -23,7 +24,10 @@ unsafe extern "C" fn vma_allocate_callback(
     _p_user_data: *mut std::ffi::c_void,
 ) {
     ALLOCATED_BYTES.fetch_add(size.0 as usize, atomic::Ordering::Relaxed);
-    debug!("vma::alloc {}", utilities::format_bytes_iec(size.0 as usize));
+    debug!(
+        "vma::alloc {}",
+        utilities::format_bytes_iec(size.0 as usize)
+    );
 }
 unsafe extern "C" fn vma_free_callback(
     _allocator: ffi::VmaAllocator,
@@ -63,7 +67,7 @@ impl Allocator {
         &self.device
     }
 
-    pub fn new(instance: &Instance, device: Arc<Device>) -> Result<Arc<Self>> {
+    pub fn new(instance: &Instance, device: Arc<Device>) -> Result<Rc<Self>> {
         let mut flags = ffi::VmaAllocatorCreateFlags::NONE as u32;
         // If Windows platform, enable external memory handle types
         if cfg!(target_os = "windows") {
@@ -94,14 +98,14 @@ impl Allocator {
 
         vk_call!(ffi::vmaCreateAllocator(&create_info, &mut allocator_handle))?;
 
-        Ok(Arc::new(Allocator {
+        Ok(Rc::new(Allocator {
             handle: allocator_handle,
             device: Arc::clone(&device),
         }))
     }
 
     pub fn create_memory_buffer(
-        self: &Arc<Self>,
+        self: &Rc<Self>,
         size: usize,
         usage: buffer::MemoryUsage,
         access: buffer::MemoryAccess,
@@ -157,12 +161,12 @@ impl Allocator {
             access,
             buffer,
             allocation,
-            Arc::clone(self),
+            Rc::clone(self),
         ))
     }
 
     pub fn create_pixel_buffer(
-        self: &Arc<Self>,
+        self: &Rc<Self>,
         format: Format,
         width: u32,
         height: u32,
@@ -217,7 +221,7 @@ impl Allocator {
     }
 
     fn allocate_image(
-        self: &Arc<Self>,
+        self: &Rc<Self>,
         image_create_info: &vk::VkImageCreateInfo,
         image_view_create_info: &mut vk::VkImageViewCreateInfo,
     ) -> Result<PixelBuffer> {
@@ -270,12 +274,12 @@ impl Allocator {
             image,
             image_view,
             allocation,
-            Arc::clone(&self),
+            Rc::clone(self),
         ))
     }
 
     fn allocate_external_image(
-        self: &Arc<Self>,
+        self: &Rc<Self>,
         handle: *const std::ffi::c_void,
         image_create_info: &mut vk::VkImageCreateInfo,
         image_view_create_info: &mut vk::VkImageViewCreateInfo,
@@ -348,12 +352,12 @@ impl Allocator {
             image,
             image_view,
             allocation,
-            Arc::clone(&self),
+            Rc::clone(self),
         ))
     }
 
     pub fn create_external_pixel_buffer(
-        self: &Arc<Self>,
+        self: &Rc<Self>,
         format: Format,
         width: u32,
         height: u32,

@@ -4,7 +4,7 @@ use crate::vk_call;
 use crate::warning;
 use crate::{gfx::allocator, gfx::vulkan as vk};
 
-use std::sync::Arc;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct PixelBuffer {
@@ -14,7 +14,7 @@ pub struct PixelBuffer {
     image: vk::VkImage,
     image_view: vk::VkImageView,
     allocation: allocator::VmaAllocation,
-    allocator: Arc<allocator::Allocator>,
+    allocator: Rc<allocator::Allocator>,
     layout: AtomicU32,
 }
 
@@ -52,7 +52,7 @@ impl PixelBuffer {
         image: vk::VkImage,
         image_view: vk::VkImageView,
         allocation: allocator::VmaAllocation,
-        allocator: Arc<allocator::Allocator>,
+        allocator: Rc<allocator::Allocator>,
     ) -> Self {
         Self {
             image,
@@ -138,7 +138,7 @@ pub struct MemoryBuffer {
     pub access: MemoryAccess,
     handle: vk::VkBuffer,
     allocation: allocator::VmaAllocation,
-    allocator: std::sync::Arc<allocator::Allocator>,
+    allocator: std::rc::Rc<allocator::Allocator>,
 }
 
 impl Eq for MemoryBuffer {}
@@ -167,7 +167,7 @@ impl MemoryBuffer {
         access: MemoryAccess,
         handle: vk::VkBuffer,
         allocation: allocator::VmaAllocation,
-        allocator: std::sync::Arc<allocator::Allocator>,
+        allocator: std::rc::Rc<allocator::Allocator>,
     ) -> Self {
         Self {
             usage,
