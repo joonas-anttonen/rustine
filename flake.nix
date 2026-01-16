@@ -17,6 +17,7 @@
           ninja
           rustc
           rustfmt
+          clippy
           cargo
           rust-analyzer
 
