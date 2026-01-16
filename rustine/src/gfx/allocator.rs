@@ -67,7 +67,7 @@ impl Allocator {
         let mut flags = ffi::VmaAllocatorCreateFlags::NONE as u32;
         // If Windows platform, enable external memory handle types
         if cfg!(target_os = "windows") {
-            flags = flags | ffi::VmaAllocatorCreateFlags::KHR_EXTERNAL_MEMORY_WIN32_BIT as u32;
+            flags |= ffi::VmaAllocatorCreateFlags::KHR_EXTERNAL_MEMORY_WIN32_BIT as u32;
         }
 
         let callbacks = ffi::VmaDeviceMemoryCallbacks {
@@ -77,7 +77,7 @@ impl Allocator {
         };
 
         let create_info = ffi::VmaAllocatorCreateInfo {
-            flags: flags,
+            flags,
             physicalDevice: device.physical_device().handle(),
             device: device.handle(),
             preferredLargeHeapBlockSize: vk::VkDeviceSize(0),

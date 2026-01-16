@@ -340,7 +340,7 @@ impl Gfx {
 
         Gfx {
             instance,
-            device: device,
+            device,
             allocator,
             test_data,
             frame_n: 0,

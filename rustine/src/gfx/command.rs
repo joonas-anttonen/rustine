@@ -739,7 +739,7 @@ impl CommandBuffer {
             newLayout: new_layout.to_vk(),
             srcQueueFamilyIndex: vk::VK_QUEUE_FAMILY_IGNORED,
             dstQueueFamilyIndex: vk::VK_QUEUE_FAMILY_IGNORED,
-            image: image,
+            image,
             subresourceRange: vk::VkImageSubresourceRange {
                 // TODO: Support more aspects
                 aspectMask: vk::VkImageAspectFlags::COLOR_BIT as u32,

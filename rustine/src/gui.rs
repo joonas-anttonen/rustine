@@ -344,7 +344,7 @@ impl Gui {
 
         let gui = Arc::new(Self {
             gfx,
-            gfx_surface: gfx_surface,
+            gfx_surface,
             rwl_window,
             application,
             damaged: AtomicBool::new(true),

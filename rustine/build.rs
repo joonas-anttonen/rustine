@@ -8,24 +8,24 @@ fn parse_codepoint_spec(spec: &str, codepoints: &mut Vec<char>) {
     if spec.contains('-') {
         // Range specification
         let parts: Vec<&str> = spec.split('-').collect();
-        if parts.len() == 2 {
-            if let (Ok(start), Ok(end)) = (
+        if parts.len() == 2
+            && let (Ok(start), Ok(end)) = (
                 u32::from_str_radix(parts[0].trim_start_matches("0x"), 16),
                 u32::from_str_radix(parts[1].trim_start_matches("0x"), 16),
-            ) {
-                for cp in start..=end {
-                    if let Some(ch) = char::from_u32(cp) {
-                        codepoints.push(ch);
-                    }
+            )
+        {
+            for cp in start..=end {
+                if let Some(ch) = char::from_u32(cp) {
+                    codepoints.push(ch);
                 }
             }
         }
     } else {
         // Single codepoint
-        if let Ok(cp) = u32::from_str_radix(spec.trim_start_matches("0x"), 16) {
-            if let Some(ch) = char::from_u32(cp) {
-                codepoints.push(ch);
-            }
+        if let Ok(cp) = u32::from_str_radix(spec.trim_start_matches("0x"), 16)
+            && let Some(ch) = char::from_u32(cp)
+        {
+            codepoints.push(ch);
         }
     }
 }
@@ -160,15 +160,14 @@ fn build_rustine_wl(project_dir: &Path, out_dir: &Path, generator: &'static str)
 fn build_shaders(shaders_dir: &Path, out_dir: &Path) {
     // *.hlsl
     let mut shader_files: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&shaders_dir) {
+    if let Ok(entries) = fs::read_dir(shaders_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension() {
-                    if ext.to_string_lossy().to_lowercase() == "hlsl" {
-                        shader_files.push(path);
-                    }
-                }
+            if path.is_file()
+                && let Some(ext) = path.extension()
+                && ext.to_string_lossy().to_lowercase() == "hlsl"
+            {
+                shader_files.push(path);
             }
         }
     }
@@ -205,12 +204,12 @@ fn build_shaders(shaders_dir: &Path, out_dir: &Path) {
     if let Some(shaders_table) = config.get("shaders").and_then(|v| v.as_table()) {
         for (name, shader_config) in shaders_table {
             let mut stages_vec: Vec<String> = Vec::new();
-            if let Some(table) = shader_config.as_table() {
-                if let Some(stages) = table.get("stages").and_then(|v| v.as_array()) {
-                    for s in stages {
-                        if let Some(s_str) = s.as_str() {
-                            stages_vec.push(s_str.to_string());
-                        }
+            if let Some(table) = shader_config.as_table()
+                && let Some(stages) = table.get("stages").and_then(|v| v.as_array())
+            {
+                for s in stages {
+                    if let Some(s_str) = s.as_str() {
+                        stages_vec.push(s_str.to_string());
                     }
                 }
             }
@@ -252,12 +251,11 @@ fn build_shaders(shaders_dir: &Path, out_dir: &Path) {
                         for b in chunk {
                             module_code.push_str(&format!("0x{:02x}, ", b));
                         }
-                        module_code.push_str("\n");
+                        module_code.push('\n');
                     }
                     module_code.push_str("];\n");
                 }
-                module_code.push_str("\n");
-
+                module_code.push('\n');
                 // mark shader source for rerun
                 rerun_if_changed(&shader_path);
             }
@@ -340,54 +338,53 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     let mut font_configs: HashMap<String, (f32, CharsetSpec)> = HashMap::new();
     if config_path.exists() {
         let config_content = fs::read_to_string(&config_path).expect("Failed to read fonts.toml");
-        if let Ok(config) = toml::from_str::<toml::Value>(&config_content) {
-            if let Some(fonts_table) = config.get("fonts").and_then(|v| v.as_table()) {
-                for (name, font_config) in fonts_table {
-                    if let Some(table) = font_config.as_table() {
-                        let size =
-                            table.get("size").and_then(|v| v.as_float()).unwrap_or(16.0) as f32;
-                        let charset_str = table
-                            .get("charset")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("latin1");
+        if let Ok(config) = toml::from_str::<toml::Value>(&config_content)
+            && let Some(fonts_table) = config.get("fonts").and_then(|v| v.as_table())
+        {
+            for (name, font_config) in fonts_table {
+                if let Some(table) = font_config.as_table() {
+                    let size = table.get("size").and_then(|v| v.as_float()).unwrap_or(16.0) as f32;
+                    let charset_str = table
+                        .get("charset")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("latin1");
 
-                        let charset_spec = match charset_str {
-                            "latin1" => CharsetSpec {
-                                charset_type: CharsetType::Latin1,
-                            },
-                            "unicode" => {
-                                let mut codepoints = Vec::new();
-                                if let Some(codepoints_array) =
-                                    table.get("codepoints").and_then(|v| v.as_array())
-                                {
-                                    for cp_value in codepoints_array {
-                                        if let Some(cp_str) = cp_value.as_str() {
-                                            parse_codepoint_spec(cp_str, &mut codepoints);
-                                        }
+                    let charset_spec = match charset_str {
+                        "latin1" => CharsetSpec {
+                            charset_type: CharsetType::Latin1,
+                        },
+                        "unicode" => {
+                            let mut codepoints = Vec::new();
+                            if let Some(codepoints_array) =
+                                table.get("codepoints").and_then(|v| v.as_array())
+                            {
+                                for cp_value in codepoints_array {
+                                    if let Some(cp_str) = cp_value.as_str() {
+                                        parse_codepoint_spec(cp_str, &mut codepoints);
                                     }
                                 }
-                                CharsetSpec {
-                                    charset_type: CharsetType::Unicode(codepoints),
-                                }
                             }
-                            _ => CharsetSpec {
+                            CharsetSpec {
+                                charset_type: CharsetType::Unicode(codepoints),
+                            }
+                        }
+                        _ => CharsetSpec {
+                            charset_type: CharsetType::Latin1,
+                        },
+                    };
+
+                    font_configs.insert(name.clone(), (size, charset_spec));
+                } else if let Some(size) = font_config.as_float() {
+                    // Backwards compatibility: simple float value defaults to latin1
+                    font_configs.insert(
+                        name.clone(),
+                        (
+                            size as f32,
+                            CharsetSpec {
                                 charset_type: CharsetType::Latin1,
                             },
-                        };
-
-                        font_configs.insert(name.clone(), (size, charset_spec));
-                    } else if let Some(size) = font_config.as_float() {
-                        // Backwards compatibility: simple float value defaults to latin1
-                        font_configs.insert(
-                            name.clone(),
-                            (
-                                size as f32,
-                                CharsetSpec {
-                                    charset_type: CharsetType::Latin1,
-                                },
-                            ),
-                        );
-                    }
+                        ),
+                    );
                 }
             }
         }
@@ -445,7 +442,7 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
             .expect("Invalid font filename");
 
         // Get font config from config, default to latin1 at 16.0
-        let (font_size, charset_spec) = font_configs.get(font_name).cloned().unwrap_or_else(|| {
+        let (font_size, charset_spec) = font_configs.get(font_name).cloned().unwrap_or({
             (
                 16.0,
                 CharsetSpec {
@@ -454,7 +451,7 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
             )
         });
 
-        build_bitmap_font(&font_path, font_name, font_size, &charset_spec, out_dir);
+        build_bitmap_font(font_path, font_name, font_size, &charset_spec, out_dir);
 
         module_code.push_str(&format!(
             "include!(concat!(env!(\"OUT_DIR\"), \"/{}.rs\"));\n",
@@ -465,12 +462,12 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
         font_info.push((font_name.to_string(), font_id));
         font_id -= 1;
 
-        rerun_if_changed(&font_path);
+        rerun_if_changed(font_path);
     }
 
     // Generate font constants and registry
     module_code.push_str("\n// Auto-generated font IDs\n");
-    for (_idx, (font_name, id)) in font_info.iter().enumerate() {
+    for (font_name, id) in font_info.iter() {
         let const_name = format!("{}_FONT_ID", font_name.to_uppercase());
         module_code.push_str(&format!("pub const {}: u32 = {};\n", const_name, id));
     }
@@ -478,7 +475,7 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     // Generate font size constants
     module_code.push_str("\n// Auto-generated font sizes\n");
     for (font_name, _id) in font_info.iter() {
-        let (font_size, _) = font_configs.get(font_name).cloned().unwrap_or_else(|| {
+        let (font_size, _) = font_configs.get(font_name).cloned().unwrap_or({
             (
                 16.0,
                 CharsetSpec {
@@ -639,7 +636,7 @@ fn build_bitmap_font(
     let mut glyph_positions = Vec::new();
     let mut atlas_width = 0u32;
 
-    for (_i, (ch, metrics_local)) in metrics.iter().enumerate() {
+    for (ch, metrics_local) in metrics.iter() {
         let width = metrics_local.width as u32;
 
         // Simple row layout with wrap at 2048px
@@ -724,7 +721,7 @@ fn build_bitmap_font(
         for byte in chunk {
             glyph_code.push_str(&format!("{}, ", byte));
         }
-        glyph_code.push_str("\n");
+        glyph_code.push('\n');
     }
     glyph_code.push_str("];\n\n");
 
@@ -747,8 +744,8 @@ fn build_bitmap_font(
             met.width,
             met.height,
             met.advance_width as i32,
-            met.xmin as i32,
-            met.ymin as i32,
+            met.xmin,
+            met.ymin,
             u0,
             v0,
             u1,

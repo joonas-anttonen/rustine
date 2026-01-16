@@ -182,11 +182,11 @@ impl Instance {
             },
         };
 
-        let mut instance_handle = vk::VkInstance::default();
+        let mut handle = vk::VkInstance::default();
         vk_call!(vk::vkCreateInstance(
             &create_info,
             ptr::null(),
-            &mut instance_handle,
+            &mut handle,
         ))?;
 
         let mut debug_messenger: Option<vk::VkDebugUtilsMessengerEXT> = None;
@@ -194,7 +194,7 @@ impl Instance {
             let debug_utils_create_fn_name = c"vkCreateDebugUtilsMessengerEXT";
             let create_debug_fn: vk::PFN_vkCreateDebugUtilsMessengerEXT = unsafe {
                 std::mem::transmute(vk::vkGetInstanceProcAddr(
-                    instance_handle,
+                    handle,
                     debug_utils_create_fn_name.as_ptr(),
                 ))
             };
@@ -218,7 +218,7 @@ impl Instance {
 
             let mut debug_messenger_ptr = vk::VkDebugUtilsMessengerEXT::default();
             vk_call!(create_debug_fn.unwrap()(
-                instance_handle,
+                handle,
                 &debug_create_info,
                 ptr::null(),
                 &mut debug_messenger_ptr,
@@ -228,8 +228,8 @@ impl Instance {
         }
 
         Ok(Instance {
-            handle: instance_handle,
-            debug_messenger: debug_messenger,
+            handle,
+            debug_messenger,
         })
     }
 

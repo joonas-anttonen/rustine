@@ -12,8 +12,8 @@ use core::ffi;
 macro_rules! vk_call {
     ($expr:expr) => {{
         let res = unsafe { $expr };
-        match crate::gfx::Status::from_code(res) {
-            crate::gfx::Status::Success => Ok(()),
+        match $crate::gfx::Status::from_code(res) {
+            $crate::gfx::Status::Success => Ok(()),
             other => Err(other),
         }
     }};
