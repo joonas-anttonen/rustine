@@ -1,9 +1,6 @@
 use crate::{files, list, mount, preview, sysinfo};
 use rustine::{ConcurrentMailbox, gfx, gui, gui::Key, log};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::{collections::HashMap, path::PathBuf, sync::Arc, sync::atomic::AtomicBool};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {

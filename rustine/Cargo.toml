@@ -14,11 +14,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rustine-sc = { path = "../rustine-sc" }
-chrono = "0.4"
-libc = "0.2"
+chrono = ">=0.4"
+libc = ">=0.2"
 
 [build-dependencies]
 rustine-sc = { path = "../rustine-sc" }
-cmake = "0.1.54"
-fontdue = "0.7"
-toml = "0.8"
+cmake = ">=0.1"
+fontdue = ">=0.9"
+toml = ">=0.8"

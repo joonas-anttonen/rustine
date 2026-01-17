@@ -90,6 +90,8 @@ pub struct Gui {
 
     application: Box<dyn Application>,
     damaged: AtomicBool,
+
+    wanted_size: Vector2u,
 }
 
 impl Drop for Gui {
@@ -227,7 +229,7 @@ impl Gui {
             panic!("Unsupported platform");
         }
 
-        let rwl_window = unsafe {
+        let (rwl_window, wanted_size) = unsafe {
             ffi::rwlSetLogCallback(ffi::RwlLogSeverity::Error, Self::rwl_log_callback);
             ffi::panic_if_error(ffi::rwlStartup());
 
@@ -324,7 +326,10 @@ impl Gui {
             ffi::panic_if_error(ffi::rwlSetKeyCallback(rwl_window, Self::rwl_key_callback));
             ffi::panic_if_error(ffi::rwlSetCharCallback(rwl_window, Self::rwl_char_callback));
 
-            rwl_window
+            (
+                rwl_window,
+                Vector2u::new(rwl_window_params.2, rwl_window_params.3),
+            )
         };
 
         let mut wl_output = std::ptr::null_mut();
@@ -349,6 +354,7 @@ impl Gui {
             rwl_window,
             application,
             damaged: AtomicBool::new(true),
+            wanted_size,
         });
 
         unsafe {
@@ -425,22 +431,23 @@ impl Gui {
         unsafe {
             let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
             if !gui_ptr.is_null() {
-                debug!("Pixel size changed: {}x{}", width, height);
-
                 let gui = &mut *gui_ptr;
                 let mut gfx = gui.gfx.lock().unwrap();
 
                 gui.mark_damaged();
 
-                // When minimized, width and height can be zero
-                // but we can't create a swapchain with zero dimensions
-                if width == 0 || height == 0 {
-                    return;
-                }
+                // If we have zero width or height, use the wanted size instead
+                let requested_w = if width == 0 { gui.wanted_size.x } else { width };
+                let requested_h = if height == 0 {
+                    gui.wanted_size.y
+                } else {
+                    height
+                };
 
+                debug!("Pixel size changed: {}x{}", width, height);
                 let presentation_parameters = presentation::Parameters {
-                    width,
-                    height,
+                    width: requested_w,
+                    height: requested_h,
                     surface_handle: gui.gfx_surface.to_ptr(),
                     vertical_sync: 0,
                 };
