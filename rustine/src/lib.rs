@@ -54,8 +54,7 @@ impl<T> Mailbox<T> {
     /// Pops a single item from the mailbox without discarding any other items.
     pub fn pop_one(&self) -> Option<T> {
         if let Ok(mut pending) = self.queue.lock() {
-            let request = pending.pop_front();
-            request
+            pending.pop_front()
         } else {
             None
         }
