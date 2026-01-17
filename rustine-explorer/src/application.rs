@@ -13,7 +13,6 @@ enum Tab {
 }
 
 struct MyApplicationState {
-    frame_index: usize,
     selected_tab: Tab,
     devices: Vec<sysinfo::BlockDevice>,
     drives_list: list::ListState,
@@ -24,7 +23,6 @@ struct MyApplicationState {
     folder_selection_map: HashMap<PathBuf, String>,
     password_mode: bool,
     password_buffer: String,
-    mounting_index: Option<usize>,
     files_preview_fit: gfx::Fit,
     files_preview_ratio: f32,
     files_preview_open: bool,
@@ -44,18 +42,16 @@ impl MyApplication {
     pub fn new() -> Self {
         MyApplication {
             state: std::cell::RefCell::new(MyApplicationState {
-                frame_index: 0,
                 selected_tab: Tab::Files,
                 devices: Vec::new(),
                 drives_list: list::ListState::new(),
                 files_entries: Vec::new(),
-                files_dir: PathBuf::from("/"),
+                files_dir: PathBuf::from("/home"), // TODO: Get current user's home directory
                 files_list: list::ListState::new(),
                 show_hidden_files: false,
                 folder_selection_map: HashMap::new(),
                 password_mode: false,
                 password_buffer: String::new(),
-                mounting_index: None,
                 files_preview_fit: gfx::Fit::FILL_KEEP_ASPECT,
                 files_preview_ratio: 0.5,
                 files_preview_open: false,
@@ -157,30 +153,23 @@ impl rustine::gui::Application for MyApplication {
                 };
                 state.password_mode = false;
                 state.password_buffer = String::new();
-                state.mounting_index = None;
+                state.drives_list.selected = None;
             }
             Err(e) => log::error!("Failed to get block devices: {}", e),
         }
 
-        match files::get_contents(&state.files_dir, state.show_hidden_files) {
-            Ok(entries) => {
-                state.files_entries = entries;
-                state.files_list.selected = if state.files_entries.is_empty() {
-                    None
-                } else if let Some(last_name) = state.folder_selection_map.get(&state.files_dir) {
-                    state
-                        .files_entries
-                        .iter()
-                        .position(|e| &e.name == last_name)
-                } else {
-                    Some(0)
-                };
-            }
-            Err(e) => log::error!("Failed to get directory contents: {}", e),
-        }
+        let target = state.files_dir.clone();
+        update_files_entries(&mut state, target);
     }
 
     fn on_key(&self, gui: &rustine::gui::Gui, event: rustine::gui::KeyEvent) {
+        let mut state = self.state.borrow_mut();
+
+        // Skip key handling if in password mode and the key is not ENTER or ESCAPE
+        if state.password_mode && (event.key != Key::ENTER && event.key != Key::ESCAPE) {
+            return;
+        }
+
         if event.key == Key::UNKNOWN {
             log::warning!("Application::on_key: {:?} {:?}", event.key, event.action);
         }
@@ -191,8 +180,6 @@ impl rustine::gui::Application for MyApplication {
 
         // Assume the window is damaged after handling a key press
         gui.mark_damaged();
-
-        let mut state = self.state.borrow_mut();
 
         match event.key {
             Key::F1 => {
@@ -253,28 +240,7 @@ impl rustine::gui::Application for MyApplication {
                     };
 
                     if let Some(target) = target_path {
-                        match files::get_contents(&target, state.show_hidden_files) {
-                            Ok(entries) => {
-                                state.files_dir = target.clone();
-                                state.files_entries = entries;
-                                state.files_list.selected = if state.files_entries.is_empty() {
-                                    None
-                                } else if let Some(last_name) =
-                                    state.folder_selection_map.get(&target)
-                                {
-                                    // Try to restore the previously selected item
-                                    state
-                                        .files_entries
-                                        .iter()
-                                        .position(|e| &e.name == last_name)
-                                } else {
-                                    Some(0)
-                                };
-                            }
-                            Err(e) => {
-                                log::error!("Failed to enter directory {}: {}", target.display(), e)
-                            }
-                        }
+                        update_files_entries(&mut state, target);
                     }
                 }
 
@@ -291,60 +257,23 @@ impl rustine::gui::Application for MyApplication {
                     state.folder_selection_map.insert(current_dir, entry_name);
                 }
 
-                let parent = state
+                let target = state
                     .files_dir
                     .parent()
                     .map(|p| p.to_path_buf())
                     .unwrap_or_else(|| state.files_dir.clone());
 
-                match files::get_contents(&parent, state.show_hidden_files) {
-                    Ok(entries) => {
-                        state.files_dir = parent.clone();
-                        state.files_entries = entries;
-                        state.files_list.selected = if state.files_entries.is_empty() {
-                            None
-                        } else if let Some(last_name) = state.folder_selection_map.get(&parent) {
-                            // Try to restore the previously selected item
-                            state
-                                .files_entries
-                                .iter()
-                                .position(|e| &e.name == last_name)
-                        } else {
-                            Some(0)
-                        };
-                    }
-                    Err(e) => log::error!("Failed to go up to {}: {}", parent.display(), e),
-                }
-
+                update_files_entries(&mut state, target);
                 self.update_preview(&mut state);
             }
             Key::LEFT => {}
             Key::PERIOD if state.selected_tab == Tab::Files => {
                 state.show_hidden_files = !state.show_hidden_files;
 
-                match files::get_contents(&state.files_dir, state.show_hidden_files) {
-                    Ok(entries) => {
-                        state.files_entries = entries;
-                        let len = state.files_entries.len();
+                let target = state.files_dir.clone();
 
-                        if len == 0 {
-                            state.files_list.selected = None;
-                        } else if let Some(last_name) =
-                            state.folder_selection_map.get(&state.files_dir)
-                        {
-                            // Try to find and select the previously saved file
-                            state.files_list.selected = state
-                                .files_entries
-                                .iter()
-                                .position(|e| &e.name == last_name);
-                        } else {
-                            // Otherwise try to keep roughly the same position
-                            let previous = state.files_list.selected.unwrap_or(0);
-                            state.files_list.selected = Some(previous.min(len - 1));
-                        }
-                    }
-                    Err(e) => log::error!("Failed to get directory contents: {}", e),
-                }
+                update_files_entries(&mut state, target);
+                self.update_preview(&mut state);
             }
             Key::PERIOD => {}
             Key::W if state.selected_tab == Tab::Files => {
@@ -378,20 +307,7 @@ impl rustine::gui::Application for MyApplication {
 
                     // Switch to Files tab and navigate to the mounted folder
                     state.selected_tab = Tab::Files;
-                    match files::get_contents(&mount_path, state.show_hidden_files) {
-                        Ok(entries) => {
-                            state.files_dir = mount_path.clone();
-                            state.files_entries = entries;
-                            state.files_list.selected = if state.files_entries.is_empty() {
-                                None
-                            } else {
-                                Some(0)
-                            };
-                        }
-                        Err(e) => {
-                            log::error!("Failed to read directory {}: {}", mount_path.display(), e)
-                        }
-                    }
+                    update_files_entries(&mut state, mount_path);
                 }
             }
             Key::M if state.selected_tab == Tab::Drives => {
@@ -401,7 +317,7 @@ impl rustine::gui::Application for MyApplication {
                     // Enter password mode for both mount and unmount
                     state.password_mode = true;
                     state.password_buffer.clear();
-                    state.mounting_index = Some(idx);
+                    state.drives_list.selected = Some(idx);
                 }
             }
             Key::M => {}
@@ -412,16 +328,16 @@ impl rustine::gui::Application for MyApplication {
                 // Clear password from memory
                 state.password_buffer.clear();
                 state.password_mode = false;
-                state.mounting_index = None;
+                state.drives_list.selected = None;
             }
             Key::ENTER => {}
             Key::ESCAPE if state.password_mode => {
                 // Cancel password entry
                 state.password_buffer.clear();
                 state.password_mode = false;
-                state.mounting_index = None;
+                state.drives_list.selected = None;
             }
-            Key::ESCAPE => {
+            Key::Q => {
                 gui.request_quit();
             }
             _ => {}
@@ -560,9 +476,9 @@ impl rustine::gui::Application for MyApplication {
 
                 // Draw password entry prompt if in password mode
                 if state.password_mode
-                    && let Some(mounting_idx) = state.mounting_index
+                    && let Some(selected_idx) = state.drives_list.selected
                 {
-                    let prompt_y = content_y + (mounting_idx as f32 * line_height)
+                    let prompt_y = content_y + (selected_idx as f32 * line_height)
                         - state.drives_list.scroll_offset;
                     let prompt_bg_color = 0x0D1117EEu32;
 
@@ -709,13 +625,34 @@ impl rustine::gui::Application for MyApplication {
             text_color,
             gfx::fonts::CASKAYDIAMONO_FONT_ID,
         );
+    }
+}
 
-        state.frame_index += 1;
+fn update_files_entries(state: &mut std::cell::RefMut<'_, MyApplicationState>, target: PathBuf) {
+    match files::get_contents(&target, state.show_hidden_files) {
+        Ok(entries) => {
+            state.files_dir = target.clone();
+            state.files_entries = entries;
+            state.files_list.selected = if state.files_entries.is_empty() {
+                None
+            } else if let Some(last_name) = state.folder_selection_map.get(&target) {
+                // Try to restore selection
+                state
+                    .files_entries
+                    .iter()
+                    .position(|e| &e.name == last_name)
+            } else {
+                Some(0)
+            };
+        }
+        Err(e) => {
+            log::error!("files::get_contents {} -> {}", target.display(), e)
+        }
     }
 }
 
 fn toggle_mount(state: &mut std::cell::RefMut<'_, MyApplicationState>) {
-    let Some(idx) = state.mounting_index else {
+    let Some(idx) = state.drives_list.selected else {
         return;
     };
     let Some(device) = state.devices.get(idx) else {
