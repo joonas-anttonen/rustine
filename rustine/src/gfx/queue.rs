@@ -7,11 +7,7 @@ use crate::{
     gfx::presentation::PresentationProvider,
 };
 
-use std::rc::Rc;
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-};
+use std::{collections::VecDeque, rc::Rc};
 
 pub enum SubmitStatus {
     Success,
@@ -21,8 +17,7 @@ pub enum SubmitStatus {
 }
 
 pub struct Queue {
-    queue_handle: Arc<Mutex<vk::VkQueue>>,
-    command_pool: Arc<CommandPool>,
+    command_pool: Rc<CommandPool>,
     available_commands: VecDeque<CommandBuffer>,
     queued_commands: VecDeque<CommandBuffer>,
 
@@ -46,9 +41,11 @@ impl Queue {
     }
 
     pub fn swap_presenter(&mut self, parameters: presentation::Parameters) {
+        // The idea here is to retrieve VkSwapchainKHR from old_presenter,
+        // while still keeping old_presenter alive until the new presenter is created
         let old_presenter = self.presentation_provider.take();
-        let old_swapchain = if old_presenter.is_some() {
-            old_presenter.as_ref().unwrap().handle()
+        let old_swapchain = if let Some(old_presenter) = &old_presenter {
+            old_presenter.handle()
         } else {
             vk::VkSwapchainKHR::default()
         };
@@ -61,10 +58,7 @@ impl Queue {
     }
 
     pub fn new(device: &Rc<Device>, concurrent_commands: u32) -> Self {
-        let family_index = device.general_queue_family_index();
-        let queue_handle = device.general_queue();
-
-        let command_pool = CommandPool::new(family_index, device);
+        let command_pool = CommandPool::new(device.general_queue_family_index(), device);
 
         let mut available_commands = VecDeque::new();
 
@@ -73,7 +67,6 @@ impl Queue {
         }
 
         Queue {
-            queue_handle,
             command_pool,
             available_commands,
             queued_commands: VecDeque::new(),
@@ -83,8 +76,7 @@ impl Queue {
     }
 
     pub fn wait_for_idle(&self) {
-        let locked_queue = self.queue_handle.lock().unwrap();
-        let result = unsafe { vk::vkQueueWaitIdle(*locked_queue) };
+        let result = unsafe { vk::vkQueueWaitIdle(*self.device.general_queue()) };
         match result {
             vk::VkResult::SUCCESS => {}
             _ => error!("Queue::wait_for_idle: {:?}", Status::from_code(result.0)),
@@ -274,8 +266,12 @@ impl Queue {
         };
 
         let result = unsafe {
-            let locked_queue = self.queue_handle.lock().unwrap();
-            vk::vkQueueSubmit(*locked_queue, 1, &submit_info, command_buffer.fence())
+            vk::vkQueueSubmit(
+                *self.device.general_queue(),
+                1,
+                &submit_info,
+                command_buffer.fence(),
+            )
         };
         match result {
             vk::VkResult::SUCCESS => SubmitStatus::Success,
@@ -305,10 +301,7 @@ impl Queue {
             pResults: std::ptr::null_mut(),
         };
 
-        let result = unsafe {
-            let locked_queue = self.queue_handle.lock().unwrap();
-            vk::vkQueuePresentKHR(*locked_queue, &present_info)
-        };
+        let result = unsafe { vk::vkQueuePresentKHR(*self.device.general_queue(), &present_info) };
         match result {
             vk::VkResult::SUCCESS => SubmitStatus::Success,
             vk::VkResult::SUBOPTIMAL_KHR => {

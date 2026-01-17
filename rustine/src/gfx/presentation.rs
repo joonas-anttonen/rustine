@@ -39,6 +39,15 @@ pub struct PresentationImage {
     pub acquire_semaphore: vk::VkSemaphore,
 }
 
+impl PresentationImage {
+    pub fn size(&self) -> crate::Vector2i {
+        crate::Vector2i {
+            x: self.width as i32,
+            y: self.height as i32,
+        }
+    }
+}
+
 pub trait PresentationProvider {
     fn method(&self) -> Method;
     fn image_count(&self) -> u32;
@@ -210,11 +219,7 @@ impl SwapchainProvider {
         self.swapchain_handle
     }
 
-    pub fn new(
-        device: &Rc<Device>,
-        params: Parameters,
-        old_swapchain: vk::VkSwapchainKHR,
-    ) -> Self {
+    pub fn new(device: &Rc<Device>, params: Parameters, old_swapchain: vk::VkSwapchainKHR) -> Self {
         let physical_device = device.physical_device();
         let surface_handle = vk::VkSurfaceKHR(params.surface_handle);
 

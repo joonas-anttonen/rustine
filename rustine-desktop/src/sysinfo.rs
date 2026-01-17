@@ -257,35 +257,11 @@ fn probe_filesystem(dev_path: &str) -> Option<String> {
     // Preferred: lsblk (usually non-root)
     if let Ok(output) = Command::new("lsblk")
         .args(["-d", "-no", "FSTYPE", dev_path])
-        .output()
+        .output() && output.status.success()
     {
-        if output.status.success() {
-            let s = String::from_utf8_lossy(&output.stdout);
-            if let Some(first) = s.lines().map(str::trim).find(|l| !l.is_empty()) {
-                return Some(first.to_string());
-            }
-        }
-    }
-
-    // Fallback: blkid (may require elevated permissions on some systems)
-    if let Ok(output) = Command::new("blkid")
-        .args([
-            "-p",
-            "-c",
-            "/dev/null",
-            "-o",
-            "value",
-            "-s",
-            "TYPE",
-            dev_path,
-        ])
-        .output()
-    {
-        if output.status.success() {
-            let s = String::from_utf8_lossy(&output.stdout);
-            if let Some(first) = s.lines().map(str::trim).find(|l| !l.is_empty()) {
-                return Some(first.to_string());
-            }
+        let s = String::from_utf8_lossy(&output.stdout);
+        if let Some(first) = s.lines().map(str::trim).find(|l| !l.is_empty()) {
+            return Some(first.to_string());
         }
     }
 

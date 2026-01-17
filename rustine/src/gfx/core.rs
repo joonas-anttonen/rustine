@@ -697,7 +697,7 @@ impl Gfx {
             if let Some(frame) = &cached_frame {
                 for batch in &frame.batches {
                     for draw_cmd in &batch.commands {
-                        let scissor = draw_cmd.scissor.unwrap_or_else(|| render_area);
+                        let scissor = draw_cmd.scissor.unwrap_or(render_area);
                         cmd.set_scissor(&scissor);
 
                         let mut sampler = linear_sampler.clone();

@@ -186,8 +186,8 @@ fn generate_render_frame(
     let content_h = h - TOP_BAR_HEIGHT;
     let half_content_w = content_w / 2.0;
 
-    let color = 0xFFFFFF_FFu32;
-    let bar_color = 0x1B232F_FFu32;
+    let color = 0xFFFFFFFFu32;
+    let bar_color = 0x1B232FFFu32;
     let address_bar_color = 0xFFFFFF7Fu32;
 
     // Draw top bar (48 pixels tall)

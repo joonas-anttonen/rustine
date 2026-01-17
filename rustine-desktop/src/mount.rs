@@ -1,7 +1,17 @@
-use std::{ffi::CString, fs, process::{Command, Stdio}, io::Write};
+use std::{
+    ffi::CString,
+    fs,
+    io::Write,
+    process::{Command, Stdio},
+};
 
 /// Mount a filesystem using sudo with password
-pub fn mount_with_sudo(device: &str, target: &str, fstype: &str, password: &str) -> Result<(), MountError> {
+pub fn mount_with_sudo(
+    device: &str,
+    target: &str,
+    fstype: &str,
+    password: &str,
+) -> Result<(), MountError> {
     // Create mount point directory using sudo
     let mut mkdir_status = Command::new("sudo")
         .arg("-S")
@@ -12,19 +22,18 @@ pub fn mount_with_sudo(device: &str, target: &str, fstype: &str, password: &str)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| MountError::Other(e))?;
+        .map_err(MountError::Other)?;
 
     if let Some(mut stdin) = mkdir_status.stdin.take() {
-        writeln!(stdin, "{}", password).map_err(|e| MountError::Other(e))?;
+        writeln!(stdin, "{}", password).map_err(MountError::Other)?;
     }
 
-    let mkdir_output = mkdir_status.wait_with_output().map_err(|e| MountError::Other(e))?;
-    
+    let mkdir_output = mkdir_status.wait_with_output().map_err(MountError::Other)?;
+
     if !mkdir_output.status.success() {
-        return Err(MountError::DirectoryCreationFailed(
-            std::io::Error::new(std::io::ErrorKind::Other, 
-                String::from_utf8_lossy(&mkdir_output.stderr).to_string())
-        ));
+        return Err(MountError::DirectoryCreationFailed(std::io::Error::other(
+            String::from_utf8_lossy(&mkdir_output.stderr).to_string(),
+        )));
     }
 
     // Mount using sudo
@@ -39,22 +48,22 @@ pub fn mount_with_sudo(device: &str, target: &str, fstype: &str, password: &str)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| MountError::Other(e))?;
+        .map_err(MountError::Other)?;
 
     if let Some(mut stdin) = mount_status.stdin.take() {
-        writeln!(stdin, "{}", password).map_err(|e| MountError::Other(e))?;
+        writeln!(stdin, "{}", password).map_err(MountError::Other)?;
     }
 
-    let mount_output = mount_status.wait_with_output().map_err(|e| MountError::Other(e))?;
-    
+    let mount_output = mount_status.wait_with_output().map_err(MountError::Other)?;
+
     if !mount_output.status.success() {
         let stderr = String::from_utf8_lossy(&mount_output.stderr);
         if stderr.contains("Permission denied") || stderr.contains("incorrect password") {
             return Err(MountError::PermissionDenied);
         }
-        return Err(MountError::MountFailed(
-            std::io::Error::new(std::io::ErrorKind::Other, stderr.to_string())
-        ));
+        return Err(MountError::MountFailed(std::io::Error::other(
+            stderr.to_string(),
+        )));
     }
 
     Ok(())
@@ -70,22 +79,24 @@ pub fn umount_with_sudo(target: &str, password: &str) -> Result<(), MountError> 
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| MountError::Other(e))?;
+        .map_err(MountError::Other)?;
 
     if let Some(mut stdin) = umount_status.stdin.take() {
-        writeln!(stdin, "{}", password).map_err(|e| MountError::Other(e))?;
+        writeln!(stdin, "{}", password).map_err(MountError::Other)?;
     }
 
-    let umount_output = umount_status.wait_with_output().map_err(|e| MountError::Other(e))?;
-    
+    let umount_output = umount_status
+        .wait_with_output()
+        .map_err(MountError::Other)?;
+
     if !umount_output.status.success() {
         let stderr = String::from_utf8_lossy(&umount_output.stderr);
         if stderr.contains("Permission denied") || stderr.contains("incorrect password") {
             return Err(MountError::PermissionDenied);
         }
-        return Err(MountError::UmountFailed(
-            std::io::Error::new(std::io::ErrorKind::Other, stderr.to_string())
-        ));
+        return Err(MountError::UmountFailed(std::io::Error::other(
+            stderr.to_string(),
+        )));
     }
 
     Ok(())
@@ -94,13 +105,10 @@ pub fn umount_with_sudo(target: &str, password: &str) -> Result<(), MountError> 
 /// Mount a filesystem using libc mount syscall
 pub fn mount(device: &str, target: &str, fstype: &str) -> Result<(), MountError> {
     // Create mount point if it doesn't exist
-    fs::create_dir_all(target)
-        .map_err(|e| {
-            match e.kind() {
-                std::io::ErrorKind::PermissionDenied => MountError::PermissionDenied,
-                _ => MountError::DirectoryCreationFailed(e),
-            }
-        })?;
+    fs::create_dir_all(target).map_err(|e| match e.kind() {
+        std::io::ErrorKind::PermissionDenied => MountError::PermissionDenied,
+        _ => MountError::DirectoryCreationFailed(e),
+    })?;
 
     let device_c = CString::new(device)
         .map_err(|_| MountError::InvalidPath("device path contains null byte".into()))?;
@@ -114,8 +122,8 @@ pub fn mount(device: &str, target: &str, fstype: &str) -> Result<(), MountError>
             device_c.as_ptr(),
             target_c.as_ptr(),
             fstype_c.as_ptr(),
-            0,  // flags
-            std::ptr::null(),  // data
+            0,                // flags
+            std::ptr::null(), // data
         );
 
         if ret != 0 {
@@ -215,11 +223,17 @@ impl std::fmt::Display for MountError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             MountError::InvalidPath(msg) => write!(f, "Invalid path: {}", msg),
-            MountError::PermissionDenied => write!(f, "Permission denied: requires root privileges"),
+            MountError::PermissionDenied => {
+                write!(f, "Permission denied: requires root privileges")
+            }
             MountError::DeviceNotFound => write!(f, "Device not found"),
             MountError::NotFound => write!(f, "Mount point not found"),
-            MountError::UnsupportedFilesystem => write!(f, "Unsupported or unrecognized filesystem type"),
-            MountError::DirectoryCreationFailed(err) => write!(f, "Failed to create mount point: {}", err),
+            MountError::UnsupportedFilesystem => {
+                write!(f, "Unsupported or unrecognized filesystem type")
+            }
+            MountError::DirectoryCreationFailed(err) => {
+                write!(f, "Failed to create mount point: {}", err)
+            }
             MountError::MountFailed(err) => write!(f, "Mount failed: {}", err),
             MountError::UmountFailed(err) => write!(f, "Unmount failed: {}", err),
             MountError::Other(err) => write!(f, "Mount operation failed: {}", err),

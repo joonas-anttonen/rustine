@@ -9,7 +9,6 @@ use core::ffi;
 
 /// Wraps a Vulkan function call and converts the result to `gfx::Result`.
 #[macro_export]
-#[allow(clippy::macro_metavars_in_unsafe)]
 macro_rules! vk_call {
     ($expr:expr) => {{
         let res = unsafe { $expr };
@@ -2113,28 +2112,6 @@ pub union VkClearColorValue {
     pub float32: [f32; 4],
     pub int32: [i32; 4],
     pub uint32: [u32; 4],
-}
-
-impl VkClearColorValue {
-    pub fn from_f32(v: [f32; 4]) -> Self {
-        Self { float32: v }
-    }
-    pub fn from_i32(v: [i32; 4]) -> Self {
-        Self { int32: v }
-    }
-    pub fn from_u32(v: [u32; 4]) -> Self {
-        Self { uint32: v }
-    }
-
-    pub unsafe fn as_f32(&self) -> &[f32; 4] {
-        unsafe { &self.float32 }
-    }
-    pub unsafe fn as_i32(&self) -> &[i32; 4] {
-        unsafe { &self.int32 }
-    }
-    pub unsafe fn as_u32(&self) -> &[u32; 4] {
-        unsafe { &self.uint32 }
-    }
 }
 
 #[repr(C)]

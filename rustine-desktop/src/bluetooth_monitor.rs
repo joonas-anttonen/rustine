@@ -183,7 +183,7 @@ fn extract_bt_address(event: &udev::Event) -> Option<String> {
     }
 
     // Last resort: use the last component of syspath
-    Some(syspath.split('/').last().unwrap_or("unknown").to_string())
+    Some(syspath.split('/').next_back().unwrap_or("unknown").to_string())
 }
 
 /// Check if a string looks like a Bluetooth MAC address

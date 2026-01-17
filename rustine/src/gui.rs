@@ -7,6 +7,7 @@ use crate::gfx::{self, presentation, vulkan as vk};
 use crate::*;
 use crate::{debug, warning};
 
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -70,7 +71,7 @@ impl GuiBuilder {
     }
 
     /// Builds the `Gui` instance.
-    pub fn build(self, gfx: Arc<Mutex<gfx::Gfx>>, application: Box<dyn Application>) -> Arc<Gui> {
+    pub fn build(self, gfx: Arc<Mutex<gfx::Gfx>>, application: Box<dyn Application>) -> Rc<Gui> {
         Gui::new(gfx, application, self.params)
     }
 }
@@ -221,7 +222,7 @@ impl Gui {
         gfx: Arc<Mutex<gfx::Gfx>>,
         application: Box<dyn Application>,
         parameters: Parameters,
-    ) -> Arc<Self> {
+    ) -> Rc<Self> {
         if parameters.platform != Platform::Wayland {
             panic!("Unsupported platform");
         }
@@ -342,7 +343,7 @@ impl Gui {
             .instance()
             .create_wayland_surface(wl_output as *const _, wl_surface as *const _);
 
-        let gui = Arc::new(Self {
+        let gui = Rc::new(Self {
             gfx,
             gfx_surface,
             rwl_window,
@@ -351,7 +352,7 @@ impl Gui {
         });
 
         unsafe {
-            let gui_raw_ptr = Arc::as_ptr(&gui);
+            let gui_raw_ptr = Rc::as_ptr(&gui);
             ffi::panic_if_error(ffi::rwlSetWindowUserPointer(
                 gui.rwl_window,
                 gui_raw_ptr as *const _,

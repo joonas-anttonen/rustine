@@ -81,6 +81,7 @@ impl Default for AutoResetEvent {
     }
 }
 
+pub type Vector2i = Vector2<i32>;
 pub type Vector2u = Vector2<u32>;
 pub type Vector2f = Vector2<f32>;
 

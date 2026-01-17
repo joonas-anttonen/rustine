@@ -82,6 +82,10 @@ impl PixelBuffer {
         self.height
     }
 
+    pub fn size(&self) -> crate::Vector2i {
+        crate::Vector2i { x: self.width as i32, y: self.height as i32 }
+    }
+
     pub fn format(&self) -> crate::gfx::Format {
         self.format
     }

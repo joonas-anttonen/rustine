@@ -28,24 +28,8 @@ fn install_signal_handlers() {
     }
 }
 
-struct Arguments {}
-fn parse_arguments() -> Option<Arguments> {
-    let args = std::env::args().collect::<Vec<_>>();
-    if args.len() > 1 {
-        None
-    } else {
-        Some(Arguments {})
-    }
-}
-
 fn main() -> std::process::ExitCode {
     install_signal_handlers();
-
-    let args = parse_arguments();
-    if args.is_none() {
-        eprintln!("Usage: {}", "");
-        return std::process::ExitCode::from(1);
-    }
 
     log::set_current_thread_name("main");
     log::add_listener(log::ConsoleListener::new(true));

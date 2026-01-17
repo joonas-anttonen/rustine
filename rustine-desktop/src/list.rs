@@ -98,10 +98,7 @@ impl ListState {
 /// The `start_y` parameter is adjusted by the list's scroll offset.
 pub fn render_list<F>(
     frame: &mut RenderFrame,
-    content_x: f32,
-    content_w: f32,
-    content_y: f32,
-    content_h: f32,
+    content: Rectangle,
     line_height: f32,
     highlight_color: u32,
     selected: Option<usize>,
@@ -112,20 +109,15 @@ pub fn render_list<F>(
     F: FnMut(&mut RenderFrame, usize, f32, bool),
 {
     // Push scissor to clip content to the viewport
-    frame.push_scissor(Rectangle {
-        x: content_x,
-        y: content_y,
-        w: content_w,
-        h: content_h,
-    });
+    frame.push_scissor(content);
 
-    let adjusted_y = content_y - scroll_offset;
+    let adjusted_y = content.y - scroll_offset;
 
     for idx in 0..count {
         let y = adjusted_y + idx as f32 * line_height;
 
         // Skip items that are completely outside the viewport
-        if y + line_height < content_y || y > content_y + content_h {
+        if y + line_height < content.y || y > content.y + content.h {
             continue;
         }
 
@@ -134,9 +126,9 @@ pub fn render_list<F>(
         if is_selected {
             frame.fill_rectangle(
                 &Rectangle {
-                    x: content_x,
+                    x: content.x,
                     y,
-                    w: content_w,
+                    w: content.w,
                     h: line_height,
                 },
                 highlight_color,
@@ -148,17 +140,16 @@ pub fn render_list<F>(
 
     // Draw scrollbar if not all items fit in view
     let total_height = count as f32 * line_height;
-    if total_height > content_h {
+    if total_height > content.h {
         const SCROLLBAR_WIDTH: f32 = 2.0;
         const SCROLLBAR_MARGIN: f32 = 2.0;
-        const SCROLLBAR_COLOR: u32 = 0xFFFFFF_FFu32;
+        const SCROLLBAR_COLOR: u32 = 0xFFFFFFFFu32;
 
-        let scrollbar_x = content_x + content_w - SCROLLBAR_WIDTH - SCROLLBAR_MARGIN;
+        let scrollbar_x = content.x + content.w - SCROLLBAR_WIDTH - SCROLLBAR_MARGIN;
 
         // Calculate scrollbar position and height
-        let scrollbar_height = (content_h / total_height) * content_h;
-        let scrollbar_y = content_y + (scroll_offset / total_height) * content_h;
-
+        let scrollbar_height = (content.h / total_height) * content.h;
+        let scrollbar_y = content.y + (scroll_offset / total_height) * content.h;
         frame.fill_rectangle(
             &Rectangle {
                 x: scrollbar_x,

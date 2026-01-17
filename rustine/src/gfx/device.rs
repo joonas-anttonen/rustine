@@ -1,9 +1,6 @@
 #![allow(dead_code)]
 
-use std::{
-    collections, ptr,
-    sync::{Arc, Mutex},
-};
+use std::{collections, ptr};
 
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
 use crate::{vk_call, vk_next, warning};
@@ -176,9 +173,7 @@ impl PhysicalDevice {
 pub struct Device {
     device_properties: DeviceProperties,
     general_queue_family_index: u32,
-    transfer_queue_family_index: u32,
-    general_queue_handle: Arc<Mutex<vk::VkQueue>>,
-    transfer_queue_handle: Arc<Mutex<vk::VkQueue>>,
+    general_queue_handle: vk::VkQueue,
     handle: vk::VkDevice,
     physical_device: PhysicalDevice,
 }
@@ -204,15 +199,9 @@ impl Device {
     pub fn general_queue_family_index(&self) -> u32 {
         self.general_queue_family_index
     }
-    pub fn transfer_queue_family_index(&self) -> u32 {
-        self.transfer_queue_family_index
-    }
 
-    pub fn general_queue(&self) -> Arc<Mutex<vk::VkQueue>> {
-        Arc::clone(&self.general_queue_handle)
-    }
-    pub fn transfer_queue(&self) -> Arc<Mutex<vk::VkQueue>> {
-        Arc::clone(&self.transfer_queue_handle)
+    pub fn general_queue(&self) -> &vk::VkQueue {
+        &self.general_queue_handle
     }
 
     pub(crate) fn new(
@@ -394,36 +383,15 @@ impl Device {
 
         let general_queue_handle = unsafe {
             let mut queue_handle = vk::VkQueue::default();
-            vk::vkGetDeviceQueue(
-                handle,
-                general_queue_family_index,
-                0,
-                &mut queue_handle,
-            );
-            Arc::new(Mutex::new(queue_handle))
-        };
-        let transfer_queue_handle = if transfer_queue_family_index != general_queue_family_index {
-            unsafe {
-                let mut queue_handle = vk::VkQueue::default();
-                vk::vkGetDeviceQueue(
-                    handle,
-                    transfer_queue_family_index,
-                    0,
-                    &mut queue_handle,
-                );
-                Arc::new(Mutex::new(queue_handle))
-            }
-        } else {
-            Arc::clone(&general_queue_handle)
+            vk::vkGetDeviceQueue(handle, general_queue_family_index, 0, &mut queue_handle);
+            queue_handle
         };
 
         Ok(Device {
             handle,
             physical_device,
             general_queue_family_index,
-            transfer_queue_family_index,
             general_queue_handle,
-            transfer_queue_handle,
             device_properties,
         })
     }

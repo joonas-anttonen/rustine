@@ -281,7 +281,7 @@ fn build_shaders(shaders_dir: &Path, out_dir: &Path) {
     module_code.push_str("    match id {\n");
     for (name, id, stages) in &shader_info {
         module_code.push_str(&format!("        {} => {{\n", id));
-        module_code.push_str(&format!("            let mut stages = Vec::new();\n"));
+        module_code.push_str("            let mut stages = Vec::new();\n");
         for stage_name in stages {
             let const_name = format!("{}_{}", name.to_uppercase(), stage_name.to_uppercase());
             let stage_enum = match stage_name.as_str() {
@@ -505,7 +505,7 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
         let width_const = format!("{}_ATLAS_WIDTH", font_name.to_uppercase());
         let height_const = format!("{}_ATLAS_HEIGHT", font_name.to_uppercase());
         module_code.push_str(&format!(
-            "        {} => Some(FontAtlasData {{\n            texture_id: {},\n            atlas_data: &{},\n            width: {},\n            height: {},\n        }}),\n",
+            "        {} => Some(FontAtlasData {{\n            texture_id: {},\n            atlas_data: {},\n            width: {},\n            height: {},\n        }}),\n",
             id, id, atlas_const, width_const, height_const
         ));
     }
@@ -536,7 +536,7 @@ fn build_bitmap_fonts(project_dir: &Path, out_dir: &Path) {
     module_code.push_str("    match font_id {\n");
     for (font_name, id) in font_info.iter() {
         let metrics_const = format!("{}_METRICS", font_name.to_uppercase());
-        module_code.push_str(&format!("        {} => Some(&{}),\n", id, metrics_const));
+        module_code.push_str(&format!("        {} => Some({}),\n", id, metrics_const));
     }
     module_code.push_str("        _ => None,\n");
     module_code.push_str("    }\n");

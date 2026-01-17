@@ -116,6 +116,12 @@ impl MyApplication {
     }
 }
 
+impl Default for MyApplication {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Drop for MyApplication {
     fn drop(&mut self) {
         self.exit_flag
@@ -172,15 +178,13 @@ impl rustine::gui::Application for MyApplication {
                 state.files_entries = entries;
                 state.files_list.selected = if state.files_entries.is_empty() {
                     None
+                } else if let Some(last_name) = state.folder_selection_map.get(&state.files_dir) {
+                    state
+                        .files_entries
+                        .iter()
+                        .position(|e| &e.name == last_name)
                 } else {
-                    if let Some(last_name) = state.folder_selection_map.get(&state.files_dir) {
-                        state
-                            .files_entries
-                            .iter()
-                            .position(|e| &e.name == last_name)
-                    } else {
-                        Some(0)
-                    }
+                    Some(0)
                 };
             }
             Err(e) => log::error!("Failed to get directory contents: {}", e),
@@ -458,11 +462,11 @@ impl rustine::gui::Application for MyApplication {
         let content_w = w;
         let content_h = h - TOP_BAR_HEIGHT - STATUS_BAR_HEIGHT;
 
-        let bar_color = 0x1B232F_FFu32;
-        let bg_color = 0x1B232F_FFu32;
-        let text_color = 0xFFFFFF_FFu32;
-        let mounted_color = 0x3FB950_FFu32;
-        let unmounted_color = 0x79C0FF_FFu32;
+        let bar_color = 0x1B232FFFu32;
+        let bg_color = 0x1B232FFFu32;
+        let text_color = 0xFFFFFFFFu32;
+        let mounted_color = 0x3FB950FFu32;
+        let unmounted_color = 0x79C0FFFFu32;
 
         // Fill background
         frame.fill_rectangle(
@@ -487,9 +491,9 @@ impl rustine::gui::Application for MyApplication {
         );
 
         // Draw tab hotkey indicators and titles in top bar
-        let hotkey_selected_bg_color = 0x3FB950_FFu32;
-        let hotkey_inactive_bg_color = 0x21262D_FFu32;
-        let hotkey_text_color = 0x0D1117_FFu32;
+        let hotkey_selected_bg_color = 0x3FB950FFu32;
+        let hotkey_inactive_bg_color = 0x21262DFFu32;
+        let hotkey_text_color = 0x0D1117FFu32;
         let tabs = [Tab::Drives, Tab::Files];
         let hotkey_padding = 6.0;
         let hotkey_height = line_height;
@@ -545,7 +549,7 @@ impl rustine::gui::Application for MyApplication {
             tab_x += hotkey_width + title_width + 28.0;
         }
 
-        let highlight_color = 0x21262D_FFu32;
+        let highlight_color = 0x21262DFFu32;
 
         // Update scroll offsets to keep selected items in view
         state.drives_list.update_scroll(line_height, content_h);
@@ -553,12 +557,15 @@ impl rustine::gui::Application for MyApplication {
 
         match state.selected_tab {
             Tab::Drives => {
+                let content = gfx::Rectangle {
+                    x: content_x,
+                    y: content_y,
+                    w: content_w,
+                    h: content_h,
+                };
                 list::render_list(
                     frame,
-                    content_x,
-                    content_w,
-                    content_y,
-                    content_h,
+                    content,
                     line_height,
                     highlight_color,
                     state.drives_list.selected,
@@ -584,8 +591,7 @@ impl rustine::gui::Application for MyApplication {
                             } else {
                                 let fs_str = device
                                     .fs_type
-                                    .as_ref()
-                                    .map(|s| s.as_str())
+                                    .as_deref()
                                     .unwrap_or("unknown");
                                 let text = format!("{} ({}) ({})", device.path, size_str, fs_str);
                                 (unmounted_color, text)
@@ -619,7 +625,7 @@ impl rustine::gui::Application for MyApplication {
                 {
                     let prompt_y = content_y + (mounting_idx as f32 * line_height)
                         - state.drives_list.scroll_offset;
-                    let prompt_bg_color = 0x0D1117_EEu32;
+                    let prompt_bg_color = 0x0D1117EEu32;
 
                     frame.fill_rectangle(
                         &gfx::Rectangle {
@@ -651,13 +657,17 @@ impl rustine::gui::Application for MyApplication {
                 };
                 let list_width = content_w - preview_width;
 
+                let content = gfx::Rectangle {
+                    x: content_x,
+                    y: content_y,
+                    w: list_width,
+                    h: content_h,
+                };
+
                 // Render the file list
                 list::render_list(
                     frame,
-                    content_x,
-                    list_width,
-                    content_y,
-                    content_h,
+                    content,
                     line_height,
                     highlight_color,
                     state.files_list.selected,
@@ -669,7 +679,7 @@ impl rustine::gui::Application for MyApplication {
                                 files::EntryType::Directory => unmounted_color,
                                 files::EntryType::File => text_color,
                                 files::EntryType::Symlink => mounted_color,
-                                files::EntryType::Other => 0x8B949E_FFu32,
+                                files::EntryType::Other => 0x8B949EFFu32,
                             };
 
                             frame.fill_rectangle(
@@ -697,8 +707,8 @@ impl rustine::gui::Application for MyApplication {
                 // Render the preview panel if open
                 if state.files_preview_open {
                     let preview_x = content_x + list_width;
-                    let preview_panel_bg_color = 0x0D1117_FFu32;
-                    let preview_border_color = 0x30363D_FFu32;
+                    let preview_panel_bg_color = 0x0D1117FFu32;
+                    let preview_border_color = 0x30363DFFu32;
 
                     // Draw preview panel background
                     frame.fill_rectangle(
@@ -742,7 +752,7 @@ impl rustine::gui::Application for MyApplication {
                                 h: image_area_h,
                             },
                             gfx::Fit::FIT_KEEP_ASPECT,
-                            0xFFFFFF_FFu32,
+                            0xFFFFFFFFu32,
                         );
                     } else {
                         let preview_text = "No preview";
@@ -751,7 +761,7 @@ impl rustine::gui::Application for MyApplication {
                             preview_x + 10.0,
                             content_y + 20.0,
                             1.0,
-                            0x6E7681_FFu32,
+                            0x6E7681FFu32,
                             gfx::fonts::CASKAYDIAMONO_FONT_ID,
                         );
                     }
@@ -760,7 +770,7 @@ impl rustine::gui::Application for MyApplication {
         }
 
         // Status bar at the bottom
-        let status_bar_color = 0x161B22_FFu32;
+        let status_bar_color = 0x161B22FFu32;
         let status_text = match state.selected_tab {
             Tab::Files => format!("{} | TAB toggle preview", state.files_dir.display()),
             Tab::Drives => "↑/↓ select | M mount/unmount | E open".to_string(),
@@ -810,12 +820,11 @@ fn toggle_mount(state: &mut std::cell::RefMut<'_, MyApplicationState>) {
         }
     } else {
         // Mount
-        let drive_name = device.path.split('/').last().unwrap_or("drive");
+        let drive_name = device.path.split('/').next_back().unwrap_or("drive");
         let mount_path = format!("/media/{}", drive_name);
         let fs_type = device
             .fs_type
-            .as_ref()
-            .map(|s| s.as_str())
+            .as_deref()
             .unwrap_or("auto");
 
         match mount::mount_with_sudo(&device.path, &mount_path, fs_type, &state.password_buffer) {

@@ -122,38 +122,38 @@ impl UdevSwitchMonitor {
             if let Some(event) = socket.iter().next() {
                 let event_type = event.event_type();
                 let device = event.device();
-                
+
                 // Only process switch devices
                 if !is_switch_device(&device) {
                     continue;
                 }
-                
+
                 match event_type {
                     udev::EventType::Add => {
                         if let Some(switch_type) = detect_switch_type(&device) {
                             let properties = extract_switch_properties(&event);
-                            
-                            if let Ok(cb_lock) = callback.lock() {
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(SwitchEvent::Added {
-                                        switch_type,
-                                        properties,
-                                    });
-                                }
+
+                            if let Ok(cb_lock) = callback.lock()
+                                && let Some(cb) = cb_lock.as_ref()
+                            {
+                                cb(SwitchEvent::Added {
+                                    switch_type,
+                                    properties,
+                                });
                             }
                         }
                     }
                     udev::EventType::Remove => {
                         if let Some(switch_type) = detect_switch_type(&device) {
                             let syspath = event.syspath().to_string_lossy().to_string();
-                            
-                            if let Ok(cb_lock) = callback.lock() {
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(SwitchEvent::Removed {
-                                        switch_type,
-                                        syspath,
-                                    });
-                                }
+
+                            if let Ok(cb_lock) = callback.lock()
+                                && let Some(cb) = cb_lock.as_ref()
+                            {
+                                cb(SwitchEvent::Removed {
+                                    switch_type,
+                                    syspath,
+                                });
                             }
                         }
                     }
@@ -161,15 +161,15 @@ impl UdevSwitchMonitor {
                         if let Some(switch_type) = detect_switch_type(&device) {
                             let properties = extract_switch_properties(&event);
                             let state = read_switch_state(&device, &switch_type);
-                            
-                            if let Ok(cb_lock) = callback.lock() {
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(SwitchEvent::Changed {
-                                        switch_type,
-                                        state,
-                                        properties,
-                                    });
-                                }
+
+                            if let Ok(cb_lock) = callback.lock()
+                                && let Some(cb) = cb_lock.as_ref()
+                            {
+                                cb(SwitchEvent::Changed {
+                                    switch_type,
+                                    state,
+                                    properties,
+                                });
                             }
                         }
                     }
@@ -189,146 +189,128 @@ impl Default for UdevSwitchMonitor {
 /// Check if a device is a switch device
 fn is_switch_device(device: &udev::Device) -> bool {
     // Check for EV_SW capability
-    if let Some(capabilities) = device.attribute_value("capabilities/sw") {
-        if let Some(cap_str) = capabilities.to_str() {
-            // If it has any switch capabilities, it's a switch device
-            return !cap_str.trim().is_empty() && cap_str.trim() != "0";
-        }
+    if let Some(capabilities) = device.attribute_value("capabilities/sw")
+        && let Some(cap_str) = capabilities.to_str()
+    {
+        // If it has any switch capabilities, it's a switch device
+        return !cap_str.trim().is_empty() && cap_str.trim() != "0";
     }
-    
+
     // Also check if name contains "lid" or other switch keywords
-    if let Some(name) = device.property_value("NAME") {
-        if let Some(name_str) = name.to_str() {
-            let name_lower = name_str.to_lowercase();
-            return name_lower.contains("lid")
-                || name_lower.contains("switch")
-                || name_lower.contains("tablet");
-        }
+    if let Some(name) = device.property_value("NAME")
+        && let Some(name_str) = name.to_str()
+    {
+        let name_lower = name_str.to_lowercase();
+        return name_lower.contains("lid")
+            || name_lower.contains("switch")
+            || name_lower.contains("tablet");
     }
-    
+
     false
 }
 
 /// Detect the type of switch from device properties
 fn detect_switch_type(device: &udev::Device) -> Option<SwitchType> {
     // Check device name first
-    if let Some(name) = device.property_value("NAME") {
-        if let Some(name_str) = name.to_str() {
-            let name_lower = name_str.to_lowercase();
-            
-            if name_lower.contains("lid") {
-                return Some(SwitchType::Lid);
-            }
-            if name_lower.contains("tablet") || name_lower.contains("tablet mode") {
-                return Some(SwitchType::TabletMode);
-            }
-            if name_lower.contains("headphone") {
-                return Some(SwitchType::Headphone);
-            }
-            if name_lower.contains("microphone") || name_lower.contains("mic") {
-                return Some(SwitchType::Microphone);
-            }
-            if name_lower.contains("lineout") || name_lower.contains("line out") {
-                return Some(SwitchType::LineOut);
-            }
-            if name_lower.contains("linein") || name_lower.contains("line in") {
-                return Some(SwitchType::LineIn);
-            }
-            if name_lower.contains("video") {
-                return Some(SwitchType::VideoOut);
-            }
-            if name_lower.contains("camera") || name_lower.contains("lens") {
-                return Some(SwitchType::CameraLensCover);
-            }
-            if name_lower.contains("rotate") {
-                return Some(SwitchType::RotateLock);
-            }
-            if name_lower.contains("mute") {
-                return Some(SwitchType::Mute);
-            }
-            
-            return Some(SwitchType::Unknown(name_str.to_string()));
+    if let Some(name) = device.property_value("NAME")
+        && let Some(name_str) = name.to_str()
+    {
+        let name_lower = name_str.to_lowercase();
+
+        if name_lower.contains("lid") {
+            return Some(SwitchType::Lid);
         }
+        if name_lower.contains("tablet") || name_lower.contains("tablet mode") {
+            return Some(SwitchType::TabletMode);
+        }
+        if name_lower.contains("headphone") {
+            return Some(SwitchType::Headphone);
+        }
+        if name_lower.contains("microphone") || name_lower.contains("mic") {
+            return Some(SwitchType::Microphone);
+        }
+        if name_lower.contains("lineout") || name_lower.contains("line out") {
+            return Some(SwitchType::LineOut);
+        }
+        if name_lower.contains("linein") || name_lower.contains("line in") {
+            return Some(SwitchType::LineIn);
+        }
+        if name_lower.contains("video") {
+            return Some(SwitchType::VideoOut);
+        }
+        if name_lower.contains("camera") || name_lower.contains("lens") {
+            return Some(SwitchType::CameraLensCover);
+        }
+        if name_lower.contains("rotate") {
+            return Some(SwitchType::RotateLock);
+        }
+        if name_lower.contains("mute") {
+            return Some(SwitchType::Mute);
+        }
+
+        return Some(SwitchType::Unknown(name_str.to_string()));
     }
-    
+
     // If we have switch capabilities but unknown type
     if is_switch_device(device) {
         return Some(SwitchType::Unknown("unidentified".to_string()));
     }
-    
+
     None
 }
 
 /// Read the current state of a switch
 fn read_switch_state(device: &udev::Device, switch_type: &SwitchType) -> SwitchState {
     // Try to read state from sysfs attributes
-    if let Some(state_attr) = device.attribute_value("state") {
-        if let Some(state_str) = state_attr.to_str() {
-            return match state_str.trim() {
-                "0" => SwitchState::Off,
-                "1" => SwitchState::On,
-                _ => SwitchState::Unknown,
-            };
-        }
+    if let Some(state_attr) = device.attribute_value("state")
+        && let Some(state_str) = state_attr.to_str()
+    {
+        return match state_str.trim() {
+            "0" => SwitchState::Off,
+            "1" => SwitchState::On,
+            _ => SwitchState::Unknown,
+        };
     }
-    
+
     // For lid switches, try to read from ACPI
     if matches!(switch_type, SwitchType::Lid) {
         // The actual state might be in /proc/acpi/button/lid/*/state
         // but we can't easily read that from udev context
         // The change event itself usually indicates the state changed
     }
-    
+
     SwitchState::Unknown
 }
 
 /// Extract properties from a switch udev event
 fn extract_switch_properties(event: &udev::Event) -> SwitchProperties {
     let device = event.device();
-    
-    let name = device.property_value("NAME")
+
+    let name = device
+        .property_value("NAME")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let phys = device.property_value("PHYS")
+
+    let phys = device
+        .property_value("PHYS")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let devnode = device.devnode()
+
+    let devnode = device
+        .devnode()
         .and_then(|p| p.to_str())
         .map(|s| s.to_string());
-    
-    let switch_states = device.attribute_value("capabilities/sw")
+
+    let switch_states = device
+        .attribute_value("capabilities/sw")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
+
     SwitchProperties {
         syspath: device.syspath().to_string_lossy().to_string(),
         name,
         phys,
         devnode,
         switch_states,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_switch_type_equality() {
-        assert_eq!(SwitchType::Lid, SwitchType::Lid);
-        assert_ne!(SwitchType::Lid, SwitchType::TabletMode);
-        assert_eq!(
-            SwitchType::Unknown("test".to_string()),
-            SwitchType::Unknown("test".to_string())
-        );
-    }
-
-    #[test]
-    fn test_switch_state_equality() {
-        assert_eq!(SwitchState::On, SwitchState::On);
-        assert_eq!(SwitchState::Off, SwitchState::Off);
-        assert_ne!(SwitchState::On, SwitchState::Off);
     }
 }

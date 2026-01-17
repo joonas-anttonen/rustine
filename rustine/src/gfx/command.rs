@@ -3,9 +3,7 @@
 use crate::{error, vk_call, warning};
 use crate::{gfx::pipeline::*, gfx::vulkan as vk, gfx::*};
 
-use std::collections::HashSet;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{collections::HashSet, rc::Rc};
 
 pub struct CommandPool {
     handle: vk::VkCommandPool,
@@ -22,7 +20,7 @@ impl Drop for CommandPool {
 }
 
 impl CommandPool {
-    pub fn new(family_index: u32, device: &Rc<Device>) -> Arc<Self> {
+    pub fn new(family_index: u32, device: &Rc<Device>) -> Rc<CommandPool> {
         let command_pool_create_info = vk::VkCommandPoolCreateInfo {
             sType: vk::VkStructureType::COMMAND_POOL_CREATE_INFO as u32,
             pNext: std::ptr::null(),
@@ -41,13 +39,13 @@ impl CommandPool {
         .map_err(|err| error!("vkCreateCommandPool {:?}", err))
         .unwrap();
 
-        Arc::new(CommandPool {
+        Rc::new(CommandPool {
             handle: command_pool_handle,
             device: Rc::clone(device),
         })
     }
 
-    pub fn allocate_command_buffer(self: &Arc<Self>) -> Result<CommandBuffer> {
+    pub fn allocate_command_buffer(self: &Rc<Self>) -> Result<CommandBuffer> {
         let allocate_info = vk::VkCommandBufferAllocateInfo {
             sType: vk::VkStructureType::COMMAND_BUFFER_ALLOCATE_INFO,
             pNext: std::ptr::null(),
@@ -94,7 +92,7 @@ impl CommandPool {
             command_buffer_handle,
             fence_handle,
             semaphore_handle,
-            Arc::clone(self),
+            Rc::clone(self),
         ))
     }
 }
@@ -109,7 +107,7 @@ pub struct CommandBuffer {
     handle: vk::VkCommandBuffer,
     fence: vk::VkFence,
     semaphore: vk::VkSemaphore,
-    pool: Arc<CommandPool>,
+    pool: Rc<CommandPool>,
 }
 
 impl Drop for CommandBuffer {
@@ -129,7 +127,7 @@ impl CommandBuffer {
         handle: vk::VkCommandBuffer,
         fence: vk::VkFence,
         semaphore: vk::VkSemaphore,
-        pool: Arc<CommandPool>,
+        pool: Rc<CommandPool>,
     ) -> Self {
         CommandBuffer {
             pixel_buffers_in_use: HashSet::with_capacity(16),
@@ -517,15 +515,7 @@ impl CommandBuffer {
         self.pixel_buffers_in_use.insert(src.clone());
         self.pixel_buffers_in_use.insert(dst.clone());
 
-        self.blit_raw(
-            src.image(),
-            src.width() as i32,
-            src.height() as i32,
-            dst.image(),
-            dst.width() as i32,
-            dst.height() as i32,
-            filter,
-        );
+        self.blit_raw(src.image(), src.size(), dst.image(), dst.size(), filter);
     }
 
     /// Blits an image from a source to a destination with the specified filter.
@@ -541,15 +531,7 @@ impl CommandBuffer {
     ) {
         self.pixel_buffers_in_use.insert(src.clone());
 
-        self.blit_raw(
-            src.image(),
-            src.width() as i32,
-            src.height() as i32,
-            dst.image,
-            dst.width as i32,
-            dst.height as i32,
-            filter,
-        );
+        self.blit_raw(src.image(), src.size(), dst.image, dst.size(), filter);
     }
 
     /// Blits an image from a source to a destination with the specified filter.
@@ -560,11 +542,9 @@ impl CommandBuffer {
     fn blit_raw(
         &self,
         src: vk::VkImage,
-        src_width: i32,
-        src_height: i32,
+        src_size: Vector2i,
         dst: vk::VkImage,
-        dst_width: i32,
-        dst_height: i32,
+        dst_size: Vector2i,
         filter: Filter,
     ) {
         let blit_region = vk::VkImageBlit {
@@ -577,8 +557,8 @@ impl CommandBuffer {
             srcOffsets: [
                 vk::VkOffset3D { x: 0, y: 0, z: 0 },
                 vk::VkOffset3D {
-                    x: src_width,
-                    y: src_height,
+                    x: src_size.x,
+                    y: src_size.y,
                     z: 1,
                 },
             ],
@@ -591,8 +571,8 @@ impl CommandBuffer {
             dstOffsets: [
                 vk::VkOffset3D { x: 0, y: 0, z: 0 },
                 vk::VkOffset3D {
-                    x: dst_width,
-                    y: dst_height,
+                    x: dst_size.x,
+                    y: dst_size.y,
                     z: 1,
                 },
             ],
