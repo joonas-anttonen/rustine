@@ -51,11 +51,13 @@ impl PhysicalDevice {
         surface_handle: vk::VkSurfaceKHR,
     ) -> Result<vk::VkSurfaceCapabilitiesKHR> {
         let mut surface_capabilities: vk::VkSurfaceCapabilitiesKHR = unsafe { std::mem::zeroed() };
-        vk_call!(vk::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-            self.handle(),
-            surface_handle,
-            &mut surface_capabilities
-        ))?;
+        unsafe {
+            vk_call!(vk::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+                self.handle(),
+                surface_handle,
+                &mut surface_capabilities
+            ))?;
+        }
 
         Ok(surface_capabilities)
     }
@@ -65,22 +67,24 @@ impl PhysicalDevice {
         surface: vk::VkSurfaceKHR,
     ) -> Result<Vec<vk::VkSurfaceFormatKHR>> {
         let mut format_count: u32 = 0;
-        vk_call!(vk::vkGetPhysicalDeviceSurfaceFormatsKHR(
-            self.handle,
-            surface,
-            &mut format_count as *mut u32,
-            ptr::null_mut(),
-        ))?;
+        unsafe {
+            vk_call!(vk::vkGetPhysicalDeviceSurfaceFormatsKHR(
+                self.handle,
+                surface,
+                &mut format_count as *mut u32,
+                ptr::null_mut(),
+            ))?;
+        }
 
         let mut formats: Vec<vk::VkSurfaceFormatKHR> = Vec::with_capacity(format_count as usize);
-        vk_call!(vk::vkGetPhysicalDeviceSurfaceFormatsKHR(
-            self.handle,
-            surface,
-            &mut format_count as *mut u32,
-            formats.as_mut_ptr(),
-        ))?;
-
         unsafe {
+            vk_call!(vk::vkGetPhysicalDeviceSurfaceFormatsKHR(
+                self.handle,
+                surface,
+                &mut format_count as *mut u32,
+                formats.as_mut_ptr(),
+            ))?;
+
             formats.set_len(format_count as usize);
         }
 
@@ -92,22 +96,24 @@ impl PhysicalDevice {
         surface: vk::VkSurfaceKHR,
     ) -> Result<Vec<vk::VkPresentModeKHR>> {
         let mut mode_count: u32 = 0;
-        vk_call!(vk::vkGetPhysicalDeviceSurfacePresentModesKHR(
-            self.handle,
-            surface,
-            &mut mode_count as *mut u32,
-            ptr::null_mut(),
-        ))?;
+        unsafe {
+            vk_call!(vk::vkGetPhysicalDeviceSurfacePresentModesKHR(
+                self.handle,
+                surface,
+                &mut mode_count as *mut u32,
+                ptr::null_mut(),
+            ))?;
+        }
 
         let mut modes: Vec<vk::VkPresentModeKHR> = Vec::with_capacity(mode_count as usize);
-        vk_call!(vk::vkGetPhysicalDeviceSurfacePresentModesKHR(
-            self.handle,
-            surface,
-            &mut mode_count as *mut u32,
-            modes.as_mut_ptr(),
-        ))?;
-
         unsafe {
+            vk_call!(vk::vkGetPhysicalDeviceSurfacePresentModesKHR(
+                self.handle,
+                surface,
+                &mut mode_count as *mut u32,
+                modes.as_mut_ptr(),
+            ))?;
+
             modes.set_len(mode_count as usize);
         }
 
@@ -116,23 +122,25 @@ impl PhysicalDevice {
 
     pub fn get_extensions(&self) -> Result<Vec<std::ffi::CString>> {
         let mut property_count: u32 = 0;
-        vk_call!(vk::vkEnumerateDeviceExtensionProperties(
-            self.handle,
-            ptr::null(),
-            &mut property_count as *mut u32,
-            ptr::null_mut(),
-        ))?;
+        unsafe {
+            vk_call!(vk::vkEnumerateDeviceExtensionProperties(
+                self.handle,
+                ptr::null(),
+                &mut property_count as *mut u32,
+                ptr::null_mut(),
+            ))?;
+        }
 
         let mut properties: Vec<vk::VkExtensionProperties> =
             Vec::with_capacity(property_count as usize);
-        vk_call!(vk::vkEnumerateDeviceExtensionProperties(
-            self.handle,
-            ptr::null(),
-            &mut property_count as *mut u32,
-            properties.as_mut_ptr(),
-        ))?;
-
         unsafe {
+            vk_call!(vk::vkEnumerateDeviceExtensionProperties(
+                self.handle,
+                ptr::null(),
+                &mut property_count as *mut u32,
+                properties.as_mut_ptr(),
+            ))?;
+
             properties.set_len(property_count as usize);
             let extension_names = properties
                 .iter()
@@ -374,12 +382,14 @@ impl Device {
         };
 
         let mut handle = vk::VkDevice::default();
-        vk_call!(vk::vkCreateDevice(
-            physical_device.handle(),
-            &device_create_info,
-            ptr::null(),
-            &mut handle,
-        ))?;
+        unsafe {
+            vk_call!(vk::vkCreateDevice(
+                physical_device.handle(),
+                &device_create_info,
+                ptr::null(),
+                &mut handle,
+            ))?;
+        }
 
         let general_queue_handle = unsafe {
             let mut queue_handle = vk::VkQueue::default();
@@ -398,22 +408,24 @@ impl Device {
 
     pub fn get_swapchain_images(&self, swapchain: vk::VkSwapchainKHR) -> Result<Vec<vk::VkImage>> {
         let mut image_count: u32 = 0;
-        vk_call!(vk::vkGetSwapchainImagesKHR(
-            self.handle,
-            swapchain,
-            &mut image_count as *mut u32,
-            ptr::null_mut(),
-        ))?;
+        unsafe {
+            vk_call!(vk::vkGetSwapchainImagesKHR(
+                self.handle,
+                swapchain,
+                &mut image_count as *mut u32,
+                ptr::null_mut(),
+            ))?;
+        }
 
         let mut images: Vec<vk::VkImage> = Vec::with_capacity(image_count as usize);
-        vk_call!(vk::vkGetSwapchainImagesKHR(
-            self.handle,
-            swapchain,
-            &mut image_count as *mut u32,
-            images.as_mut_ptr(),
-        ))?;
-
         unsafe {
+            vk_call!(vk::vkGetSwapchainImagesKHR(
+                self.handle,
+                swapchain,
+                &mut image_count as *mut u32,
+                images.as_mut_ptr(),
+            ))?;
+
             images.set_len(image_count as usize);
         }
 

@@ -11,7 +11,7 @@ use core::ffi;
 #[macro_export]
 macro_rules! vk_call {
     ($expr:expr) => {{
-        let res = unsafe { $expr };
+        let res = $expr;
         match $crate::gfx::Status::from_code(res) {
             $crate::gfx::Status::Success => Ok(()),
             other => Err(other),

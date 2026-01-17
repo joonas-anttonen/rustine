@@ -77,13 +77,15 @@ impl Instance {
         };
 
         let mut surface_handle = vk::VkSurfaceKHR::default();
-        vk_call!(vk::vkCreateWaylandSurfaceKHR(
-            self.handle,
-            &create_info,
-            ptr::null(),
-            &mut surface_handle,
-        ))
-        .unwrap();
+        unsafe {
+            vk_call!(vk::vkCreateWaylandSurfaceKHR(
+                self.handle,
+                &create_info,
+                ptr::null(),
+                &mut surface_handle,
+            ))
+            .unwrap();
+        }
 
         surface_handle
     }
@@ -136,8 +138,7 @@ impl Instance {
         let debug_utils_name = c"VK_EXT_debug_utils";
         let debug_utils_present = available_extensions.contains(debug_utils_name);
 
-        let enable_debugging =
-            parameters.debugging && validation_present && debug_utils_present;
+        let enable_debugging = parameters.debugging && validation_present && debug_utils_present;
         if enable_debugging {
             warning!("Enabling VK_LAYER_KHRONOS_validation");
             warning!("Enabling VK_EXT_debug_utils");
@@ -183,11 +184,9 @@ impl Instance {
         };
 
         let mut handle = vk::VkInstance::default();
-        vk_call!(vk::vkCreateInstance(
-            &create_info,
-            ptr::null(),
-            &mut handle,
-        ))?;
+        unsafe {
+            vk_call!(vk::vkCreateInstance(&create_info, ptr::null(), &mut handle))?;
+        }
 
         let mut debug_messenger: Option<vk::VkDebugUtilsMessengerEXT> = None;
         if enable_debugging {
@@ -217,12 +216,14 @@ impl Instance {
             };
 
             let mut debug_messenger_ptr = vk::VkDebugUtilsMessengerEXT::default();
-            vk_call!(create_debug_fn.unwrap()(
-                handle,
-                &debug_create_info,
-                ptr::null(),
-                &mut debug_messenger_ptr,
-            ))?;
+            unsafe {
+                vk_call!(create_debug_fn.unwrap()(
+                    handle,
+                    &debug_create_info,
+                    ptr::null(),
+                    &mut debug_messenger_ptr,
+                ))?;
+            }
 
             debug_messenger = Some(debug_messenger_ptr);
         }
@@ -236,22 +237,23 @@ impl Instance {
     /// Enumerates physical devices (GPUs) available on the system.
     pub fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>> {
         let mut device_count: u32 = 0;
-        vk_call!(vk::vkEnumeratePhysicalDevices(
-            self.handle,
-            &mut device_count as *mut u32,
-            ptr::null_mut(),
-        ))?;
+        let devices = unsafe {
+            vk_call!(vk::vkEnumeratePhysicalDevices(
+                self.handle,
+                &mut device_count as *mut u32,
+                ptr::null_mut(),
+            ))?;
 
-        let mut devices: Vec<vk::VkPhysicalDevice> = Vec::with_capacity(device_count as usize);
-        vk_call!(vk::vkEnumeratePhysicalDevices(
-            self.handle,
-            &mut device_count as *mut u32,
-            devices.as_mut_ptr(),
-        ))?;
+            let mut devices: Vec<vk::VkPhysicalDevice> = Vec::with_capacity(device_count as usize);
+            vk_call!(vk::vkEnumeratePhysicalDevices(
+                self.handle,
+                &mut device_count as *mut u32,
+                devices.as_mut_ptr(),
+            ))?;
 
-        unsafe {
             devices.set_len(device_count as usize);
-        }
+            devices
+        };
 
         let physical_devices: Vec<PhysicalDevice> = devices
             .iter()
@@ -322,25 +324,28 @@ impl Instance {
 /// Queries the highest Vulkan API version supported.
 fn enumerate_instance_version() -> Result<Version> {
     let mut api_version: u32 = 0;
-    vk_call!(vk::vkEnumerateInstanceVersion(&mut api_version as *mut u32))?;
+    unsafe {
+        vk_call!(vk::vkEnumerateInstanceVersion(&mut api_version as *mut u32))?;
+    }
     Ok(Version::from_vk_version(api_version))
 }
 
 /// Queries the available instance layers.
 fn enumerate_instance_layers() -> Result<Vec<std::ffi::CString>> {
-    let mut property_count: u32 = 0;
-    vk_call!(vk::vkEnumerateInstanceLayerProperties(
-        &mut property_count as *mut u32,
-        ptr::null_mut(),
-    ))?;
-
-    let mut properties: Vec<vk::VkLayerProperties> = Vec::with_capacity(property_count as usize);
-    vk_call!(vk::vkEnumerateInstanceLayerProperties(
-        &mut property_count as *mut u32,
-        properties.as_mut_ptr(),
-    ))?;
-
     unsafe {
+        let mut property_count: u32 = 0;
+        vk_call!(vk::vkEnumerateInstanceLayerProperties(
+            &mut property_count as *mut u32,
+            ptr::null_mut(),
+        ))?;
+
+        let mut properties: Vec<vk::VkLayerProperties> =
+            Vec::with_capacity(property_count as usize);
+        vk_call!(vk::vkEnumerateInstanceLayerProperties(
+            &mut property_count as *mut u32,
+            properties.as_mut_ptr(),
+        ))?;
+
         properties.set_len(property_count as usize);
         let layer_names = properties
             .iter()
@@ -355,22 +360,22 @@ fn enumerate_instance_layers() -> Result<Vec<std::ffi::CString>> {
 
 /// Queries the available instance extensions.
 fn enumerate_instance_extensions() -> Result<Vec<std::ffi::CString>> {
-    let mut property_count: u32 = 0;
-    vk_call!(vk::vkEnumerateInstanceExtensionProperties(
-        ptr::null(),
-        &mut property_count as *mut u32,
-        ptr::null_mut(),
-    ))?;
-
-    let mut properties: Vec<vk::VkExtensionProperties> =
-        Vec::with_capacity(property_count as usize);
-    vk_call!(vk::vkEnumerateInstanceExtensionProperties(
-        ptr::null(),
-        &mut property_count as *mut u32,
-        properties.as_mut_ptr(),
-    ))?;
-
     unsafe {
+        let mut property_count: u32 = 0;
+        vk_call!(vk::vkEnumerateInstanceExtensionProperties(
+            ptr::null(),
+            &mut property_count as *mut u32,
+            ptr::null_mut(),
+        ))?;
+
+        let mut properties: Vec<vk::VkExtensionProperties> =
+            Vec::with_capacity(property_count as usize);
+        vk_call!(vk::vkEnumerateInstanceExtensionProperties(
+            ptr::null(),
+            &mut property_count as *mut u32,
+            properties.as_mut_ptr(),
+        ))?;
+
         properties.set_len(property_count as usize);
 
         let extension_names = properties

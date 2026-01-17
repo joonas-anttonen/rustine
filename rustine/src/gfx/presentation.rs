@@ -315,17 +315,19 @@ impl SwapchainProvider {
         };
 
         let mut swapchain_handle: vk::VkSwapchainKHR = vk::VkSwapchainKHR::default();
-        vk_call!(vk::vkCreateSwapchainKHR(
-            device.handle(),
-            &swapchain_create_info,
-            std::ptr::null(),
-            &mut swapchain_handle
-        ))
-        .map_err(|err| {
-            error!("Failed to create swapchain: {:?}", err);
-            err
-        })
-        .unwrap();
+        unsafe {
+            vk_call!(vk::vkCreateSwapchainKHR(
+                device.handle(),
+                &swapchain_create_info,
+                std::ptr::null(),
+                &mut swapchain_handle
+            ))
+            .map_err(|err| {
+                error!("Failed to create swapchain: {:?}", err);
+                err
+            })
+            .unwrap();
+        }
 
         let mut acquire_semaphores = Vec::new();
         let swapchain_images: Vec<PresentationImage> = device
@@ -358,13 +360,15 @@ impl SwapchainProvider {
                 };
 
                 let mut image_view_handle: vk::VkImageView = vk::VkImageView::default();
-                vk_call!(vk::vkCreateImageView(
-                    device.handle(),
-                    &image_view_create_info,
-                    std::ptr::null(),
-                    &mut image_view_handle
-                ))
-                .unwrap();
+                unsafe {
+                    vk_call!(vk::vkCreateImageView(
+                        device.handle(),
+                        &image_view_create_info,
+                        std::ptr::null(),
+                        &mut image_view_handle
+                    ))
+                    .unwrap();
+                }
 
                 let mut acquire_semaphore: vk::VkSemaphore = vk::VkSemaphore::default();
                 let semaphore_create_info = vk::VkSemaphoreCreateInfo {
@@ -372,13 +376,15 @@ impl SwapchainProvider {
                     pNext: std::ptr::null(),
                     flags: 0,
                 };
-                vk_call!(vk::vkCreateSemaphore(
-                    device.handle(),
-                    &semaphore_create_info,
-                    std::ptr::null(),
-                    &mut acquire_semaphore
-                ))
-                .unwrap();
+                unsafe {
+                    vk_call!(vk::vkCreateSemaphore(
+                        device.handle(),
+                        &semaphore_create_info,
+                        std::ptr::null(),
+                        &mut acquire_semaphore
+                    ))
+                    .unwrap();
+                }
 
                 acquire_semaphores.push(acquire_semaphore);
 
@@ -401,13 +407,15 @@ impl SwapchainProvider {
             flags: 0,
         };
         let mut acquire_fence: vk::VkFence = vk::VkFence::default();
-        vk_call!(vk::vkCreateFence(
-            device.handle(),
-            &fence_create_info,
-            std::ptr::null(),
-            &mut acquire_fence
-        ))
-        .unwrap();
+        unsafe {
+            vk_call!(vk::vkCreateFence(
+                device.handle(),
+                &fence_create_info,
+                std::ptr::null(),
+                &mut acquire_fence
+            ))
+            .unwrap();
+        }
 
         // DEBUG: Log swapchain information
         warning!(

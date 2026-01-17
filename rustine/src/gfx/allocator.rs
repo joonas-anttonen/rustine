@@ -95,8 +95,9 @@ impl Allocator {
         };
 
         let mut allocator_handle: ffi::VmaAllocator = std::ptr::null_mut();
-
-        vk_call!(ffi::vmaCreateAllocator(&create_info, &mut allocator_handle))?;
+        unsafe {
+            vk_call!(ffi::vmaCreateAllocator(&create_info, &mut allocator_handle))?;
+        }
 
         Ok(Rc::new(Allocator {
             handle: allocator_handle,
@@ -147,14 +148,16 @@ impl Allocator {
         let mut allocation: ffi::VmaAllocation = std::ptr::null_mut();
         let mut allocation_info: ffi::VmaAllocationInfo = unsafe { std::mem::zeroed() };
 
-        vk_call!(ffi::vmaCreateBuffer(
-            self.handle,
-            &buffer_create_info,
-            &allocation_create_info,
-            &mut buffer,
-            &mut allocation,
-            &mut allocation_info,
-        ))?;
+        unsafe {
+            vk_call!(ffi::vmaCreateBuffer(
+                self.handle,
+                &buffer_create_info,
+                &allocation_create_info,
+                &mut buffer,
+                &mut allocation,
+                &mut allocation_info,
+            ))?;
+        }
 
         Ok(MemoryBuffer::new(
             usage,
@@ -241,31 +244,33 @@ impl Allocator {
             priority: 0.0,
         };
 
-        vk_call!(ffi::vmaCreateImage(
-            self.handle,
-            image_create_info,
-            &allocation_create_info,
-            &mut image,
-            &mut allocation,
-            &mut allocation_info
-        ))?;
+        unsafe {
+            vk_call!(ffi::vmaCreateImage(
+                self.handle,
+                image_create_info,
+                &allocation_create_info,
+                &mut image,
+                &mut allocation,
+                &mut allocation_info
+            ))?;
+        }
 
         image_view_create_info.image = image; // Set the image now that it's created
 
-        vk_call!(vk::vkCreateImageView(
-            self.device.handle(),
-            image_view_create_info,
-            std::ptr::null(),
-            &mut image_view
-        ))
-        .or_else(|err| {
-            // If creating the image view fails, clean up the previously
-            // created VMA image and allocation to avoid leaking resources.
-            unsafe {
+        unsafe {
+            vk_call!(vk::vkCreateImageView(
+                self.device.handle(),
+                image_view_create_info,
+                std::ptr::null(),
+                &mut image_view
+            ))
+            .or_else(|err| {
+                // If creating the image view fails, clean up the previously
+                // created VMA image and allocation to avoid leaking resources.
                 ffi::vmaDestroyImage(self.handle, image, allocation);
-            }
-            Err(err)
-        })?;
+                Err(err)
+            })?;
+        }
 
         Ok(PixelBuffer::new(
             image_create_info.extent.width,
@@ -317,33 +322,35 @@ impl Allocator {
             priority: 0.0,
         };
 
-        vk_call!(ffi::vmaCreateDedicatedImage(
-            self.handle,
-            image_create_info,
-            &allocation_create_info,
-            &import_memory_win32_info as *const vk::VkImportMemoryWin32HandleInfoKHR
-                as *const std::ffi::c_void,
-            &mut image,
-            &mut allocation,
-            &mut allocation_info
-        ))?;
+        unsafe {
+            vk_call!(ffi::vmaCreateDedicatedImage(
+                self.handle,
+                image_create_info,
+                &allocation_create_info,
+                &import_memory_win32_info as *const vk::VkImportMemoryWin32HandleInfoKHR
+                    as *const std::ffi::c_void,
+                &mut image,
+                &mut allocation,
+                &mut allocation_info
+            ))?;
+        }
 
         image_view_create_info.image = image; // Set the image now that it's created
 
-        vk_call!(vk::vkCreateImageView(
-            self.device.handle(),
-            image_view_create_info,
-            std::ptr::null(),
-            &mut image_view
-        ))
-        .or_else(|err| {
-            // If creating the image view fails, clean up the previously
-            // created VMA image and allocation to avoid leaking resources.
-            unsafe {
+        unsafe {
+            vk_call!(vk::vkCreateImageView(
+                self.device.handle(),
+                image_view_create_info,
+                std::ptr::null(),
+                &mut image_view
+            ))
+            .or_else(|err| {
+                // If creating the image view fails, clean up the previously
+                // created VMA image and allocation to avoid leaking resources.
                 ffi::vmaDestroyImage(self.handle, image, allocation);
-            }
-            Err(err)
-        })?;
+                Err(err)
+            })?;
+        }
 
         Ok(PixelBuffer::new(
             image_create_info.extent.width,

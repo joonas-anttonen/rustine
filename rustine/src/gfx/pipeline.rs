@@ -322,14 +322,16 @@ impl Pipeline {
 
         let mut pipeline = vk::VkPipeline::default();
 
-        vk_call!(vk::vkCreateGraphicsPipelines(
-            device.handle(),
-            std::ptr::null_mut(),
-            1,
-            &pipeline_info,
-            std::ptr::null(),
-            &mut pipeline,
-        ))?;
+        unsafe {
+            vk_call!(vk::vkCreateGraphicsPipelines(
+                device.handle(),
+                std::ptr::null_mut(),
+                1,
+                &pipeline_info,
+                std::ptr::null(),
+                &mut pipeline,
+            ))?;
+        }
 
         // Clean up shader modules
         for shader_module in shader_modules {
@@ -375,12 +377,14 @@ impl Pipeline {
         };
 
         let mut descriptor_set_layout = vk::VkDescriptorSetLayout::default();
-        vk_call!(vk::vkCreateDescriptorSetLayout(
-            vk_device,
-            &layout_info,
-            std::ptr::null(),
-            &mut descriptor_set_layout,
-        ))?;
+        unsafe {
+            vk_call!(vk::vkCreateDescriptorSetLayout(
+                vk_device,
+                &layout_info,
+                std::ptr::null(),
+                &mut descriptor_set_layout,
+            ))?;
+        }
 
         Ok(descriptor_set_layout)
     }
@@ -418,12 +422,14 @@ impl Pipeline {
         };
 
         let mut pipeline_layout = vk::VkPipelineLayout::default();
-        vk_call!(vk::vkCreatePipelineLayout(
-            vk_device,
-            &pipeline_layout_info,
-            std::ptr::null(),
-            &mut pipeline_layout,
-        ))?;
+        unsafe {
+            vk_call!(vk::vkCreatePipelineLayout(
+                vk_device,
+                &pipeline_layout_info,
+                std::ptr::null(),
+                &mut pipeline_layout,
+            ))?;
+        }
 
         Ok(pipeline_layout)
     }
@@ -487,13 +493,15 @@ impl Sampler {
         };
 
         let mut handle: vk::VkSampler = vk::VkSampler::default();
-        vk_call!(vk::vkCreateSampler(
-            device.handle(),
-            &sampler_create_info,
-            std::ptr::null(),
-            &mut handle,
-        ))
-        .unwrap();
+        unsafe {
+            vk_call!(vk::vkCreateSampler(
+                device.handle(),
+                &sampler_create_info,
+                std::ptr::null(),
+                &mut handle,
+            ))
+            .unwrap();
+        }
 
         Ok(Sampler { handle, device })
     }

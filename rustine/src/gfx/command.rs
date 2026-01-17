@@ -30,14 +30,16 @@ impl CommandPool {
         };
 
         let mut command_pool_handle = vk::VkCommandPool::default();
-        vk_call!(vk::vkCreateCommandPool(
-            device.handle(),
-            &command_pool_create_info,
-            std::ptr::null(),
-            &mut command_pool_handle,
-        ))
-        .map_err(|err| error!("vkCreateCommandPool {:?}", err))
-        .unwrap();
+        unsafe {
+            vk_call!(vk::vkCreateCommandPool(
+                device.handle(),
+                &command_pool_create_info,
+                std::ptr::null(),
+                &mut command_pool_handle,
+            ))
+            .map_err(|err| error!("vkCreateCommandPool {:?}", err))
+            .unwrap();
+        }
 
         Rc::new(CommandPool {
             handle: command_pool_handle,
@@ -55,11 +57,13 @@ impl CommandPool {
         };
 
         let mut command_buffer_handle = vk::VkCommandBuffer::default();
-        vk_call!(vk::vkAllocateCommandBuffers(
-            self.device.handle(),
-            &allocate_info,
-            &mut command_buffer_handle
-        ))?;
+        unsafe {
+            vk_call!(vk::vkAllocateCommandBuffers(
+                self.device.handle(),
+                &allocate_info,
+                &mut command_buffer_handle
+            ))?;
+        }
 
         // Create fence
         let fence_info = vk::VkFenceCreateInfo {
@@ -68,12 +72,14 @@ impl CommandPool {
             flags: 0,
         };
         let mut fence_handle = vk::VkFence::default();
-        vk_call!(vk::vkCreateFence(
-            self.device.handle(),
-            &fence_info,
-            std::ptr::null(),
-            &mut fence_handle
-        ))?;
+        unsafe {
+            vk_call!(vk::vkCreateFence(
+                self.device.handle(),
+                &fence_info,
+                std::ptr::null(),
+                &mut fence_handle
+            ))?;
+        }
 
         let semaphore_info = vk::VkSemaphoreCreateInfo {
             sType: vk::VkStructureType::SEMAPHORE_CREATE_INFO,
@@ -81,12 +87,14 @@ impl CommandPool {
             flags: 0,
         };
         let mut semaphore_handle = vk::VkSemaphore::default();
-        vk_call!(vk::vkCreateSemaphore(
-            self.device.handle(),
-            &semaphore_info,
-            std::ptr::null(),
-            &mut semaphore_handle
-        ))?;
+        unsafe {
+            vk_call!(vk::vkCreateSemaphore(
+                self.device.handle(),
+                &semaphore_info,
+                std::ptr::null(),
+                &mut semaphore_handle
+            ))?;
+        }
 
         Ok(CommandBuffer::new(
             command_buffer_handle,
@@ -191,14 +199,16 @@ impl CommandBuffer {
         self.samplers_in_use.clear();
         self.memory_buffers_in_use.clear();
 
-        vk_call!(vk::vkResetFences(self.pool.device.handle(), 1, &self.fence)).unwrap_or_else(
-            |r| {
-                error!("Failed to reset fence: {:?}", r);
-            },
-        );
-        vk_call!(vk::vkResetCommandBuffer(self.handle, 0)).unwrap_or_else(|r| {
-            error!("Failed to reset command buffer: {:?}", r);
-        });
+        unsafe {
+            vk_call!(vk::vkResetFences(self.pool.device.handle(), 1, &self.fence)).unwrap_or_else(
+                |r| {
+                    error!("Failed to reset fence: {:?}", r);
+                },
+            );
+            vk_call!(vk::vkResetCommandBuffer(self.handle, 0)).unwrap_or_else(|r| {
+                error!("Failed to reset command buffer: {:?}", r);
+            });
+        }
     }
 
     /// Begins recording commands into the command buffer.
@@ -210,17 +220,21 @@ impl CommandBuffer {
             flags: 0,
             pInheritanceInfo: std::ptr::null(),
         };
-        vk_call!(vk::vkBeginCommandBuffer(self.handle, &begin_info)).unwrap_or_else(|r| {
-            error!("Failed to begin command buffer: {:?}", r);
-        });
+        unsafe {
+            vk_call!(vk::vkBeginCommandBuffer(self.handle, &begin_info)).unwrap_or_else(|r| {
+                error!("Failed to begin command buffer: {:?}", r);
+            });
+        }
     }
 
     /// Ends recording commands into the command buffer.
     /// `vkCmdEndCommandBuffer`
     pub fn end(&self) {
-        vk_call!(vk::vkEndCommandBuffer(self.handle)).unwrap_or_else(|r| {
-            error!("Failed to end command buffer: {:?}", r);
-        });
+        unsafe {
+            vk_call!(vk::vkEndCommandBuffer(self.handle)).unwrap_or_else(|r| {
+                error!("Failed to end command buffer: {:?}", r);
+            });
+        }
     }
 
     /// Binds a graphics pipeline to the command buffer

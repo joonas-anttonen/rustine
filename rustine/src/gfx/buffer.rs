@@ -83,7 +83,10 @@ impl PixelBuffer {
     }
 
     pub fn size(&self) -> crate::Vector2i {
-        crate::Vector2i { x: self.width as i32, y: self.height as i32 }
+        crate::Vector2i {
+            x: self.width as i32,
+            y: self.height as i32,
+        }
     }
 
     pub fn format(&self) -> crate::gfx::Format {
@@ -212,14 +215,16 @@ impl MemoryBuffer {
         // Ensure size makes sense
         assert!(memory_offset + data_size <= allocation_info.size.0 as usize);
 
-        vk_call!(allocator::vmaCopyMemoryToAllocation(
-            self.allocator.handle(),
-            data_ptr,
-            self.allocation,
-            vk::VkDeviceSize(memory_offset as u64),
-            vk::VkDeviceSize(data_size as u64),
-        ))
-        .unwrap();
+        unsafe {
+            vk_call!(allocator::vmaCopyMemoryToAllocation(
+                self.allocator.handle(),
+                data_ptr,
+                self.allocation,
+                vk::VkDeviceSize(memory_offset as u64),
+                vk::VkDeviceSize(data_size as u64),
+            ))
+            .unwrap();
+        }
     }
 }
 
