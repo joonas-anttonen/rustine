@@ -11,19 +11,19 @@ use std::time::{Duration, Instant};
 const FALLBACK_TEXTURE_ID: u32 = u32::MAX;
 
 struct TestData {
-    target_frame: Option<Arc<PixelBuffer>>,
-    test_vertex_buffer: Arc<MemoryBuffer>,
-    test_index_buffer: Arc<MemoryBuffer>,
+    target_frame: Option<Rc<PixelBuffer>>,
+    test_vertex_buffer: Rc<MemoryBuffer>,
+    test_index_buffer: Rc<MemoryBuffer>,
     pending_uploads: VecDeque<PendingUpload>,
-    linear_sampler: Arc<Sampler>,
-    nearest_sampler: Arc<Sampler>,
-    test_pipeline: Arc<Pipeline>,
-    fallback_texture: Arc<PixelBuffer>,
+    linear_sampler: Rc<Sampler>,
+    nearest_sampler: Rc<Sampler>,
+    test_pipeline: Rc<Pipeline>,
+    fallback_texture: Rc<PixelBuffer>,
 }
 
 struct PendingUpload {
-    buffer: Arc<MemoryBuffer>,
-    target: Arc<PixelBuffer>,
+    buffer: Rc<MemoryBuffer>,
+    target: Rc<PixelBuffer>,
     image_id: u32,
 }
 
@@ -46,7 +46,7 @@ pub struct Gfx {
     render_commands: Arc<Mutex<VecDeque<RenderFrame>>>,
     cached_render_frame: Option<RenderFrame>,
     next_image_id: u32,
-    pixel_buffers: HashMap<u32, Arc<PixelBuffer>>,
+    pixel_buffers: HashMap<u32, Rc<PixelBuffer>>,
     released_images: Arc<Mutex<VecDeque<u32>>>,
     queue: Queue,
     allocator: Rc<allocator::Allocator>,
@@ -274,12 +274,12 @@ impl Gfx {
                 Samples::X1,
             )
             .unwrap();
-        let fallback_texture = Arc::new(fallback_texture_buffer);
+        let fallback_texture = Rc::new(fallback_texture_buffer);
 
         // Set up fallback texture to be uploaded in first render
-        let fallback_texture_clone = Arc::clone(&fallback_texture);
+        let fallback_texture_clone = Rc::clone(&fallback_texture);
         let pending_fallback = PendingUpload {
-            buffer: Arc::new(fallback_upload),
+            buffer: Rc::new(fallback_upload),
             target: fallback_texture_clone,
             image_id: FALLBACK_TEXTURE_ID,
         };
@@ -288,7 +288,7 @@ impl Gfx {
         pending_uploads.push_back(pending_fallback);
 
         let mut pixel_buffers = HashMap::new();
-        pixel_buffers.insert(FALLBACK_TEXTURE_ID, Arc::clone(&fallback_texture));
+        pixel_buffers.insert(FALLBACK_TEXTURE_ID, Rc::clone(&fallback_texture));
 
         // Create all available font atlases
         for font_id in fonts::ALL_FONT_IDS {
@@ -312,13 +312,13 @@ impl Gfx {
                         Samples::X1,
                     )
                     .unwrap();
-                let font_texture = Arc::new(font_texture_buffer);
+                let font_texture = Rc::new(font_texture_buffer);
 
-                pixel_buffers.insert(font_data.texture_id, Arc::clone(&font_texture));
+                pixel_buffers.insert(font_data.texture_id, Rc::clone(&font_texture));
 
-                let font_texture_clone = Arc::clone(&font_texture);
+                let font_texture_clone = Rc::clone(&font_texture);
                 let pending_font = PendingUpload {
-                    buffer: Arc::new(font_upload),
+                    buffer: Rc::new(font_upload),
                     target: font_texture_clone,
                     image_id: font_data.texture_id,
                 };
@@ -328,11 +328,11 @@ impl Gfx {
 
         let test_data = TestData {
             target_frame: None,
-            linear_sampler: Arc::new(linear_sampler),
-            nearest_sampler: Arc::new(nearest_sampler),
-            test_pipeline: Arc::new(test_pipeline),
-            test_vertex_buffer: Arc::new(test_vertex_buffer),
-            test_index_buffer: Arc::new(test_index_buffer),
+            linear_sampler: Rc::new(linear_sampler),
+            nearest_sampler: Rc::new(nearest_sampler),
+            test_pipeline: Rc::new(test_pipeline),
+            test_vertex_buffer: Rc::new(test_vertex_buffer),
+            test_index_buffer: Rc::new(test_index_buffer),
             pending_uploads,
             fallback_texture,
         };
@@ -423,7 +423,7 @@ impl Gfx {
                 Samples::X1,
             )
             .unwrap();
-        self.test_data.target_frame = Some(Arc::new(target_frame));
+        self.test_data.target_frame = Some(Rc::new(target_frame));
 
         self.render();
     }
@@ -483,7 +483,8 @@ impl Gfx {
         }
     }
 
-    fn acquire_upload_buffer(&mut self, required_size: usize) -> Arc<MemoryBuffer> {
+    // TODO: Maybe pool?
+    fn acquire_upload_buffer(&mut self, required_size: usize) -> Rc<MemoryBuffer> {
         let buffer = self
             .allocator
             .create_memory_buffer(
@@ -492,7 +493,7 @@ impl Gfx {
                 buffer::MemoryAccess::WRITE,
             )
             .unwrap();
-        Arc::new(buffer)
+        Rc::new(buffer)
     }
 
     fn drain_released_images(&mut self) {
@@ -527,7 +528,7 @@ impl Gfx {
                 if let Some(target_buffer) = self.pixel_buffers.get(&image_id) {
                     self.test_data.pending_uploads.push_back(PendingUpload {
                         buffer: upload_buffer,
-                        target: Arc::clone(target_buffer),
+                        target: Rc::clone(target_buffer),
                         image_id,
                     });
                 }
@@ -564,8 +565,7 @@ impl Gfx {
             )
             .unwrap();
 
-        let pixel_buffer = Arc::new(pixel_buffer);
-        self.pixel_buffers.insert(image_id, pixel_buffer);
+        self.pixel_buffers.insert(image_id, Rc::new(pixel_buffer));
     }
 
     fn preprocess_render_frame(&self, frame: &mut RenderFrame) {
@@ -605,7 +605,7 @@ impl Gfx {
         self.stage_incoming_images();
 
         let target_frame = match self.test_data.target_frame.as_ref() {
-            Some(frame) => Arc::clone(frame),
+            Some(frame) => Rc::clone(frame),
             None => {
                 self.render_empty();
                 return;
@@ -642,13 +642,13 @@ impl Gfx {
         }
 
         let pending_uploads = std::mem::take(&mut self.test_data.pending_uploads);
-        let test_pipeline = Arc::clone(&self.test_data.test_pipeline);
-        let test_vertex_buffer = Arc::clone(&self.test_data.test_vertex_buffer);
-        let test_index_buffer = Arc::clone(&self.test_data.test_index_buffer);
-        let linear_sampler = Arc::clone(&self.test_data.linear_sampler);
-        let nearest_sampler = Arc::clone(&self.test_data.nearest_sampler);
+        let test_pipeline = Rc::clone(&self.test_data.test_pipeline);
+        let test_vertex_buffer = Rc::clone(&self.test_data.test_vertex_buffer);
+        let test_index_buffer = Rc::clone(&self.test_data.test_index_buffer);
+        let linear_sampler = Rc::clone(&self.test_data.linear_sampler);
+        let nearest_sampler = Rc::clone(&self.test_data.nearest_sampler);
         let cached_frame = Some(frame);
-        let target_frame_clone = Arc::clone(&target_frame);
+        let target_frame_clone = Rc::clone(&target_frame);
         let pixel_buffers = self.pixel_buffers.clone();
 
         self.queue.enqueue(move |cmd| {
@@ -850,98 +850,3 @@ impl GfxBuilder {
         Ok(Gfx::new(vk_instance, vk_device, allocator))
     }
 }
-
-static COMPOSITION_SHADER: &str = r#"
-struct fragment_input
-{
-	float4 Position : SV_POSITION;
-	float2 UV : TEXCOORD0;
-};
-
-[[vk::binding(0, 0)]] Texture2D commandTexture;
-[[vk::binding(1, 0)]] SamplerState commandSampler;
-
-[shader("vertex")]
-fragment_input vertex(in uint vertexIndex : SV_VertexID)
-{
-    fragment_input output = (fragment_input)0;
-    output.UV = float2((vertexIndex << 1) & 2, vertexIndex & 2);
-    output.Position = float4(output.UV * 2.0f - 1.0f, 0.0f, 1.0f);
-	return output;
-}
-
-[shader("pixel")]
-float4 fragment(fragment_input input) : SV_TARGET
-{
-	return commandTexture.Sample(commandSampler, input.UV);
-    //return float4(input.UV.x, 0.0, input.UV.y, 1.0);
-}
-"#;
-
-static OVERLAY_SHADER: &str = r#"
-struct PerCommand
-{
-	float2 Scale;
-    float sdfRange;
-    bool isSdf;
-};
-
-[[vk::push_constant]] PerCommand command;
-
-[[vk::binding(0, 0)]] Texture2D commandTexture;
-[[vk::binding(1, 0)]] SamplerState commandSampler;
-
-struct vertex_input
-{
-	float2 Position : POSITION0;
-	float2 UV : TEXCOORD0;
-	uint Color : COLOR0;
-};
-
-struct fragment_input
-{
-	float4 Position : SV_POSITION;
-	float2 UV : TEXCOORD0;
-	float4 Color : COLOR0;
-};
-
-float4 UnpackColor(uint packed)
-{
-    float a = (float)(packed & 0xFF) / 255.0f;
-    float b = (float)((packed >> 8) & 0xFF) / 255.0f;
-    float g = (float)((packed >> 16) & 0xFF) / 255.0f;
-    float r = (float)((packed >> 24) & 0xFF) / 255.0f;
-    return float4(r, g, b, a);
-}
-
-[shader("vertex")]
-fragment_input vertex(vertex_input input, in uint vertexIndex : SV_VertexID)
-{
-    fragment_input output = (fragment_input)0;
-    output.Position = float4(input.Position * command.Scale + float2(-1, -1), 0.0, 1.0);
-	output.UV = input.UV;
-	output.Color = UnpackColor(input.Color);
-	return output;
-}
-
-[shader("pixel")]
-float4 fragment(fragment_input input) : SV_TARGET
-{ 
-	float4 geometryColor = input.Color;
-
-    // Polyline path: UV.y is negative and encodes fringe start ratio
-    if (input.UV.y < 0.0)
-    {
-        float fringe_start = -input.UV.y;          // ratio in (0,1)
-        float dist = abs(input.UV.x);              // 0 at center, 1 at outer edge
-        float coverage = 1.0 - smoothstep(fringe_start, 1.0, dist);
-
-        return float4(geometryColor.rgb, coverage * geometryColor.a);
-    }
-
-	float4 textureColor = commandTexture.Sample(commandSampler, input.UV);
-    float alpha = textureColor.a;
-
-	return float4(geometryColor.rgb * textureColor.rgb, alpha * geometryColor.a);
-}
-"#;

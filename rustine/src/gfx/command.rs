@@ -101,10 +101,10 @@ impl CommandPool {
 
 /// Represents a command buffer used for recording graphics commands.
 pub struct CommandBuffer {
-    memory_buffers_in_use: HashSet<Arc<MemoryBuffer>>,
-    pixel_buffers_in_use: HashSet<Arc<PixelBuffer>>,
-    samplers_in_use: HashSet<Arc<Sampler>>,
-    pipelines_in_use: HashSet<Arc<Pipeline>>,
+    memory_buffers_in_use: HashSet<Rc<MemoryBuffer>>,
+    pixel_buffers_in_use: HashSet<Rc<PixelBuffer>>,
+    samplers_in_use: HashSet<Rc<Sampler>>,
+    pipelines_in_use: HashSet<Rc<Pipeline>>,
 
     handle: vk::VkCommandBuffer,
     fence: vk::VkFence,
@@ -227,7 +227,7 @@ impl CommandBuffer {
 
     /// Binds a graphics pipeline to the command buffer
     /// `vkCmdBindPipeline`
-    pub fn bind_pipeline(&mut self, pipeline: &Arc<Pipeline>) {
+    pub fn bind_pipeline(&mut self, pipeline: &Rc<Pipeline>) {
         self.pipelines_in_use.insert(pipeline.clone());
 
         unsafe {
@@ -239,7 +239,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn bind_vertex_buffer(&mut self, memory_buffer: &Arc<MemoryBuffer>) {
+    pub fn bind_vertex_buffer(&mut self, memory_buffer: &Rc<MemoryBuffer>) {
         self.memory_buffers_in_use.insert(memory_buffer.clone());
 
         unsafe {
@@ -254,7 +254,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn bind_index_buffer(&mut self, memory_buffer: &Arc<MemoryBuffer>) {
+    pub fn bind_index_buffer(&mut self, memory_buffer: &Rc<MemoryBuffer>) {
         self.memory_buffers_in_use.insert(memory_buffer.clone());
 
         unsafe {
@@ -270,7 +270,7 @@ impl CommandBuffer {
     pub fn begin_rendering(
         &mut self,
         render_area: &Rectangle,
-        color_attachments: &[&Arc<PixelBuffer>],
+        color_attachments: &[&Rc<PixelBuffer>],
     ) {
         unsafe {
             const MAX_COLOR_ATTACHMENTS: usize = 2;
@@ -354,11 +354,11 @@ impl CommandBuffer {
 
     pub fn push_pixel_descriptor(
         &mut self,
-        pipeline: &Arc<Pipeline>,
+        pipeline: &Rc<Pipeline>,
         pixel_buffer_binding: u32,
-        pixel_buffer: &Arc<PixelBuffer>,
+        pixel_buffer: &Rc<PixelBuffer>,
         sampler_binding: u32,
-        sampler: &Arc<Sampler>,
+        sampler: &Rc<Sampler>,
     ) {
         // We trust that the pipeline is already tracked via bind_pipeline
         self.pixel_buffers_in_use.insert(pixel_buffer.clone());
@@ -458,7 +458,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn push_constants<T>(&self, pipeline: &Arc<Pipeline>, stage: Stage, data: &T) {
+    pub fn push_constants<T>(&self, pipeline: &Rc<Pipeline>, stage: Stage, data: &T) {
         unsafe {
             vk::vkCmdPushConstants(
                 self.handle,
@@ -476,7 +476,7 @@ impl CommandBuffer {
     /// Always uses full image extents.
     ///
     /// Requires that the destination image is in `TRANSFER_DST_OPTIMAL` layout.
-    pub fn copy_buffer_to_image(&mut self, src: &Arc<MemoryBuffer>, dst: &Arc<PixelBuffer>) {
+    pub fn copy_buffer_to_image(&mut self, src: &Rc<MemoryBuffer>, dst: &Rc<PixelBuffer>) {
         self.memory_buffers_in_use.insert(src.clone());
         self.pixel_buffers_in_use.insert(dst.clone());
 
@@ -513,7 +513,7 @@ impl CommandBuffer {
     /// Always uses full image extents.
     ///
     /// Requires that the source image is in `TRANSFER_SRC_OPTIMAL` layout and the destination image is in `TRANSFER_DST_OPTIMAL` layout.
-    pub fn blit(&mut self, src: &Arc<PixelBuffer>, dst: &Arc<PixelBuffer>, filter: Filter) {
+    pub fn blit(&mut self, src: &Rc<PixelBuffer>, dst: &Rc<PixelBuffer>, filter: Filter) {
         self.pixel_buffers_in_use.insert(src.clone());
         self.pixel_buffers_in_use.insert(dst.clone());
 
@@ -535,7 +535,7 @@ impl CommandBuffer {
     /// Requires that the source image is in `TRANSFER_SRC_OPTIMAL` layout and the destination image is in `TRANSFER_DST_OPTIMAL` layout.
     pub fn blit_to_present(
         &mut self,
-        src: &Arc<PixelBuffer>,
+        src: &Rc<PixelBuffer>,
         dst: &presentation::PresentationImage,
         filter: Filter,
     ) {
@@ -721,7 +721,7 @@ impl CommandBuffer {
         self.raw_image_barrier(image.image, old_layout, new_layout);
     }
 
-    pub fn layout_barrier(&mut self, buffer: &Arc<PixelBuffer>, new_layout: Layout) {
+    pub fn layout_barrier(&mut self, buffer: &Rc<PixelBuffer>, new_layout: Layout) {
         let old_layout = buffer.layout();
         self.pixel_buffers_in_use.insert(buffer.clone());
         self.raw_image_barrier(buffer.image(), old_layout, new_layout);
@@ -769,7 +769,7 @@ impl CommandBuffer {
 
     /// Clears the given pixel buffer to the specified color.
     /// Current layout of `buffer` must be `SHARED_PRESENT_KHR`, `GENERAL` or `TRANSFER_DST_OPTIMAL`.
-    pub fn clear_pixel_buffer(&mut self, buffer: &Arc<PixelBuffer>, color: &[f32; 4]) {
+    pub fn clear_pixel_buffer(&mut self, buffer: &Rc<PixelBuffer>, color: &[f32; 4]) {
         self.pixel_buffers_in_use.insert(buffer.clone());
 
         let clear_color = vk::VkClearColorValue { float32: *color };
