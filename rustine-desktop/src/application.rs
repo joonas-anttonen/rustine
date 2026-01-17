@@ -1,5 +1,9 @@
 use crate::{files, list, mount, preview, sysinfo};
-use rustine::{ConcurrentMailbox, gfx, gui, gui::Key, log};
+use rustine::{
+    AutoResetEvent, Mailbox, gfx,
+    gui::{self, Key},
+    log,
+};
 use std::{collections::HashMap, path::PathBuf, sync::Arc, sync::atomic::AtomicBool};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -27,7 +31,7 @@ struct MyApplicationState {
     files_preview_valid: bool,
     files_preview_entry: Option<files::EntryInfo>,
     preview_image: gfx::Image,
-    preview_request_queue: Arc<ConcurrentMailbox<preview::PreviewRequest>>,
+    preview_request_queue: Arc<Mailbox<preview::PreviewRequest>>,
 }
 
 pub struct MyApplication {
@@ -58,7 +62,7 @@ impl MyApplication {
                 files_preview_valid: false,
                 files_preview_entry: None,
                 preview_image: gfx::Image::default(),
-                preview_request_queue: ConcurrentMailbox::new(),
+                preview_request_queue: Mailbox::new(Arc::new(AutoResetEvent::new())),
             }),
             exit_flag: Arc::new(AtomicBool::new(false)),
             preview_request_flag: Arc::new(AtomicBool::new(false)),
@@ -685,7 +689,7 @@ impl rustine::gui::Application for MyApplication {
 
         let status_text = match state.selected_tab {
             Tab::Files => format!("{}", state.files_dir.display()),
-            Tab::Drives => "↑/↓ select | M mount/unmount | E open".to_string(),
+            Tab::Drives => "M mount/unmount | E open".to_string(),
         };
 
         let status_y = 0.0;

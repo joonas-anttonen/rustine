@@ -41,13 +41,13 @@ struct PerCommand {
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Gfx {
     test_data: TestData,
-    pending_images: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
+    pending_images: Arc<Mailbox<(u32, io::Image)>>,
     pending_image_uploads: VecDeque<(u32, io::Image)>,
-    render_commands: Arc<Mutex<VecDeque<RenderFrame>>>,
+    render_commands: Arc<Mailbox<RenderFrame>>,
     cached_render_frame: Option<RenderFrame>,
     next_image_id: u32,
     pixel_buffers: HashMap<u32, Rc<PixelBuffer>>,
-    released_images: Arc<Mutex<VecDeque<u32>>>,
+    released_images: Arc<Mailbox<u32>>,
     queue: Queue,
     allocator: Rc<allocator::Allocator>,
     device: Rc<Device>,
@@ -338,6 +338,7 @@ impl Gfx {
         };
 
         let command_queue = Queue::new(&device, 4);
+        let work_available = Arc::new(AutoResetEvent::new());
 
         Gfx {
             instance,
@@ -347,15 +348,15 @@ impl Gfx {
             frame_n: 0,
             queue: command_queue,
             pixel_buffers,
-            pending_images: Arc::new(Mutex::new(VecDeque::new())),
+            pending_images: Mailbox::<(u32, io::Image)>::new(Arc::clone(&work_available)),
             pending_image_uploads: VecDeque::new(),
-            render_commands: Arc::new(Mutex::new(VecDeque::new())),
+            render_commands: Mailbox::<RenderFrame>::new(Arc::clone(&work_available)),
             cached_render_frame: None,
             next_image_id: 0,
-            released_images: Arc::new(Mutex::new(VecDeque::new())),
+            released_images: Mailbox::new(Arc::clone(&work_available)),
             frame_cpu_times: RingBuffer::new(120),
             max_uploads_per_frame: 4,
-            work_available: Arc::new(AutoResetEvent::new()),
+            work_available,
         }
     }
 
@@ -456,31 +457,17 @@ impl Gfx {
         Image::new(image_id, 0, 0, Arc::downgrade(&self.released_images))
     }
 
-    pub fn image_mailbox(&self) -> Arc<Mutex<VecDeque<(u32, io::Image)>>> {
+    pub fn image_mailbox(&self) -> Arc<Mailbox<(u32, io::Image)>> {
         Arc::clone(&self.pending_images)
     }
 
-    pub fn submit_image(&self, image_id: u32, io_image: io::Image) {
-        if let Ok(mut pending) = self.pending_images.lock() {
-            pending.push_back((image_id, io_image));
-        }
-    }
-
-    pub fn render_mailbox(&self) -> Arc<Mutex<VecDeque<RenderFrame>>> {
+    pub fn render_mailbox(&self) -> Arc<Mailbox<RenderFrame>> {
         Arc::clone(&self.render_commands)
-    }
-
-    pub fn submit_render_frame(&self, frame: RenderFrame) {
-        if let Ok(mut pending) = self.render_commands.lock() {
-            pending.push_back(frame);
-        }
     }
 
     pub fn clear_render_commands(&mut self) {
         self.cached_render_frame = None;
-        if let Ok(mut pending) = self.render_commands.lock() {
-            pending.clear();
-        }
+        self.render_commands.pop();
     }
 
     // TODO: Maybe pool?
@@ -497,23 +484,18 @@ impl Gfx {
     }
 
     fn drain_released_images(&mut self) {
-        if let Ok(mut released) = self.released_images.lock() {
-            while let Some(image_id) = released.pop_front() {
-                warning!("Releasing image: {}", image_id);
+        while let Some(image_id) = self.released_images.pop_one() {
+            warning!("Releasing image: {}", image_id);
 
-                self.pixel_buffers.remove(&image_id);
-                // Also remove from pending uploads if not yet staged
-                self.pending_image_uploads.retain(|(id, _)| *id != image_id);
-            }
+            self.pixel_buffers.remove(&image_id);
+            // Also remove from pending uploads if not yet staged
+            self.pending_image_uploads.retain(|(id, _)| *id != image_id);
         }
     }
 
     fn stage_incoming_images(&mut self) {
         // Consume paired image submissions and stage uploads
-        if let Some((image_id, io_image)) = {
-            let mut pending = self.pending_images.lock().unwrap();
-            pending.pop_front()
-        } {
+        if let Some((image_id, io_image)) = { self.pending_images.pop_one() } {
             self.create_pixel_buffer_for(image_id, &io_image);
             self.pending_image_uploads.push_back((image_id, io_image));
         }
@@ -613,13 +595,8 @@ impl Gfx {
         };
 
         // Check for new render commands; if present, cache them and use; otherwise use cached frame
-        {
-            if let Ok(mut pending) = self.render_commands.lock()
-                && let Some(frame) = pending.pop_back()
-            {
-                pending.clear();
-                self.cached_render_frame = Some(frame);
-            }
+        if let Some(frame) = self.render_commands.pop() {
+            self.cached_render_frame = Some(frame);
         }
 
         let mut frame = match self.cached_render_frame.clone() {

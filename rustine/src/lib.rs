@@ -7,21 +7,24 @@ pub mod alloc;
 mod ringbuffer;
 pub use ringbuffer::RingBuffer;
 pub mod version;
-pub use version::Version;
 pub use rustinesc::*;
+pub use version::Version;
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Condvar, Mutex},
+};
 
-pub struct ConcurrentMailbox<T> {
-    mailbox: Mutex<std::collections::VecDeque<T>>,
-    event: AutoResetEvent,
+pub struct Mailbox<T> {
+    queue: Mutex<VecDeque<T>>,
+    event: Arc<AutoResetEvent>,
 }
 
-impl<T> ConcurrentMailbox<T> {
-    pub fn new() -> Arc<Self> {
+impl<T> Mailbox<T> {
+    pub fn new(event: Arc<AutoResetEvent>) -> Arc<Self> {
         Arc::new(Self {
-            mailbox: Mutex::new(std::collections::VecDeque::new()),
-            event: AutoResetEvent::new(),
+            queue: Mutex::new(std::collections::VecDeque::new()),
+            event,
         })
     }
 
@@ -29,17 +32,29 @@ impl<T> ConcurrentMailbox<T> {
         self.event.wait();
     }
 
+    /// Pushes an item into the mailbox queue and signals the waiter.
     pub fn push(&self, item: T) {
-        if let Ok(mut pending) = self.mailbox.lock() {
+        if let Ok(mut pending) = self.queue.lock() {
             pending.push_back(item);
             self.event.set();
         }
     }
 
+    /// Pops the latest item from the mailbox and discards any older items.
     pub fn pop(&self) -> Option<T> {
-        if let Ok(mut pending) = self.mailbox.lock() {
+        if let Ok(mut pending) = self.queue.lock() {
             let request = pending.pop_front();
             pending.clear();
+            request
+        } else {
+            None
+        }
+    }
+
+    /// Pops a single item from the mailbox without discarding any other items.
+    pub fn pop_one(&self) -> Option<T> {
+        if let Ok(mut pending) = self.queue.lock() {
+            let request = pending.pop_front();
             request
         } else {
             None

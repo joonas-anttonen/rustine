@@ -177,12 +177,10 @@ impl Gui {
                 {
                     let gfx = gui.gfx.lock().unwrap();
 
-                    if let Ok(mut pending) = gfx.render_mailbox().lock() {
-                        pending.push_back(frame);
+                    gfx.render_mailbox().push(frame);
 
-                        if let gfx::LoopMode::Event = mode {
-                            gfx.wake_up();
-                        }
+                    if let gfx::LoopMode::Event = mode {
+                        gfx.wake_up();
                     }
                 }
 
@@ -422,7 +420,7 @@ impl Gui {
         gfx.create_dynamic_image()
     }
 
-    pub fn image_mailbox(&self) -> Arc<Mutex<std::collections::VecDeque<(u32, crate::io::Image)>>> {
+    pub fn image_mailbox(&self) -> Arc<Mailbox<(u32, crate::io::Image)>> {
         let gfx = self.gfx.lock().unwrap();
         gfx.image_mailbox()
     }

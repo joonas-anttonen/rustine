@@ -4,7 +4,6 @@ use rustine::*;
 use rustine::{error, info};
 use rustine::{gfx, gui, io, log::*, version::Version};
 
-use std::collections::VecDeque;
 use std::io as stdio;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic};
@@ -137,7 +136,7 @@ impl rustine::gui::Application for MyApplication {}
 
 fn gui_thread_function(
     gui: &gui::Gui,
-    render_mailbox: Arc<Mutex<VecDeque<gfx::RenderFrame>>>,
+    render_mailbox: Arc<Mailbox<gfx::RenderFrame>>,
     static_image: gfx::Image,
     dynamic_image: gfx::Image,
     fallback_image: gfx::Image,
@@ -156,9 +155,7 @@ fn gui_thread_function(
             &fallback_image,
         );
 
-        if let Ok(mut pending) = render_mailbox.lock() {
-            pending.push_back(frame);
-        }
+        render_mailbox.push(frame);
     }
 
     info!("GUI STOP");
@@ -318,7 +315,7 @@ fn generate_render_frame(
 }
 
 fn image_loader_thread(
-    mailbox: Arc<Mutex<std::collections::VecDeque<(u32, io::Image)>>>,
+    mailbox: Arc<Mailbox<(u32, io::Image)>>,
     target_image_id: u32,
     exit_flag: &atomic::AtomicBool,
 ) {
@@ -355,7 +352,7 @@ fn image_loader_thread(
 fn load_and_display_webp(
     path: &Path,
     target_image_id: u32,
-    mailbox: &Arc<Mutex<std::collections::VecDeque<(u32, io::Image)>>>,
+    mailbox: &Arc<Mailbox<(u32, io::Image)>>,
     exit_flag: &atomic::AtomicBool,
 ) {
     let data = match std::fs::read(path) {
@@ -386,17 +383,15 @@ fn load_and_display_webp(
                 return;
             }
             WebPResult::Ok(_) => {
-                if let Ok(mut pending) = mailbox.lock() {
-                    pending.push_back((
-                        target_image_id,
-                        io::Image {
-                            width,
-                            height,
-                            format: gfx::Format::R8G8B8A8_UNORM,
-                            pixels: frame,
-                        },
-                    ));
-                }
+                mailbox.push((
+                    target_image_id,
+                    io::Image {
+                        width,
+                        height,
+                        format: gfx::Format::R8G8B8A8_UNORM,
+                        pixels: frame,
+                    },
+                ));
             }
         }
         return;
@@ -413,17 +408,15 @@ fn load_and_display_webp(
                 break;
             }
             WebPResult::Ok(timestamp_ms) => {
-                if let Ok(mut pending) = mailbox.lock() {
-                    pending.push_back((
-                        target_image_id,
-                        io::Image {
-                            width,
-                            height,
-                            format: gfx::Format::R8G8B8A8_UNORM,
-                            pixels: frame,
-                        },
-                    ));
-                }
+                mailbox.push((
+                    target_image_id,
+                    io::Image {
+                        width,
+                        height,
+                        format: gfx::Format::R8G8B8A8_UNORM,
+                        pixels: frame,
+                    },
+                ));
 
                 // Calculate frame duration and sleep
                 let frame_duration = timestamp_ms.saturating_sub(prev_timestamp);

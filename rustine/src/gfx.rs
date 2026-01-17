@@ -9,7 +9,6 @@ mod device;
 pub use device::*;
 pub mod vulkan;
 pub use core::Gfx;
-use std::collections;
 use std::sync;
 pub mod presentation;
 pub mod queue;
@@ -47,15 +46,13 @@ pub struct Image {
     pub width: u32,
     pub height: u32,
     pub id: u32,
-    released_images: sync::Weak<sync::Mutex<collections::VecDeque<u32>>>,
+    released_images: sync::Weak<Mailbox<u32>>,
 }
 
 impl Drop for Image {
     fn drop(&mut self) {
-        if let Some(mailbox) = self.released_images.upgrade()
-            && let Ok(mut queue) = mailbox.lock()
-        {
-            queue.push_back(self.id);
+        if let Some(mailbox) = self.released_images.upgrade() {
+            mailbox.push(self.id);
         }
     }
 }
@@ -76,7 +73,7 @@ impl Image {
         id: u32,
         width: u32,
         height: u32,
-        released_images: sync::Weak<sync::Mutex<collections::VecDeque<u32>>>,
+        released_images: sync::Weak<Mailbox<u32>>,
     ) -> Self {
         Self {
             width,
@@ -89,10 +86,8 @@ impl Image {
     /// It is always safe to add an image to the released images queue.
     /// If the image is used after this, any resources will get reallocated.
     pub fn soft_drop(&mut self) {
-        if let Some(mailbox) = self.released_images.upgrade()
-            && let Ok(mut queue) = mailbox.lock()
-        {
-            queue.push_back(self.id);
+        if let Some(mailbox) = self.released_images.upgrade() {
+            mailbox.push(self.id);
         }
     }
 }

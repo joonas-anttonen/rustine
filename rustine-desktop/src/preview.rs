@@ -1,8 +1,9 @@
-use rustine::{ConcurrentMailbox, io, log};
-use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use rustine::{Mailbox, io, log};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 pub enum PreviewStatus {
     Ok,
@@ -20,7 +21,7 @@ pub trait PreviewHandler {
     fn handle(
         &self,
         path: &Path,
-        image_mailbox: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
+        image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
         target_image_id: u32,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus;
@@ -51,7 +52,7 @@ impl PreviewHandler for WebPPreviewHandler {
     fn handle(
         &self,
         path: &Path,
-        image_mailbox: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
+        image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
         target_image_id: u32,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus {
@@ -90,17 +91,15 @@ impl PreviewHandler for WebPPreviewHandler {
                     return PreviewStatus::Error(format!("WebP decoding error: {}", err));
                 }
                 io::webp::WebPResult::Ok(_) => {
-                    if let Ok(mut pending) = image_mailbox.lock() {
-                        pending.push_back((
-                            target_image_id,
-                            io::Image {
-                                width,
-                                height,
-                                format: rustine::gfx::Format::R8G8B8A8_UNORM,
-                                pixels: frame,
-                            },
-                        ));
-                    }
+                    image_mailbox.push((
+                        target_image_id,
+                        io::Image {
+                            width,
+                            height,
+                            format: rustine::gfx::Format::R8G8B8A8_UNORM,
+                            pixels: frame,
+                        },
+                    ));
                 }
             }
             return PreviewStatus::Ok;
@@ -129,17 +128,15 @@ impl PreviewHandler for WebPPreviewHandler {
                     return PreviewStatus::Error(format!("WebP decoding error: {}", err));
                 }
                 io::webp::WebPResult::Ok(timestamp_ms) => {
-                    if let Ok(mut pending) = image_mailbox.lock() {
-                        pending.push_back((
-                            target_image_id,
-                            io::Image {
-                                width,
-                                height,
-                                format: rustine::gfx::Format::R8G8B8A8_UNORM,
-                                pixels: frame,
-                            },
-                        ));
-                    }
+                    image_mailbox.push((
+                        target_image_id,
+                        io::Image {
+                            width,
+                            height,
+                            format: rustine::gfx::Format::R8G8B8A8_UNORM,
+                            pixels: frame,
+                        },
+                    ));
 
                     // Calculate frame duration and sleep
                     let frame_duration = timestamp_ms.saturating_sub(prev_timestamp);
@@ -187,7 +184,7 @@ impl PreviewHandler for FfmpegPreviewHandler {
     fn handle(
         &self,
         path: &Path,
-        image_mailbox: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
+        image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
         target_image_id: u32,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus {
@@ -219,17 +216,15 @@ impl PreviewHandler for FfmpegPreviewHandler {
             let mut frame = vec![0u8; (width * height * 4) as usize];
             match decoder.next_frame(&mut frame) {
                 Ok(timestamp_ms) => {
-                    if let Ok(mut pending) = image_mailbox.lock() {
-                        pending.push_back((
-                            target_image_id,
-                            io::Image {
-                                width,
-                                height,
-                                format: rustine::gfx::Format::R8G8B8A8_UNORM,
-                                pixels: frame,
-                            },
-                        ));
-                    }
+                    image_mailbox.push((
+                        target_image_id,
+                        io::Image {
+                            width,
+                            height,
+                            format: rustine::gfx::Format::R8G8B8A8_UNORM,
+                            pixels: frame,
+                        },
+                    ));
 
                     // Calculate frame duration and sleep
                     let frame_duration = timestamp_ms.saturating_sub(prev_timestamp);
@@ -290,8 +285,8 @@ pub fn can_preview(path: &std::path::Path) -> bool {
 }
 
 pub fn preview_worker_thread(
-    request_queue: Arc<ConcurrentMailbox<PreviewRequest>>,
-    image_mailbox: Arc<Mutex<VecDeque<(u32, io::Image)>>>,
+    request_queue: Arc<Mailbox<PreviewRequest>>,
+    image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
     target_image_id: u32,
     exit_flag: &AtomicBool,
     request_flag: &AtomicBool,
@@ -312,7 +307,7 @@ pub fn preview_worker_thread(
                     request_flag.store(false, Ordering::Relaxed);
                     match handler.handle(
                         &_path,
-                        image_mailbox.clone(),
+                        Arc::clone(&image_mailbox),
                         target_image_id,
                         request_flag,
                     ) {
