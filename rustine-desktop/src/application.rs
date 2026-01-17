@@ -11,22 +11,6 @@ enum Tab {
     Files,
 }
 
-impl Tab {
-    fn hotkey(&self) -> &'static str {
-        match self {
-            Tab::Drives => "F1",
-            Tab::Files => "F2",
-        }
-    }
-
-    fn title(&self) -> &'static str {
-        match self {
-            Tab::Drives => "Drives",
-            Tab::Files => "Files",
-        }
-    }
-}
-
 struct MyApplicationState {
     frame_index: usize,
     selected_tab: Tab,
@@ -58,7 +42,7 @@ impl MyApplication {
         MyApplication {
             state: std::cell::RefCell::new(MyApplicationState {
                 frame_index: 0,
-                selected_tab: Tab::Drives,
+                selected_tab: Tab::Files,
                 devices: Vec::new(),
                 drives_list: list::ListState::new(),
                 files_entries: Vec::new(),
@@ -207,15 +191,15 @@ impl rustine::gui::Application for MyApplication {
 
         match key.key {
             Key::F1 => {
-                state.selected_tab = Tab::Drives;
-                if state.drives_list.selected.is_none() && !state.devices.is_empty() {
-                    state.drives_list.selected = Some(0);
-                }
-            }
-            Key::F2 => {
                 state.selected_tab = Tab::Files;
                 if state.files_list.selected.is_none() && !state.files_entries.is_empty() {
                     state.files_list.selected = Some(0);
+                }
+            }
+            Key::F2 => {
+                state.selected_tab = Tab::Drives;
+                if state.drives_list.selected.is_none() && !state.devices.is_empty() {
+                    state.drives_list.selected = Some(0);
                 }
             }
             Key::UP => {
@@ -448,7 +432,7 @@ impl rustine::gui::Application for MyApplication {
         let text_font_metrics = gfx::fonts::get_font_metrics(gfx::fonts::CASKAYDIAMONO_FONT_ID)
             .expect("Font metrics exist");
 
-        const TOP_BAR_HEIGHT: f32 = 32.0;
+        const TOP_BAR_HEIGHT: f32 = 0.0;
         let line_height: f32 = text_font_metrics.ascender - text_font_metrics.descender;
 
         const STATUS_LIGHT_WIDTH: f32 = 8.0;
@@ -462,7 +446,7 @@ impl rustine::gui::Application for MyApplication {
         let content_w = w;
         let content_h = h - TOP_BAR_HEIGHT - STATUS_BAR_HEIGHT;
 
-        let bar_color = 0x1B232FFFu32;
+        //let bar_color = 0x1B232FFFu32;
         let bg_color = 0x1B232FFFu32;
         let text_color = 0xFFFFFFFFu32;
         let mounted_color = 0x3FB950FFu32;
@@ -478,76 +462,6 @@ impl rustine::gui::Application for MyApplication {
             },
             bg_color,
         );
-
-        // Draw top bar
-        frame.fill_rectangle(
-            &gfx::Rectangle {
-                x: 0.0,
-                y: 0.0,
-                w,
-                h: TOP_BAR_HEIGHT,
-            },
-            bar_color,
-        );
-
-        // Draw tab hotkey indicators and titles in top bar
-        let hotkey_selected_bg_color = 0x3FB950FFu32;
-        let hotkey_inactive_bg_color = 0x21262DFFu32;
-        let hotkey_text_color = 0x0D1117FFu32;
-        let tabs = [Tab::Drives, Tab::Files];
-        let hotkey_padding = 6.0;
-        let hotkey_height = line_height;
-        let mut tab_x = content_x + 10.0;
-
-        for tab in tabs.iter() {
-            let tab_hotkey = tab.hotkey();
-            let tab_title = tab.title();
-            let is_selected_tab = *tab == state.selected_tab;
-            let hotkey_width = (tab_hotkey.len() as f32
-                * gfx::fonts::get_font_size(gfx::fonts::CASKAYDIAMONO_FONT_ID)
-                / 2.0)
-                + (hotkey_padding * 2.0);
-            let title_width = tab_title.len() as f32
-                * gfx::fonts::get_font_size(gfx::fonts::CASKAYDIAMONO_FONT_ID)
-                / 2.0;
-
-            let hotkey_y = (TOP_BAR_HEIGHT - hotkey_height) / 2.0;
-            let hotkey_bg = if is_selected_tab {
-                hotkey_selected_bg_color
-            } else {
-                hotkey_inactive_bg_color
-            };
-
-            frame.fill_rectangle(
-                &gfx::Rectangle {
-                    x: tab_x,
-                    y: hotkey_y,
-                    w: hotkey_width,
-                    h: hotkey_height,
-                },
-                hotkey_bg,
-            );
-
-            frame.push_text(
-                tab_hotkey,
-                tab_x + hotkey_padding,
-                (TOP_BAR_HEIGHT / 2.0) + (text_font_metrics.ascender / 2.0),
-                1.0,
-                hotkey_text_color,
-                gfx::fonts::CASKAYDIAMONO_FONT_ID,
-            );
-
-            frame.push_text(
-                tab_title,
-                tab_x + hotkey_width + 10.0,
-                (TOP_BAR_HEIGHT / 2.0) + (text_font_metrics.ascender / 2.0),
-                1.0,
-                text_color,
-                gfx::fonts::CASKAYDIAMONO_FONT_ID,
-            );
-
-            tab_x += hotkey_width + title_width + 28.0;
-        }
 
         let highlight_color = 0x21262DFFu32;
 
@@ -589,10 +503,7 @@ impl rustine::gui::Application for MyApplication {
                                 );
                                 (mounted_color, text)
                             } else {
-                                let fs_str = device
-                                    .fs_type
-                                    .as_deref()
-                                    .unwrap_or("unknown");
+                                let fs_str = device.fs_type.as_deref().unwrap_or("unknown");
                                 let text = format!("{} ({}) ({})", device.path, size_str, fs_str);
                                 (unmounted_color, text)
                             };
@@ -707,19 +618,7 @@ impl rustine::gui::Application for MyApplication {
                 // Render the preview panel if open
                 if state.files_preview_open {
                     let preview_x = content_x + list_width;
-                    let preview_panel_bg_color = 0x0D1117FFu32;
                     let preview_border_color = 0x30363DFFu32;
-
-                    // Draw preview panel background
-                    frame.fill_rectangle(
-                        &gfx::Rectangle {
-                            x: preview_x,
-                            y: content_y,
-                            w: preview_width,
-                            h: content_h,
-                        },
-                        preview_panel_bg_color,
-                    );
 
                     // Draw preview panel border (left edge)
                     frame.fill_rectangle(
@@ -772,7 +671,7 @@ impl rustine::gui::Application for MyApplication {
         // Status bar at the bottom
         let status_bar_color = 0x161B22FFu32;
         let status_text = match state.selected_tab {
-            Tab::Files => format!("{} | TAB toggle preview", state.files_dir.display()),
+            Tab::Files => format!("{}", state.files_dir.display()),
             Tab::Drives => "↑/↓ select | M mount/unmount | E open".to_string(),
         };
 
@@ -822,10 +721,7 @@ fn toggle_mount(state: &mut std::cell::RefMut<'_, MyApplicationState>) {
         // Mount
         let drive_name = device.path.split('/').next_back().unwrap_or("drive");
         let mount_path = format!("/media/{}", drive_name);
-        let fs_type = device
-            .fs_type
-            .as_deref()
-            .unwrap_or("auto");
+        let fs_type = device.fs_type.as_deref().unwrap_or("auto");
 
         match mount::mount_with_sudo(&device.path, &mount_path, fs_type, &state.password_buffer) {
             Ok(_) => {
