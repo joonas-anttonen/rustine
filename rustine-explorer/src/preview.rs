@@ -167,7 +167,7 @@ struct FfmpegPreviewHandler;
 
 impl FfmpegPreviewHandler {
     pub const SUPPORTED_EXTENSIONS: &'static [&'static str] =
-        &["mp4", "mkv", "webm", "mov", "avi", "flv", "m4v"];
+        &["mp4", "mkv", "webm", "webp", "mov", "avi", "flv", "m4v"];
 }
 
 impl PreviewHandler for FfmpegPreviewHandler {
@@ -203,6 +203,8 @@ impl PreviewHandler for FfmpegPreviewHandler {
             }
         };
 
+        log::debug!("FFmpeg frame count: {}", decoder.frame_count());
+
         let width = decoder.width();
         let height = decoder.height();
 
@@ -226,6 +228,11 @@ impl PreviewHandler for FfmpegPreviewHandler {
                         },
                     ));
 
+                    // If there is only one frame, no need to repeat
+                    if decoder.frame_count() <= 1 {
+                        return PreviewStatus::Ok;
+                    }
+
                     // Calculate frame duration and sleep
                     let frame_duration = timestamp_ms.saturating_sub(prev_timestamp);
                     if frame_duration > 0 {
@@ -246,7 +253,13 @@ impl PreviewHandler for FfmpegPreviewHandler {
                     // Treat end-of-stream by resetting to loop the preview; other errors are fatal
                     if err.to_lowercase().contains("end of stream") {
                         match decoder.reset() {
-                            Ok(_) => continue,
+                            Ok(_) => {
+                                // If there is only one frame, no need to repeat
+                                if decoder.frame_count() <= 1 {
+                                    return PreviewStatus::Ok;
+                                }
+                                continue;
+                            }
                             Err(e) => {
                                 log::error!("FFmpeg reset error: {}", e);
                                 return PreviewStatus::Error(format!(
