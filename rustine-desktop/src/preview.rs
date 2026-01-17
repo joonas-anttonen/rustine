@@ -43,9 +43,7 @@ impl PreviewHandler for WebPPreviewHandler {
             .and_then(|ext| ext.to_str())
             .map(|ext| {
                 let lower = ext.to_ascii_lowercase();
-                WebPPreviewHandler::SUPPORTED_EXTENSIONS
-                    .iter()
-                    .any(|&s| s == lower.as_str())
+                WebPPreviewHandler::SUPPORTED_EXTENSIONS.contains(&lower.as_str())
             })
             .unwrap_or(false)
     }
@@ -181,9 +179,7 @@ impl PreviewHandler for FfmpegPreviewHandler {
             .and_then(|ext| ext.to_str())
             .map(|ext| {
                 let lower = ext.to_ascii_lowercase();
-                FfmpegPreviewHandler::SUPPORTED_EXTENSIONS
-                    .iter()
-                    .any(|&s| s == lower.as_str())
+                FfmpegPreviewHandler::SUPPORTED_EXTENSIONS.contains(&lower.as_str())
             })
             .unwrap_or(false)
     }

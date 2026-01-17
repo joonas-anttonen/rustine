@@ -169,7 +169,7 @@ impl PresentationProvider for SwapchainProvider {
             vk::vkAcquireNextImageKHR(
                 self.device.handle(),
                 self.swapchain_handle,
-                std::u64::MAX,
+                u64::MAX,
                 acquire_semaphore,
                 vk::VkFence::default(),
                 &mut image_index,
@@ -421,7 +421,7 @@ impl SwapchainProvider {
             current_acquire_index: 0,
             acquire_fence,
             acquire_semaphores,
-            device: Arc::clone(&device),
+            device: Arc::clone(device),
         }
     }
 }

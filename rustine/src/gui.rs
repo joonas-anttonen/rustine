@@ -150,7 +150,7 @@ impl Gui {
         let target_frame_time = std::time::Duration::from_secs_f64(1.0 / TARGET_FPS);
         const CLOSE_ENOUGH: std::time::Duration = std::time::Duration::from_micros(500);
 
-        gui.application.startup(&gui);
+        gui.application.startup(gui);
 
         while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) && !gui.should_close() {
             let frame_start = std::time::Instant::now();
@@ -169,7 +169,7 @@ impl Gui {
                 last_instant = frame_start;
 
                 let mut frame = gfx::RenderFrame::new(gui.pixel_size());
-                gui.application.render(&gui, &mut frame);
+                gui.application.render(gui, &mut frame);
 
                 {
                     let gfx = gui.gfx.lock().unwrap();
@@ -187,9 +187,9 @@ impl Gui {
                     if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
                         debug!(
                             "GUI frame dt -> min: {}, max: {}, mean: {}",
-                            utilities::format_duration(min as f64),
-                            utilities::format_duration(max as f64),
-                            utilities::format_duration(mean as f64)
+                            utilities::format_duration(min),
+                            utilities::format_duration(max),
+                            utilities::format_duration(mean)
                         );
                     }
 
@@ -438,8 +438,8 @@ impl Gui {
                 }
 
                 let presentation_parameters = presentation::Parameters {
-                    width: width as u32,
-                    height: height as u32,
+                    width: width,
+                    height: height,
                     surface_handle: gui.gfx_surface.to_ptr(),
                     vertical_sync: 0,
                 };
@@ -484,11 +484,11 @@ impl Gui {
     unsafe extern "C" fn rwl_char_callback(window: ffi::RwlWindow, codepoint: u32) {
         unsafe {
             let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
-            if !gui_ptr.is_null() {
-                if let Some(c) = char::from_u32(codepoint) {
-                    let gui = &mut *gui_ptr;
-                    gui.application.on_char(gui, c);
-                }
+            if !gui_ptr.is_null()
+                && let Some(c) = char::from_u32(codepoint)
+            {
+                let gui = &mut *gui_ptr;
+                gui.application.on_char(gui, c);
             }
         }
     }
@@ -544,7 +544,7 @@ mod ffi {
         pub const RELEASE: u32 = 0;
         pub const PRESS: u32 = 1;
 
-        pub fn to_input(&self) -> crate::gui::input::Action {
+        pub fn to_input(self) -> crate::gui::input::Action {
             match self.0 {
                 Self::RELEASE => crate::gui::input::Action::RELEASE,
                 Self::PRESS => crate::gui::input::Action::PRESS,
@@ -570,7 +570,7 @@ mod ffi {
         pub const ALT: u32 = 1 << 2;
         pub const SUPER: u32 = 1 << 3;
 
-        pub fn to_input(&self) -> crate::gui::input::Mods {
+        pub fn to_input(self) -> crate::gui::input::Mods {
             crate::gui::input::Mods(self.0 as i32)
         }
     }
@@ -704,7 +704,7 @@ mod ffi {
         pub const MENU: i32 = 348;
         pub const COUNT: i32 = 349;
 
-        pub fn to_input(&self) -> crate::gui::input::Key {
+        pub fn to_input(self) -> crate::gui::input::Key {
             match self.0 {
                 Self::SPACE => crate::gui::input::Key::SPACE,
                 Self::ESCAPE => crate::gui::input::Key::ESCAPE,

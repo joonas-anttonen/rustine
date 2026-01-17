@@ -42,7 +42,7 @@ impl CommandPool {
 
         Arc::new(CommandPool {
             handle: command_pool_handle,
-            device: Arc::clone(&device),
+            device: Arc::clone(device),
         })
     }
 
@@ -93,7 +93,7 @@ impl CommandPool {
             command_buffer_handle,
             fence_handle,
             semaphore_handle,
-            Arc::clone(&self),
+            Arc::clone(self),
         ))
     }
 }
@@ -324,10 +324,10 @@ impl CommandBuffer {
     pub fn set_viewport(&self, viewport: &Rectangle) {
         unsafe {
             let vk_viewport = vk::VkViewport {
-                x: viewport.x as f32,
-                y: viewport.y as f32,
-                width: viewport.w as f32,
-                height: viewport.h as f32,
+                x: viewport.x,
+                y: viewport.y,
+                width: viewport.w,
+                height: viewport.h,
                 minDepth: 0.0,
                 maxDepth: 1.0,
             };
@@ -407,7 +407,7 @@ impl CommandBuffer {
                 pipeline.pipeline_layout(),
                 0,
                 2,
-                descriptor_writes.as_ptr() as *const vk::VkWriteDescriptorSet,
+                descriptor_writes.as_ptr(),
             );
         }
     }

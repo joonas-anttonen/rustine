@@ -82,26 +82,26 @@ impl MyApplication {
 
     fn update_preview(&self, state: &mut std::cell::RefMut<'_, MyApplicationState>) {
         if state.files_preview_open {
-            if let Some(idx) = state.files_list.selected {
-                if let Some(entry) = state.files_entries.get(idx) {
-                    let entry_path = entry.path.clone();
-                    state.files_preview_entry = Some(entry.clone());
+            if let Some(idx) = state.files_list.selected
+                && let Some(entry) = state.files_entries.get(idx)
+            {
+                let entry_path = entry.path.clone();
+                state.files_preview_entry = Some(entry.clone());
 
-                    if preview::can_preview(&entry_path) {
-                        state.files_preview_valid = true;
-                        state
-                            .preview_request_queue
-                            .push(preview::PreviewRequest::Load(entry_path));
-                        self.preview_request_flag
-                            .store(true, std::sync::atomic::Ordering::Relaxed);
-                    } else {
-                        state.files_preview_valid = false;
-                        state
-                            .preview_request_queue
-                            .push(preview::PreviewRequest::Clear);
-                        self.preview_request_flag
-                            .store(true, std::sync::atomic::Ordering::Relaxed);
-                    }
+                if preview::can_preview(&entry_path) {
+                    state.files_preview_valid = true;
+                    state
+                        .preview_request_queue
+                        .push(preview::PreviewRequest::Load(entry_path));
+                    self.preview_request_flag
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                } else {
+                    state.files_preview_valid = false;
+                    state
+                        .preview_request_queue
+                        .push(preview::PreviewRequest::Clear);
+                    self.preview_request_flag
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         } else {
@@ -238,272 +238,182 @@ impl rustine::gui::Application for MyApplication {
                     }
                 }
             }
-            Key::RIGHT => {
-                if state.selected_tab == Tab::Files {
-                    if let Some(idx) = state.files_list.selected {
-                        let target_path = if let Some(entry) = state.files_entries.get(idx) {
-                            let is_dir = matches!(entry.entry_type, files::EntryType::Directory)
-                                || (entry.entry_type == files::EntryType::Symlink
-                                    && entry.path.is_dir());
+            Key::RIGHT if state.selected_tab == Tab::Files => {
+                if let Some(idx) = state.files_list.selected {
+                    let target_path = if let Some(entry) = state.files_entries.get(idx) {
+                        let is_dir = matches!(entry.entry_type, files::EntryType::Directory)
+                            || (entry.entry_type == files::EntryType::Symlink
+                                && entry.path.is_dir());
 
-                            if is_dir {
-                                // Save current selection
-                                let entry_name = entry.name.clone();
-                                let current_dir = state.files_dir.clone();
-                                let target = entry.path.clone();
-                                state.folder_selection_map.insert(current_dir, entry_name);
-                                Some(target)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-
-                        if let Some(target) = target_path {
-                            match files::get_contents(&target, state.show_hidden_files) {
-                                Ok(entries) => {
-                                    state.files_dir = target.clone();
-                                    state.files_entries = entries;
-                                    state.files_list.selected = if state.files_entries.is_empty() {
-                                        None
-                                    } else if let Some(last_name) =
-                                        state.folder_selection_map.get(&target)
-                                    {
-                                        // Try to restore the previously selected item
-                                        state
-                                            .files_entries
-                                            .iter()
-                                            .position(|e| &e.name == last_name)
-                                    } else {
-                                        Some(0)
-                                    };
-                                }
-                                Err(e) => log::error!(
-                                    "Failed to enter directory {}: {}",
-                                    target.display(),
-                                    e
-                                ),
-                            }
-                        }
-                    }
-
-                    self.update_preview(&mut state);
-                }
-            }
-            Key::LEFT => {
-                if state.selected_tab == Tab::Files {
-                    // Save current selection before leaving
-                    if let Some(idx) = state.files_list.selected {
-                        if let Some(entry) = state.files_entries.get(idx) {
+                        if is_dir {
+                            // Save current selection
                             let entry_name = entry.name.clone();
                             let current_dir = state.files_dir.clone();
+                            let target = entry.path.clone();
                             state.folder_selection_map.insert(current_dir, entry_name);
+                            Some(target)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(target) = target_path {
+                        match files::get_contents(&target, state.show_hidden_files) {
+                            Ok(entries) => {
+                                state.files_dir = target.clone();
+                                state.files_entries = entries;
+                                state.files_list.selected = if state.files_entries.is_empty() {
+                                    None
+                                } else if let Some(last_name) =
+                                    state.folder_selection_map.get(&target)
+                                {
+                                    // Try to restore the previously selected item
+                                    state
+                                        .files_entries
+                                        .iter()
+                                        .position(|e| &e.name == last_name)
+                                } else {
+                                    Some(0)
+                                };
+                            }
+                            Err(e) => {
+                                log::error!("Failed to enter directory {}: {}", target.display(), e)
+                            }
                         }
                     }
+                }
 
-                    let parent = state
-                        .files_dir
-                        .parent()
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or_else(|| state.files_dir.clone());
+                self.update_preview(&mut state);
+            }
+            Key::RIGHT => {}
+            Key::LEFT if state.selected_tab == Tab::Files => {
+                // Save current selection before leaving
+                if let Some(idx) = state.files_list.selected
+                    && let Some(entry) = state.files_entries.get(idx)
+                {
+                    let entry_name = entry.name.clone();
+                    let current_dir = state.files_dir.clone();
+                    state.folder_selection_map.insert(current_dir, entry_name);
+                }
 
-                    match files::get_contents(&parent, state.show_hidden_files) {
+                let parent = state
+                    .files_dir
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| state.files_dir.clone());
+
+                match files::get_contents(&parent, state.show_hidden_files) {
+                    Ok(entries) => {
+                        state.files_dir = parent.clone();
+                        state.files_entries = entries;
+                        state.files_list.selected = if state.files_entries.is_empty() {
+                            None
+                        } else if let Some(last_name) = state.folder_selection_map.get(&parent) {
+                            // Try to restore the previously selected item
+                            state
+                                .files_entries
+                                .iter()
+                                .position(|e| &e.name == last_name)
+                        } else {
+                            Some(0)
+                        };
+                    }
+                    Err(e) => log::error!("Failed to go up to {}: {}", parent.display(), e),
+                }
+
+                self.update_preview(&mut state);
+            }
+            Key::LEFT => {}
+            Key::PERIOD if state.selected_tab == Tab::Files => {
+                state.show_hidden_files = !state.show_hidden_files;
+
+                match files::get_contents(&state.files_dir, state.show_hidden_files) {
+                    Ok(entries) => {
+                        state.files_entries = entries;
+                        let len = state.files_entries.len();
+
+                        if len == 0 {
+                            state.files_list.selected = None;
+                        } else if let Some(last_name) =
+                            state.folder_selection_map.get(&state.files_dir)
+                        {
+                            // Try to find and select the previously saved file
+                            state.files_list.selected = state
+                                .files_entries
+                                .iter()
+                                .position(|e| &e.name == last_name);
+                        } else {
+                            // Otherwise try to keep roughly the same position
+                            let previous = state.files_list.selected.unwrap_or(0);
+                            state.files_list.selected = Some(previous.min(len - 1));
+                        }
+                    }
+                    Err(e) => log::error!("Failed to get directory contents: {}", e),
+                }
+            }
+            Key::PERIOD => {}
+            Key::TAB if state.selected_tab == Tab::Files => {
+                state.files_preview_open = !state.files_preview_open;
+                // Update preview entry based on current selection
+                self.update_preview(&mut state);
+            }
+            Key::TAB => {}
+            Key::E if state.selected_tab == Tab::Drives => {
+                if let Some(idx) = state.drives_list.selected
+                    && let Some(device) = state.devices.get(idx)
+                    && let Some(mount_info) = &device.mount_info
+                {
+                    let mount_path = PathBuf::from(&mount_info.mount_point);
+
+                    // Switch to Files tab and navigate to the mounted folder
+                    state.selected_tab = Tab::Files;
+                    match files::get_contents(&mount_path, state.show_hidden_files) {
                         Ok(entries) => {
-                            state.files_dir = parent.clone();
+                            state.files_dir = mount_path.clone();
                             state.files_entries = entries;
                             state.files_list.selected = if state.files_entries.is_empty() {
                                 None
-                            } else if let Some(last_name) = state.folder_selection_map.get(&parent)
-                            {
-                                // Try to restore the previously selected item
-                                state
-                                    .files_entries
-                                    .iter()
-                                    .position(|e| &e.name == last_name)
                             } else {
                                 Some(0)
                             };
                         }
-                        Err(e) => log::error!("Failed to go up to {}: {}", parent.display(), e),
-                    }
-
-                    self.update_preview(&mut state);
-                }
-            }
-            Key::PERIOD => {
-                if state.selected_tab == Tab::Files {
-                    state.show_hidden_files = !state.show_hidden_files;
-
-                    match files::get_contents(&state.files_dir, state.show_hidden_files) {
-                        Ok(entries) => {
-                            state.files_entries = entries;
-                            let len = state.files_entries.len();
-
-                            if len == 0 {
-                                state.files_list.selected = None;
-                            } else if let Some(last_name) =
-                                state.folder_selection_map.get(&state.files_dir)
-                            {
-                                // Try to find and select the previously saved file
-                                state.files_list.selected = state
-                                    .files_entries
-                                    .iter()
-                                    .position(|e| &e.name == last_name);
-                            } else {
-                                // Otherwise try to keep roughly the same position
-                                let previous = state.files_list.selected.unwrap_or(0);
-                                state.files_list.selected = Some(previous.min(len - 1));
-                            }
-                        }
-                        Err(e) => log::error!("Failed to get directory contents: {}", e),
-                    }
-                }
-            }
-            Key::TAB => {
-                if state.selected_tab == Tab::Files {
-                    state.files_preview_open = !state.files_preview_open;
-                    // Update preview entry based on current selection
-                    self.update_preview(&mut state);
-                }
-            }
-            Key::E => {
-                if state.selected_tab == Tab::Drives {
-                    if let Some(idx) = state.drives_list.selected {
-                        if let Some(device) = state.devices.get(idx) {
-                            if let Some(mount_info) = &device.mount_info {
-                                let mount_path = PathBuf::from(&mount_info.mount_point);
-
-                                // Switch to Files tab and navigate to the mounted folder
-                                state.selected_tab = Tab::Files;
-                                match files::get_contents(&mount_path, state.show_hidden_files) {
-                                    Ok(entries) => {
-                                        state.files_dir = mount_path.clone();
-                                        state.files_entries = entries;
-                                        state.files_list.selected =
-                                            if state.files_entries.is_empty() {
-                                                None
-                                            } else {
-                                                Some(0)
-                                            };
-                                    }
-                                    Err(e) => log::error!(
-                                        "Failed to read directory {}: {}",
-                                        mount_path.display(),
-                                        e
-                                    ),
-                                }
-                            }
+                        Err(e) => {
+                            log::error!("Failed to read directory {}: {}", mount_path.display(), e)
                         }
                     }
                 }
             }
-            Key::M => {
-                if state.selected_tab == Tab::Drives {
-                    if let Some(idx) = state.drives_list.selected {
-                        if state.devices.get(idx).is_some() {
-                            // Enter password mode for both mount and unmount
-                            state.password_mode = true;
-                            state.password_buffer.clear();
-                            state.mounting_index = Some(idx);
-                        }
-                    }
-                }
-            }
-            Key::ENTER => {
-                if state.password_mode {
-                    // Execute mount or unmount with sudo
-                    if let Some(idx) = state.mounting_index {
-                        if let Some(device) = state.devices.get(idx) {
-                            if let Some(mount_info) = &device.mount_info {
-                                // Unmount
-                                match mount::umount_with_sudo(
-                                    &mount_info.mount_point,
-                                    &state.password_buffer,
-                                ) {
-                                    Ok(_) => {
-                                        log::info!(
-                                            "Successfully unmounted {} from {}",
-                                            device.path,
-                                            mount_info.mount_point
-                                        );
-                                        // Rescan drives after unmount
-                                        match sysinfo::get_block_devices() {
-                                            Ok(devices) => {
-                                                state.devices = devices
-                                                    .into_iter()
-                                                    .filter(|d| d.is_partition)
-                                                    .collect();
-                                                let drives_len = state.devices.len();
-                                                state.drives_list.clamp(drives_len);
-                                            }
-                                            Err(e) => {
-                                                log::error!("Failed to rescan block devices: {}", e)
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        log::error!("Failed to unmount {}: {}", device.path, e)
-                                    }
-                                }
-                            } else {
-                                // Mount
-                                let drive_name = device.path.split('/').last().unwrap_or("drive");
-                                let mount_path = format!("/media/{}", drive_name);
-                                let fs_type = device
-                                    .fs_type
-                                    .as_ref()
-                                    .map(|s| s.as_str())
-                                    .unwrap_or("auto");
-
-                                match mount::mount_with_sudo(
-                                    &device.path,
-                                    &mount_path,
-                                    fs_type,
-                                    &state.password_buffer,
-                                ) {
-                                    Ok(_) => {
-                                        log::info!(
-                                            "Successfully mounted {} at {}",
-                                            device.path,
-                                            mount_path
-                                        );
-                                        // Rescan drives after mount
-                                        match sysinfo::get_block_devices() {
-                                            Ok(devices) => {
-                                                state.devices = devices
-                                                    .into_iter()
-                                                    .filter(|d| d.is_partition)
-                                                    .collect();
-                                                let drives_len = state.devices.len();
-                                                state.drives_list.clamp(drives_len);
-                                            }
-                                            Err(e) => {
-                                                log::error!("Failed to rescan block devices: {}", e)
-                                            }
-                                        }
-                                    }
-                                    Err(e) => log::error!("Failed to mount {}: {}", device.path, e),
-                                }
-                            }
-                        }
-                    }
-
-                    // Clear password from memory
+            Key::M if state.selected_tab == Tab::Drives => {
+                if let Some(idx) = state.drives_list.selected
+                    && state.devices.get(idx).is_some()
+                {
+                    // Enter password mode for both mount and unmount
+                    state.password_mode = true;
                     state.password_buffer.clear();
-                    state.password_mode = false;
-                    state.mounting_index = None;
+                    state.mounting_index = Some(idx);
                 }
+            }
+            Key::M => {}
+            Key::ENTER if state.password_mode => {
+                // Execute mount or unmount with sudo
+                toggle_mount(&mut state);
+
+                // Clear password from memory
+                state.password_buffer.clear();
+                state.password_mode = false;
+                state.mounting_index = None;
+            }
+            Key::ENTER => {}
+            Key::ESCAPE if state.password_mode => {
+                // Cancel password entry
+                state.password_buffer.clear();
+                state.password_mode = false;
+                state.mounting_index = None;
             }
             Key::ESCAPE => {
-                if state.password_mode {
-                    // Cancel password entry
-                    state.password_buffer.clear();
-                    state.password_mode = false;
-                    state.mounting_index = None;
-                } else {
-                    gui.request_quit();
-                }
+                gui.request_quit();
             }
             _ => {}
         }
@@ -704,32 +614,32 @@ impl rustine::gui::Application for MyApplication {
                 );
 
                 // Draw password entry prompt if in password mode
-                if state.password_mode {
-                    if let Some(mounting_idx) = state.mounting_index {
-                        let prompt_y = content_y + (mounting_idx as f32 * line_height)
-                            - state.drives_list.scroll_offset;
-                        let prompt_bg_color = 0x0D1117_EEu32;
+                if state.password_mode
+                    && let Some(mounting_idx) = state.mounting_index
+                {
+                    let prompt_y = content_y + (mounting_idx as f32 * line_height)
+                        - state.drives_list.scroll_offset;
+                    let prompt_bg_color = 0x0D1117_EEu32;
 
-                        frame.fill_rectangle(
-                            &gfx::Rectangle {
-                                x: content_x,
-                                y: prompt_y,
-                                w: content_w,
-                                h: line_height,
-                            },
-                            prompt_bg_color,
-                        );
+                    frame.fill_rectangle(
+                        &gfx::Rectangle {
+                            x: content_x,
+                            y: prompt_y,
+                            w: content_w,
+                            h: line_height,
+                        },
+                        prompt_bg_color,
+                    );
 
-                        let prompt_text = "[sudo] password: ";
-                        frame.push_text(
-                            prompt_text,
-                            content_x + TEXT_START_X,
-                            prompt_y + text_font_metrics.ascender,
-                            1.0,
-                            text_color,
-                            gfx::fonts::CASKAYDIAMONO_FONT_ID,
-                        );
-                    }
+                    let prompt_text = "[sudo] password: ";
+                    frame.push_text(
+                        prompt_text,
+                        content_x + TEXT_START_X,
+                        prompt_y + text_font_metrics.ascender,
+                        1.0,
+                        text_color,
+                        gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                    );
                 }
             }
             Tab::Files => {
@@ -877,5 +787,54 @@ impl rustine::gui::Application for MyApplication {
         );
 
         state.frame_index += 1;
+    }
+}
+
+fn toggle_mount(state: &mut std::cell::RefMut<'_, MyApplicationState>) {
+    let Some(idx) = state.mounting_index else {
+        return;
+    };
+    let Some(device) = state.devices.get(idx) else {
+        return;
+    };
+
+    if let Some(mount_info) = &device.mount_info {
+        // Unmount
+        match mount::umount_with_sudo(&mount_info.mount_point, &state.password_buffer) {
+            Ok(_) => {
+                log::info!("Unmounted {} from {}", device.path, mount_info.mount_point);
+            }
+            Err(e) => {
+                log::error!("Failed to unmount {}: {}", device.path, e)
+            }
+        }
+    } else {
+        // Mount
+        let drive_name = device.path.split('/').last().unwrap_or("drive");
+        let mount_path = format!("/media/{}", drive_name);
+        let fs_type = device
+            .fs_type
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("auto");
+
+        match mount::mount_with_sudo(&device.path, &mount_path, fs_type, &state.password_buffer) {
+            Ok(_) => {
+                log::info!("Mounted {} at {}", device.path, mount_path);
+            }
+            Err(e) => log::error!("Failed to mount {}: {}", device.path, e),
+        }
+    }
+
+    // Rescan drives after
+    match sysinfo::get_block_devices() {
+        Ok(devices) => {
+            state.devices = devices.into_iter().filter(|d| d.is_partition).collect();
+            let drives_len = state.devices.len();
+            state.drives_list.clamp(drives_len);
+        }
+        Err(e) => {
+            log::error!("Failed to rescan block devices: {}", e)
+        }
     }
 }

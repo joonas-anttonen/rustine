@@ -83,52 +83,48 @@ impl UdevBluetoothMonitor {
             if let Some(event) = socket.iter().next() {
                 let event_type = event.event_type();
                 let device = event.device();
-                
+
                 // Filter for Bluetooth-related devices
                 let subsystem = device.subsystem().and_then(|s| s.to_str());
                 if !is_bluetooth_related(subsystem) {
                     continue;
                 }
-                
+
                 match event_type {
                     udev::EventType::Add => {
                         if let Some(address) = extract_bt_address(&event) {
                             let properties = extract_bt_properties(&event);
-                            
-                            if let Ok(cb_lock) = callback.lock() {
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(BluetoothEvent::Added {
-                                        address,
-                                        properties,
-                                    });
-                                }
+
+                            if let Ok(cb_lock) = callback.lock()
+                                && let Some(cb) = cb_lock.as_ref()
+                            {
+                                cb(BluetoothEvent::Added {
+                                    address,
+                                    properties,
+                                });
                             }
                         }
                     }
                     udev::EventType::Remove => {
                         let syspath = event.syspath().to_string_lossy().to_string();
-                        if let Some(address) = extract_bt_address(&event) {
-                            if let Ok(cb_lock) = callback.lock() {
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(BluetoothEvent::Removed {
-                                        address,
-                                        syspath,
-                                    });
-                                }
-                            }
+                        if let Some(address) = extract_bt_address(&event)
+                            && let Ok(cb_lock) = callback.lock()
+                            && let Some(cb) = cb_lock.as_ref()
+                        {
+                            cb(BluetoothEvent::Removed { address, syspath });
                         }
                     }
                     udev::EventType::Change => {
                         if let Some(address) = extract_bt_address(&event) {
                             let properties = extract_bt_properties(&event);
-                            
-                            if let Ok(cb_lock) = callback.lock() {
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(BluetoothEvent::Changed {
-                                        address,
-                                        properties,
-                                    });
-                                }
+
+                            if let Ok(cb_lock) = callback.lock()
+                                && let Some(cb) = cb_lock.as_ref()
+                            {
+                                cb(BluetoothEvent::Changed {
+                                    address,
+                                    properties,
+                                });
                             }
                         }
                     }
@@ -154,47 +150,40 @@ fn is_bluetooth_related(subsystem: Option<&str>) -> bool {
 fn extract_bt_address(event: &udev::Event) -> Option<String> {
     let device = event.device();
     let syspath = device.syspath().to_string_lossy().to_string();
-    
+
     // Look for MAC address pattern in syspath
     // Example: /sys/devices/virtual/input/input45/0005:046D:B023.0012
     // or /sys/devices/pci0000:00/.../bluetooth/hci0/hci0:256/0005:046D:B023.0012
-    
+
     // Try to find a Bluetooth address in parent devices
     let mut current = Some(device);
     while let Some(dev) = current {
-        if let Some(addr) = dev.property_value("UNIQ") {
-            if let Some(addr_str) = addr.to_str() {
-                if is_valid_bt_address(addr_str) {
-                    return Some(addr_str.to_string());
-                }
-            }
+        if let Some(addr) = dev.property_value("UNIQ")
+            && let Some(addr_str) = addr.to_str()
+            && is_valid_bt_address(addr_str)
+        {
+            return Some(addr_str.to_string());
         }
-        
+
         // Check syspath for address pattern
-        if let Some(sysname) = dev.sysname().to_str() {
-            if is_valid_bt_address(sysname) {
-                return Some(sysname.to_string());
-            }
+        if let Some(sysname) = dev.sysname().to_str()
+            && is_valid_bt_address(sysname)
+        {
+            return Some(sysname.to_string());
         }
-        
+
         current = dev.parent();
     }
-    
+
     // Fallback: extract from syspath
     for part in syspath.split('/') {
         if is_valid_bt_address(part) {
             return Some(part.to_string());
         }
     }
-    
+
     // Last resort: use the last component of syspath
-    Some(
-        syspath
-            .split('/')
-            .last()
-            .unwrap_or("unknown")
-            .to_string()
-    )
+    Some(syspath.split('/').last().unwrap_or("unknown").to_string())
 }
 
 /// Check if a string looks like a Bluetooth MAC address
@@ -203,9 +192,9 @@ fn is_valid_bt_address(s: &str) -> bool {
     if s.len() == 17 {
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() == 6 {
-            return parts.iter().all(|p| {
-                p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit())
-            });
+            return parts
+                .iter()
+                .all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()));
         }
     }
     false
@@ -214,37 +203,39 @@ fn is_valid_bt_address(s: &str) -> bool {
 /// Extract properties from a Bluetooth udev event
 fn extract_bt_properties(event: &udev::Event) -> BluetoothProperties {
     let device = event.device();
-    
-    let name = device.property_value("NAME")
+
+    let name = device
+        .property_value("NAME")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string())
-        .or_else(|| {
-            device.sysname()
-                .to_str()
-                .map(|s| s.to_string())
-        });
-    
-    let devtype = device.devtype()
+        .or_else(|| device.sysname().to_str().map(|s| s.to_string()));
+
+    let devtype = device
+        .devtype()
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let subsystem = device.subsystem()
+
+    let subsystem = device
+        .subsystem()
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let driver = device.driver()
+
+    let driver = device
+        .driver()
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let modalias = device.property_value("MODALIAS")
+
+    let modalias = device
+        .property_value("MODALIAS")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let connected = device.attribute_value("connected")
+
+    let connected = device
+        .attribute_value("connected")
         .and_then(|v| v.to_str())
         .map(|s| s == "1")
         .unwrap_or(false);
-    
+
     BluetoothProperties {
         syspath: device.syspath().to_string_lossy().to_string(),
         name,

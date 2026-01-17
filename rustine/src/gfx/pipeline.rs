@@ -617,13 +617,13 @@ impl Descriptor {
 
 impl DescriptorType {
     pub fn to_vk(&self) -> vk::VkDescriptorType {
-        match self {
-            &DescriptorType::Sampler => vk::VkDescriptorType::SAMPLER,
-            &DescriptorType::SampledImage => vk::VkDescriptorType::SAMPLED_IMAGE,
-            &DescriptorType::StorageImage => vk::VkDescriptorType::STORAGE_IMAGE,
-            &DescriptorType::UniformBuffer => vk::VkDescriptorType::UNIFORM_BUFFER,
-            &DescriptorType::StorageBuffer => vk::VkDescriptorType::STORAGE_BUFFER,
-            &DescriptorType::InputAttachment => vk::VkDescriptorType::INPUT_ATTACHMENT,
+        match *self {
+            DescriptorType::Sampler => vk::VkDescriptorType::SAMPLER,
+            DescriptorType::SampledImage => vk::VkDescriptorType::SAMPLED_IMAGE,
+            DescriptorType::StorageImage => vk::VkDescriptorType::STORAGE_IMAGE,
+            DescriptorType::UniformBuffer => vk::VkDescriptorType::UNIFORM_BUFFER,
+            DescriptorType::StorageBuffer => vk::VkDescriptorType::STORAGE_BUFFER,
+            DescriptorType::InputAttachment => vk::VkDescriptorType::INPUT_ATTACHMENT,
         }
     }
 }
@@ -727,26 +727,26 @@ pub enum BlendFactor {
 
 impl BlendFactor {
     pub fn to_vk(&self) -> vk::VkBlendFactor {
-        match self {
-            &BlendFactor::Zero => vk::VkBlendFactor::ZERO,
-            &BlendFactor::One => vk::VkBlendFactor::ONE,
-            &BlendFactor::SrcColor => vk::VkBlendFactor::SRC_COLOR,
-            &BlendFactor::OneMinusSrcColor => vk::VkBlendFactor::ONE_MINUS_SRC_COLOR,
-            &BlendFactor::DstColor => vk::VkBlendFactor::DST_COLOR,
-            &BlendFactor::OneMinusDstColor => vk::VkBlendFactor::ONE_MINUS_DST_COLOR,
-            &BlendFactor::SrcAlpha => vk::VkBlendFactor::SRC_ALPHA,
-            &BlendFactor::OneMinusSrcAlpha => vk::VkBlendFactor::ONE_MINUS_SRC_ALPHA,
-            &BlendFactor::DstAlpha => vk::VkBlendFactor::DST_ALPHA,
-            &BlendFactor::OneMinusDstAlpha => vk::VkBlendFactor::ONE_MINUS_DST_ALPHA,
-            &BlendFactor::ConstantColor => vk::VkBlendFactor::CONSTANT_COLOR,
-            &BlendFactor::OneMinusConstantColor => vk::VkBlendFactor::ONE_MINUS_CONSTANT_COLOR,
-            &BlendFactor::ConstantAlpha => vk::VkBlendFactor::CONSTANT_ALPHA,
-            &BlendFactor::OneMinusConstantAlpha => vk::VkBlendFactor::ONE_MINUS_CONSTANT_ALPHA,
-            &BlendFactor::SrcAlphaSaturate => vk::VkBlendFactor::SRC_ALPHA_SATURATE,
-            &BlendFactor::Src1Color => vk::VkBlendFactor::SRC1_COLOR,
-            &BlendFactor::OneMinusSrc1Color => vk::VkBlendFactor::ONE_MINUS_SRC1_COLOR,
-            &BlendFactor::Src1Alpha => vk::VkBlendFactor::SRC1_ALPHA,
-            &BlendFactor::OneMinusSrc1Alpha => vk::VkBlendFactor::ONE_MINUS_SRC1_ALPHA,
+        match *self {
+            BlendFactor::Zero => vk::VkBlendFactor::ZERO,
+            BlendFactor::One => vk::VkBlendFactor::ONE,
+            BlendFactor::SrcColor => vk::VkBlendFactor::SRC_COLOR,
+            BlendFactor::OneMinusSrcColor => vk::VkBlendFactor::ONE_MINUS_SRC_COLOR,
+            BlendFactor::DstColor => vk::VkBlendFactor::DST_COLOR,
+            BlendFactor::OneMinusDstColor => vk::VkBlendFactor::ONE_MINUS_DST_COLOR,
+            BlendFactor::SrcAlpha => vk::VkBlendFactor::SRC_ALPHA,
+            BlendFactor::OneMinusSrcAlpha => vk::VkBlendFactor::ONE_MINUS_SRC_ALPHA,
+            BlendFactor::DstAlpha => vk::VkBlendFactor::DST_ALPHA,
+            BlendFactor::OneMinusDstAlpha => vk::VkBlendFactor::ONE_MINUS_DST_ALPHA,
+            BlendFactor::ConstantColor => vk::VkBlendFactor::CONSTANT_COLOR,
+            BlendFactor::OneMinusConstantColor => vk::VkBlendFactor::ONE_MINUS_CONSTANT_COLOR,
+            BlendFactor::ConstantAlpha => vk::VkBlendFactor::CONSTANT_ALPHA,
+            BlendFactor::OneMinusConstantAlpha => vk::VkBlendFactor::ONE_MINUS_CONSTANT_ALPHA,
+            BlendFactor::SrcAlphaSaturate => vk::VkBlendFactor::SRC_ALPHA_SATURATE,
+            BlendFactor::Src1Color => vk::VkBlendFactor::SRC1_COLOR,
+            BlendFactor::OneMinusSrc1Color => vk::VkBlendFactor::ONE_MINUS_SRC1_COLOR,
+            BlendFactor::Src1Alpha => vk::VkBlendFactor::SRC1_ALPHA,
+            BlendFactor::OneMinusSrc1Alpha => vk::VkBlendFactor::ONE_MINUS_SRC1_ALPHA,
         }
     }
 }

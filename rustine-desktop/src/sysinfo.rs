@@ -49,13 +49,13 @@ fn get_mount_map() -> io::Result<std::collections::HashMap<String, MountInfo>> {
     for line in reader.lines() {
         let line = line?;
         let parts: Vec<&str> = line.split_whitespace().collect();
-        
+
         if parts.len() >= 4 {
             let device = parts[0];
             let mount_point = parts[1];
             let fs_type = parts[2];
             let options_str = parts[3];
-            
+
             // Skip pseudo-filesystems typically
             if device.starts_with('/') {
                 mounts.insert(
@@ -89,7 +89,7 @@ pub fn get_block_devices() -> io::Result<Vec<BlockDevice>> {
         let entry = entry?;
         let device_name = entry.file_name();
         let device_name_str = device_name.to_string_lossy();
-        
+
         // Skip loop devices and ram devices by default
         if device_name_str.starts_with("loop") || device_name_str.starts_with("ram") {
             continue;
@@ -101,9 +101,9 @@ pub fn get_block_devices() -> io::Result<Vec<BlockDevice>> {
         let dev_path = format!("/dev/{}", device_name_str);
         let fs_type = probe_filesystem(&dev_path);
         let mount_info = mount_map.get(&dev_path).cloned();
-        
+
         devices.push(BlockDevice {
-                _name: device_name_str.to_string(),
+            _name: device_name_str.to_string(),
             path: dev_path,
             size,
             is_partition: false,
@@ -117,7 +117,9 @@ pub fn get_block_devices() -> io::Result<Vec<BlockDevice>> {
         });
 
         // Check for partitions
-        if let Ok(partitions) = collect_partitions(&device_path, &device_name_str, &label_map, &mount_map) {
+        if let Ok(partitions) =
+            collect_partitions(&device_path, &device_name_str, &label_map, &mount_map)
+        {
             devices.extend(partitions);
         }
     }
@@ -150,12 +152,12 @@ fn collect_partitions(
     mount_map: &std::collections::HashMap<String, MountInfo>,
 ) -> io::Result<Vec<BlockDevice>> {
     let mut partitions = Vec::new();
-    
+
     for entry in fs::read_dir(device_path)? {
         let entry = entry?;
         let partition_name = entry.file_name();
         let partition_name_str = partition_name.to_string_lossy();
-        
+
         // Partitions start with the device name
         if partition_name_str.starts_with(device_name) {
             let partition_path = entry.path();
@@ -165,9 +167,9 @@ fn collect_partitions(
             let label = label_map.get(&dev_path).cloned();
             let fs_type = probe_filesystem(&dev_path);
             let mount_info = mount_map.get(&dev_path).cloned();
-            
+
             partitions.push(BlockDevice {
-                    _name: partition_name_str.to_string(),
+                _name: partition_name_str.to_string(),
                 path: dev_path,
                 size,
                 is_partition: true,
@@ -181,7 +183,7 @@ fn collect_partitions(
             });
         }
     }
-    
+
     Ok(partitions)
 }
 
@@ -236,11 +238,11 @@ fn collect_partition_labels() -> std::collections::HashMap<String, String> {
                 let mut full_path = by_label_path.to_path_buf();
                 full_path.pop(); // remove by-label
                 full_path.push(target);
-                if let Ok(canonical) = full_path.canonicalize() {
-                    if let Some(dev_name) = canonical.file_name().and_then(|n| n.to_str()) {
-                        let dev_path = format!("/dev/{}", dev_name);
-                        map.insert(dev_path, label);
-                    }
+                if let Ok(canonical) = full_path.canonicalize()
+                    && let Some(dev_name) = canonical.file_name().and_then(|n| n.to_str())
+                {
+                    let dev_path = format!("/dev/{}", dev_name);
+                    map.insert(dev_path, label);
                 }
             }
         }
@@ -267,7 +269,16 @@ fn probe_filesystem(dev_path: &str) -> Option<String> {
 
     // Fallback: blkid (may require elevated permissions on some systems)
     if let Ok(output) = Command::new("blkid")
-        .args(["-p", "-c", "/dev/null", "-o", "value", "-s", "TYPE", dev_path])
+        .args([
+            "-p",
+            "-c",
+            "/dev/null",
+            "-o",
+            "value",
+            "-s",
+            "TYPE",
+            dev_path,
+        ])
         .output()
     {
         if output.status.success() {
@@ -285,7 +296,7 @@ fn probe_filesystem(dev_path: &str) -> Option<String> {
 fn unescape_mount_point(s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars();
-    
+
     while let Some(c) = chars.next() {
         if c == '\\' {
             // Try to read three octal digits
@@ -302,7 +313,7 @@ fn unescape_mount_point(s: &str) -> String {
                     break;
                 }
             }
-            
+
             if octal.len() == 3 {
                 if let Ok(byte) = u8::from_str_radix(&octal, 8) {
                     result.push(byte as char);
@@ -317,7 +328,7 @@ fn unescape_mount_point(s: &str) -> String {
             result.push(c);
         }
     }
-    
+
     result
 }
 

@@ -78,20 +78,20 @@ impl UdevDriveMonitor {
         loop {
             if let Some(event) = socket.iter().next() {
                 let event_type = event.event_type();
-                
+
                 match event_type {
                     udev::EventType::Add => {
                         if let Some(device_node) = event.devnode() {
                             let device_node_str = device_node.to_string_lossy().to_string();
                             let properties = extract_properties(&event);
-                            
-                            if let Ok(cb_lock) = callback.lock() {
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(DriveEvent::Added {
-                                        device_node: device_node_str,
-                                        properties,
-                                    });
-                                }
+
+                            if let Ok(cb_lock) = callback.lock()
+                                && let Some(cb) = cb_lock.as_ref()
+                            {
+                                cb(DriveEvent::Added {
+                                    device_node: device_node_str,
+                                    properties,
+                                });
                             }
                         }
                     }
@@ -101,14 +101,14 @@ impl UdevDriveMonitor {
                             .devnode()
                             .map(|p| p.to_string_lossy().to_string())
                             .unwrap_or_else(|| extract_devname_from_syspath(&syspath));
-                        
-                        if let Ok(cb_lock) = callback.lock() {
-                            if let Some(cb) = cb_lock.as_ref() {
-                                cb(DriveEvent::Removed {
-                                    device_node,
-                                    syspath,
-                                });
-                            }
+
+                        if let Ok(cb_lock) = callback.lock()
+                            && let Some(cb) = cb_lock.as_ref()
+                        {
+                            cb(DriveEvent::Removed {
+                                device_node,
+                                syspath,
+                            });
                         }
                     }
                     _ => {}
@@ -127,42 +127,50 @@ impl Default for UdevDriveMonitor {
 /// Extract properties from a udev event
 fn extract_properties(event: &udev::Event) -> DriveProperties {
     let device = event.device();
-    
-    let devname = device.devnode()
+
+    let devname = device
+        .devnode()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
         .map(|s| s.to_string());
-    
-    let devtype = device.property_value("DEVTYPE")
+
+    let devtype = device
+        .property_value("DEVTYPE")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let fs_type = device.property_value("ID_FS_TYPE")
+
+    let fs_type = device
+        .property_value("ID_FS_TYPE")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let fs_label = device.property_value("ID_FS_LABEL")
+
+    let fs_label = device
+        .property_value("ID_FS_LABEL")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let id_bus = device.property_value("ID_BUS")
+
+    let id_bus = device
+        .property_value("ID_BUS")
         .and_then(|v| v.to_str())
         .map(|s| s.to_string());
-    
-    let size = device.attribute_value("size")
+
+    let size = device
+        .attribute_value("size")
         .and_then(|v| v.to_str())
         .and_then(|s| s.parse::<u64>().ok())
         .map(|blocks| blocks * 512); // Convert 512-byte blocks to bytes
-    
-    let removable = device.attribute_value("removable")
+
+    let removable = device
+        .attribute_value("removable")
         .and_then(|v| v.to_str())
         .map(|s| s == "1")
         .unwrap_or(false);
-    
-    let partition = device.property_value("PARTN")
+
+    let partition = device
+        .property_value("PARTN")
         .and_then(|v| v.to_str())
         .and_then(|s| s.parse::<u32>().ok());
-    
+
     DriveProperties {
         syspath: device.syspath().to_string_lossy().to_string(),
         devname,
@@ -180,7 +188,7 @@ fn extract_properties(event: &udev::Event) -> DriveProperties {
 fn extract_devname_from_syspath(syspath: &str) -> String {
     syspath
         .split('/')
-        .last()
+        .next_back()
         .map(|s| format!("/dev/{}", s))
         .unwrap_or_else(|| syspath.to_string())
 }
@@ -192,7 +200,9 @@ mod tests {
     #[test]
     fn test_extract_devname_from_syspath() {
         assert_eq!(
-            extract_devname_from_syspath("/sys/devices/pci0000:00/0000:00:14.0/usb1/1-3/1-3:1.0/host2/target2:0:0/2:0:0:0/block/sdb"),
+            extract_devname_from_syspath(
+                "/sys/devices/pci0000:00/0000:00:14.0/usb1/1-3/1-3:1.0/host2/target2:0:0/2:0:0:0/block/sdb"
+            ),
             "/dev/sdb"
         );
         assert_eq!(

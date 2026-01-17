@@ -52,10 +52,10 @@ pub struct Image {
 
 impl Drop for Image {
     fn drop(&mut self) {
-        if let Some(mailbox) = self.released_images.upgrade() {
-            if let Ok(mut queue) = mailbox.lock() {
-                queue.push_back(self.id);
-            }
+        if let Some(mailbox) = self.released_images.upgrade()
+            && let Ok(mut queue) = mailbox.lock()
+        {
+            queue.push_back(self.id);
         }
     }
 }
@@ -89,10 +89,10 @@ impl Image {
     /// It is always safe to add an image to the released images queue.
     /// If the image is used after this, any resources will get reallocated.
     pub fn soft_drop(&mut self) {
-        if let Some(mailbox) = self.released_images.upgrade() {
-            if let Ok(mut queue) = mailbox.lock() {
-                queue.push_back(self.id);
-            }
+        if let Some(mailbox) = self.released_images.upgrade()
+            && let Ok(mut queue) = mailbox.lock()
+        {
+            queue.push_back(self.id);
         }
     }
 }
@@ -195,6 +195,12 @@ impl DrawBatch {
 
     pub fn push_command(&mut self, cmd: DrawCommand) {
         self.commands.push(cmd);
+    }
+}
+
+impl Default for DrawBatch {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -582,7 +588,7 @@ impl RenderFrame {
         self.image_descriptors.push(ImageDescriptor {
             image_id: image.id,
             fallback_id: fallback_image.map(|f| f.id),
-            layout: layout.clone(),
+            layout,
             fit,
             color,
             vertex_offset,
@@ -664,41 +670,41 @@ impl RenderFrame {
                 cursor_x += metrics.advance_width as f32 * scale;
             } else {
                 // Invalid character, take the first character in the font and push_quad filling that space
-                if let Some(all_metrics) = fonts::get_all_metrics(font_id) {
-                    if let Some((_, first_metrics)) = all_metrics.first() {
-                        let glyph_w = first_metrics.width as f32;
-                        let glyph_h = first_metrics.height as f32;
+                if let Some(all_metrics) = fonts::get_all_metrics(font_id)
+                    && let Some((_, first_metrics)) = all_metrics.first()
+                {
+                    let glyph_w = first_metrics.width as f32;
+                    let glyph_h = first_metrics.height as f32;
 
-                        let x0 = cursor_x + first_metrics.offset_x as f32 * scale;
-                        let y1 = cursor_y - first_metrics.offset_y as f32 * scale;
-                        let x1 = x0 + glyph_w * scale;
-                        let y0 = y1 - glyph_h * scale;
+                    let x0 = cursor_x + first_metrics.offset_x as f32 * scale;
+                    let y1 = cursor_y - first_metrics.offset_y as f32 * scale;
+                    let x1 = x0 + glyph_w * scale;
+                    let y0 = y1 - glyph_h * scale;
 
-                        min_x = min_x.min(x0);
-                        max_x = max_x.max(x1);
-                        min_y = min_y.min(y0);
-                        max_y = max_y.max(y1);
+                    min_x = min_x.min(x0);
+                    max_x = max_x.max(x1);
+                    min_y = min_y.min(y0);
+                    max_y = max_y.max(y1);
 
-                        let padding = 1.0 * scale;
-                        let positions = [
-                            Vector2f::new(x0 + padding, y0 + padding),
-                            Vector2f::new(x1 - padding, y0 + padding),
-                            Vector2f::new(x1 - padding, y1 - padding),
-                            Vector2f::new(x0 + padding, y1 - padding),
-                        ];
+                    let padding = 1.0 * scale;
+                    let positions = [
+                        Vector2f::new(x0 + padding, y0 + padding),
+                        Vector2f::new(x1 - padding, y0 + padding),
+                        Vector2f::new(x1 - padding, y1 - padding),
+                        Vector2f::new(x0 + padding, y1 - padding),
+                    ];
 
-                        let uvs = [
-                            Vector2f::new(0.0, 0.0),
-                            Vector2f::new(0.0, 0.0),
-                            Vector2f::new(0.0, 0.0),
-                            Vector2f::new(0.0, 0.0),
-                        ];
+                    let uvs = [
+                        Vector2f::new(0.0, 0.0),
+                        Vector2f::new(0.0, 0.0),
+                        Vector2f::new(0.0, 0.0),
+                        Vector2f::new(0.0, 0.0),
+                    ];
 
-                        let error_color = 0xFF0000FFu32;
-                        self.push_quad(positions, uvs, error_color, None, None);
+                    let error_color = 0xFF0000FFu32;
+                    self.push_quad(positions, uvs, error_color, None, None);
 
-                        cursor_x += first_metrics.advance_width as f32 * scale;
-                    }
+                    cursor_x += first_metrics.advance_width as f32 * scale;
                 }
             }
         }

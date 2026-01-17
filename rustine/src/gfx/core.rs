@@ -127,9 +127,9 @@ impl Gfx {
                     if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
                         debug!(
                             "GFX frame dt -> min: {}, max: {}, mean: {}",
-                            utilities::format_duration(min as f64),
-                            utilities::format_duration(max as f64),
-                            utilities::format_duration(mean as f64)
+                            utilities::format_duration(min),
+                            utilities::format_duration(max),
+                            utilities::format_duration(mean)
                         );
                     }
 
@@ -372,7 +372,7 @@ impl Gfx {
 
     /// Returns a reference to the selected physical device.
     pub fn selected_physical_device(&self) -> &PhysicalDevice {
-        &self.device.physical_device()
+        self.device.physical_device()
     }
 
     pub fn vulkan_instance_handle(&self) -> vulkan::VkInstance {
@@ -540,17 +540,12 @@ impl Gfx {
 
     fn create_pixel_buffer_for(&mut self, image_id: u32, io_image: &io::Image) {
         // Check if we already have a pixel buffer with the same dimensions and format
-        if self
-            .pixel_buffers
-            .iter()
-            .find(|(id, pb)| {
-                *id == &image_id
-                    && pb.width() == io_image.width
-                    && pb.height() == io_image.height
-                    && pb.format() == io_image.format
-            })
-            .is_some()
-        {
+        if self.pixel_buffers.iter().any(|(id, pb)| {
+            id == &image_id
+                && pb.width() == io_image.width
+                && pb.height() == io_image.height
+                && pb.format() == io_image.format
+        }) {
             return;
         }
 
@@ -619,11 +614,11 @@ impl Gfx {
 
         // Check for new render commands; if present, cache them and use; otherwise use cached frame
         {
-            if let Ok(mut pending) = self.render_commands.lock() {
-                if let Some(frame) = pending.pop_back() {
-                    pending.clear();
-                    self.cached_render_frame = Some(frame);
-                }
+            if let Ok(mut pending) = self.render_commands.lock()
+                && let Some(frame) = pending.pop_back()
+            {
+                pending.clear();
+                self.cached_render_frame = Some(frame);
             }
         }
 
@@ -702,10 +697,7 @@ impl Gfx {
             if let Some(frame) = &cached_frame {
                 for batch in &frame.batches {
                     for draw_cmd in &batch.commands {
-                        let scissor = draw_cmd
-                            .scissor
-                            .clone()
-                            .unwrap_or_else(|| render_area.clone());
+                        let scissor = draw_cmd.scissor.unwrap_or_else(|| render_area);
                         cmd.set_scissor(&scissor);
 
                         let mut sampler = linear_sampler.clone();
@@ -717,19 +709,19 @@ impl Gfx {
                         let texture = if let Some(image_id) = draw_cmd.image_id {
                             pixel_buffers
                                 .get(&image_id)
-                                .and_then(|t| t.is_defined().then(|| t))
+                                .and_then(|t| t.is_defined().then_some(t))
                                 .or_else(|| {
                                     draw_cmd.image_fallback_id.and_then(|fallback_id| {
                                         pixel_buffers
                                             .get(&fallback_id)
-                                            .and_then(|t| t.is_defined().then(|| t))
+                                            .and_then(|t| t.is_defined().then_some(t))
                                     })
                                 })
                         } else {
                             sampler = nearest_sampler.clone();
                             pixel_buffers
                                 .get(&FALLBACK_TEXTURE_ID)
-                                .and_then(|t| t.is_defined().then(|| t))
+                                .and_then(|t| t.is_defined().then_some(t))
                         };
 
                         if let Some(texture) = texture {

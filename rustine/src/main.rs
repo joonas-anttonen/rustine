@@ -4,8 +4,6 @@ use rustine::*;
 use rustine::{error, info};
 use rustine::{gfx, gui, io, log::*, version::Version};
 
-#[cfg(unix)]
-use libc;
 use std::collections::VecDeque;
 use std::io as stdio;
 use std::path::{Path, PathBuf};
@@ -479,10 +477,10 @@ fn collect_webp_images(root: &Path) -> Vec<PathBuf> {
             let p = entry.path();
             if p.is_dir() {
                 recurse(acc, &p);
-            } else if let Some(ext) = p.extension() {
-                if ext.eq_ignore_ascii_case("webp") {
-                    acc.push(p);
-                }
+            } else if let Some(ext) = p.extension()
+                && ext.eq_ignore_ascii_case("webp")
+            {
+                acc.push(p);
             }
         }
     }

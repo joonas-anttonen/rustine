@@ -168,6 +168,12 @@ pub struct Log {
     thread_names: sync::Mutex<std::collections::HashMap<thread::ThreadId, String>>,
 }
 
+impl Default for Log {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Log {
     /// Creates a new empty logger with no listeners.
     pub fn new() -> Self {

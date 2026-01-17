@@ -9,6 +9,7 @@ use core::ffi;
 
 /// Wraps a Vulkan function call and converts the result to `gfx::Result`.
 #[macro_export]
+#[allow(clippy::macro_metavars_in_unsafe)]
 macro_rules! vk_call {
     ($expr:expr) => {{
         let res = unsafe { $expr };

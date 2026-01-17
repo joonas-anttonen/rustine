@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, non_camel_case_types, clippy::upper_case_acronyms)]
 
 use std::rc::Rc;
 use std::sync::{Arc, atomic};
@@ -907,9 +907,9 @@ mod ffi {
         ///
         /// You may set this flag only if you:
         ///
-        /// 1. (For Vulkan version < 1.2) Found as available and enabled device extension
-        /// VK_KHR_buffer_device_address.
-        /// This extension is promoted to core Vulkan 1.2.
+        /// 1. (For Vulkan version < 1.2) Found as available and enabled device extension 
+        ///    VK_KHR_buffer_device_address.
+        ///    This extension is promoted to core Vulkan 1.2.
         /// 2. Found as available and enabled device feature `VkPhysicalDeviceBufferDeviceAddressFeatures::bufferDeviceAddress`.
         ///
         /// When this flag is set, you can create buffers with `VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT` using VMA.

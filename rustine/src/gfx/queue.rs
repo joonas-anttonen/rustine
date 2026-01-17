@@ -63,7 +63,7 @@ impl Queue {
         let family_index = device.general_queue_family_index();
         let queue_handle = device.general_queue();
 
-        let command_pool = CommandPool::new(family_index, &device);
+        let command_pool = CommandPool::new(family_index, device);
 
         let mut available_commands = VecDeque::new();
 

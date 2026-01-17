@@ -56,10 +56,10 @@ impl ListState {
             return;
         }
 
-        if let Some(idx) = self.selected {
-            if idx >= len {
-                self.selected = Some(len - 1);
-            }
+        if let Some(idx) = self.selected
+            && idx >= len
+        {
+            self.selected = Some(len - 1);
         }
     }
 
@@ -154,7 +154,7 @@ pub fn render_list<F>(
         const SCROLLBAR_COLOR: u32 = 0xFFFFFF_FFu32;
 
         let scrollbar_x = content_x + content_w - SCROLLBAR_WIDTH - SCROLLBAR_MARGIN;
-        
+
         // Calculate scrollbar position and height
         let scrollbar_height = (content_h / total_height) * content_h;
         let scrollbar_y = content_y + (scroll_offset / total_height) * content_h;
