@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, atomic};
 
 use rustine::{Version, log};
-use rustine_desktop::application::*;
+use rustine_explorer::application::*;
 
 static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 

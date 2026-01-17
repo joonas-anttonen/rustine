@@ -1,4 +1,4 @@
-use rustine_desktop::switch_monitor::{SwitchEvent, SwitchType, SwitchState, UdevSwitchMonitor};
+use rustine_explorer::switch_monitor::{SwitchEvent, SwitchType, SwitchState, UdevSwitchMonitor};
 use std::io::{self, Write};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

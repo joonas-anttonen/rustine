@@ -253,7 +253,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustine-desktop"
+name = "rustine-explorer"
 version = "0.1.0"
 dependencies = [
  "libc",

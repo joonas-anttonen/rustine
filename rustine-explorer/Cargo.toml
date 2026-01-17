@@ -1,14 +1,14 @@
 [package]
-name = "rustine-desktop"
+name = "rustine-explorer"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "rustine_desktop"
+name = "rustine_explorer"
 path = "src/lib.rs"
 
 [[bin]]
-name = "rustine-desktop"
+name = "rustine-explorer"
 path = "src/main.rs"
 
 [dependencies]

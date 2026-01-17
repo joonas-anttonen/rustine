@@ -2,30 +2,30 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Clean rustine",
-			"detail": "Clean rustine",
+			"label": "Clean",
+			"detail": "Clean the workspace",
 			"type": "process",
 			"command": "cargo",
 			"args": [
 				"clean"
 			],
 			"options": {
-				"cwd": "${workspaceFolder}/rustine"
+				"cwd": "${workspaceFolder}"
 			},
 			"problemMatcher": [
 				"$rustc"
 			]
 		},
 		{
-			"label": "Clean rustine-desktop",
-			"detail": "Clean rustine-desktop",
+			"label": "Build",
+			"detail": "Build the workspace",
 			"type": "process",
 			"command": "cargo",
 			"args": [
-				"clean"
+				"build"
 			],
 			"options": {
-				"cwd": "${workspaceFolder}/rustine-desktop"
+				"cwd": "${workspaceFolder}"
 			},
 			"problemMatcher": [
 				"$rustc"
@@ -33,12 +33,10 @@
 		},
 		{
 			"label": "Rebuild",
-			"detail": "Rebuild the whole project",
+			"detail": "Rebuild the workspace",
 			"dependsOn": [
-				"Clean rustine",
-				"Clean rustine-desktop",
-				"Build rustine",
-				"Build rustine-desktop"
+				"Clean",
+				"Build",
 			],
 			"dependsOrder": "sequence",
 			"problemMatcher": [
@@ -46,23 +44,8 @@
 			]
 		},
 		{
-			"label": "Build rustine",
-			"detail": "Build rustine in debug mode",
-			"type": "process",
-			"command": "cargo",
-			"args": [
-				"build"
-			],
-			"options": {
-				"cwd": "${workspaceFolder}/rustine"
-			},
-			"problemMatcher": [
-				"$rustc"
-			]
-		},
-		{
 			"label": "Run rustine",
-			"detail": "Run rustine in debug mode",
+			"detail": "Run rustine (Debug)",
 			"type": "process",
 			"command": "cargo",
 			"args": [
@@ -76,30 +59,15 @@
 			]
 		},
 		{
-			"label": "Build rustine-desktop",
-			"detail": "Build rustine-desktop in debug mode",
-			"type": "process",
-			"command": "cargo",
-			"args": [
-				"build"
-			],
-			"options": {
-				"cwd": "${workspaceFolder}/rustine-desktop"
-			},
-			"problemMatcher": [
-				"$rustc"
-			]
-		},
-		{
-			"label": "Run rustine-desktop",
-			"detail": "Run rustine-desktop in debug mode",
+			"label": "Run rustine-explorer",
+			"detail": "Run rustine-explorer (Debug)",
 			"type": "process",
 			"command": "cargo",
 			"args": [
 				"run",
 			],
 			"options": {
-				"cwd": "${workspaceFolder}/rustine-desktop"
+				"cwd": "${workspaceFolder}/rustine-explorer"
 			},
 			"problemMatcher": [
 				"$rustc"

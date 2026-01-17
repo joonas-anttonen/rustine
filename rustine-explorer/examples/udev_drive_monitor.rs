@@ -1,4 +1,4 @@
-use rustine_desktop::udev_monitor::{DriveEvent, UdevDriveMonitor};
+use rustine_explorer::udev_monitor::{DriveEvent, UdevDriveMonitor};
 use std::io::{self, Write};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

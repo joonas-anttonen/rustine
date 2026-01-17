@@ -1,4 +1,4 @@
-use rustine_desktop::bluetooth_monitor::{BluetoothEvent, UdevBluetoothMonitor};
+use rustine_explorer::bluetooth_monitor::{BluetoothEvent, UdevBluetoothMonitor};
 use std::io::{self, Write};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
