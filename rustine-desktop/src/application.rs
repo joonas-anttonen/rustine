@@ -1,5 +1,5 @@
 use crate::{files, list, mount, preview, sysinfo};
-use rustine::{ConcurrentMailbox, gfx, gui::Key, log};
+use rustine::{ConcurrentMailbox, gfx, gui, gui::Key, log};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,6 +24,8 @@ struct MyApplicationState {
     password_mode: bool,
     password_buffer: String,
     mounting_index: Option<usize>,
+    files_preview_fit: gfx::Fit,
+    files_preview_ratio: f32,
     files_preview_open: bool,
     files_preview_valid: bool,
     files_preview_entry: Option<files::EntryInfo>,
@@ -53,6 +55,8 @@ impl MyApplication {
                 password_mode: false,
                 password_buffer: String::new(),
                 mounting_index: None,
+                files_preview_fit: gfx::Fit::FILL_KEEP_ASPECT,
+                files_preview_ratio: 0.5,
                 files_preview_open: false,
                 files_preview_valid: false,
                 files_preview_entry: None,
@@ -175,12 +179,12 @@ impl rustine::gui::Application for MyApplication {
         }
     }
 
-    fn on_key(&self, gui: &rustine::gui::Gui, key: rustine::gui::KeyEvent) {
-        if key.key == Key::UNKNOWN {
-            log::warning!("Application::on_key: {:?} {:?}", key.key, key.action);
+    fn on_key(&self, gui: &rustine::gui::Gui, event: rustine::gui::KeyEvent) {
+        if event.key == Key::UNKNOWN {
+            log::warning!("Application::on_key: {:?} {:?}", event.key, event.action);
         }
 
-        if key.action != rustine::gui::Action::PRESS {
+        if event.action != rustine::gui::Action::PRESS {
             return;
         }
 
@@ -189,7 +193,7 @@ impl rustine::gui::Application for MyApplication {
 
         let mut state = self.state.borrow_mut();
 
-        match key.key {
+        match event.key {
             Key::F1 => {
                 state.selected_tab = Tab::Files;
                 if state.files_list.selected.is_none() && !state.files_entries.is_empty() {
@@ -342,10 +346,26 @@ impl rustine::gui::Application for MyApplication {
                 }
             }
             Key::PERIOD => {}
+            Key::W if state.selected_tab == Tab::Files => {
+                // Cycle preview fit mode
+                state.files_preview_fit = match state.files_preview_fit {
+                    gfx::Fit::FILL_KEEP_ASPECT => gfx::Fit::FIT_KEEP_ASPECT,
+                    gfx::Fit::FIT_KEEP_ASPECT => gfx::Fit::FILL_KEEP_ASPECT,
+                    _ => gfx::Fit::FILL_KEEP_ASPECT,
+                };
+            }
             Key::TAB if state.selected_tab == Tab::Files => {
-                state.files_preview_open = !state.files_preview_open;
-                // Update preview entry based on current selection
-                self.update_preview(&mut state);
+                if event.mods.contains(gui::Mods::SHIFT) {
+                    // Cycle preview ratio in 0.1 increments between 0.2 and 0.8
+                    state.files_preview_ratio += 0.1;
+                    if state.files_preview_ratio > 0.8 {
+                        state.files_preview_ratio = 0.2;
+                    }
+                } else {
+                    state.files_preview_open = !state.files_preview_open;
+                    // Update preview entry based on current selection
+                    self.update_preview(&mut state);
+                }
             }
             Key::TAB => {}
             Key::E if state.selected_tab == Tab::Drives => {
@@ -426,13 +446,13 @@ impl rustine::gui::Application for MyApplication {
     fn render(&self, _gui: &rustine::gui::Gui, frame: &mut gfx::RenderFrame) {
         let mut state = self.state.borrow_mut();
 
-        let w = frame.size.x as f32;
-        let h = frame.size.y as f32;
+        let window_w = frame.size.x as f32;
+        let window_h = frame.size.y as f32;
 
         let text_font_metrics = gfx::fonts::get_font_metrics(gfx::fonts::CASKAYDIAMONO_FONT_ID)
             .expect("Font metrics exist");
 
-        const TOP_BAR_HEIGHT: f32 = 0.0;
+        const TOP_BAR_HEIGHT: f32 = STATUS_BAR_HEIGHT;
         let line_height: f32 = text_font_metrics.ascender - text_font_metrics.descender;
 
         const STATUS_LIGHT_WIDTH: f32 = 8.0;
@@ -443,10 +463,9 @@ impl rustine::gui::Application for MyApplication {
 
         let content_x = 0.0;
         let content_y = TOP_BAR_HEIGHT;
-        let content_w = w;
-        let content_h = h - TOP_BAR_HEIGHT - STATUS_BAR_HEIGHT;
+        let content_w = window_w;
+        let content_h = window_h - TOP_BAR_HEIGHT;
 
-        //let bar_color = 0x1B232FFFu32;
         let bg_color = 0x1B232FFFu32;
         let text_color = 0xFFFFFFFFu32;
         let mounted_color = 0x3FB950FFu32;
@@ -457,8 +476,8 @@ impl rustine::gui::Application for MyApplication {
             &gfx::Rectangle {
                 x: 0.0,
                 y: 0.0,
-                w,
-                h,
+                w: window_w,
+                h: window_h,
             },
             bg_color,
         );
@@ -469,12 +488,20 @@ impl rustine::gui::Application for MyApplication {
         state.drives_list.update_scroll(line_height, content_h);
         state.files_list.update_scroll(line_height, content_h);
 
+        // Calculate layout based on preview panel state
+        let preview_width = if state.files_preview_open && state.selected_tab == Tab::Files {
+            content_w * state.files_preview_ratio
+        } else {
+            0.0
+        };
+        let list_width = content_w - preview_width;
+
         match state.selected_tab {
             Tab::Drives => {
                 let content = gfx::Rectangle {
                     x: content_x,
                     y: content_y,
-                    w: content_w,
+                    w: list_width,
                     h: content_h,
                 };
                 list::render_list(
@@ -560,14 +587,6 @@ impl rustine::gui::Application for MyApplication {
                 }
             }
             Tab::Files => {
-                // Calculate layout based on preview panel state
-                let preview_width = if state.files_preview_open {
-                    content_w / 2.0
-                } else {
-                    0.0
-                };
-                let list_width = content_w - preview_width;
-
                 let content = gfx::Rectangle {
                     x: content_x,
                     y: content_y,
@@ -624,9 +643,9 @@ impl rustine::gui::Application for MyApplication {
                     frame.fill_rectangle(
                         &gfx::Rectangle {
                             x: preview_x,
-                            y: content_y,
+                            y: 0.0,
                             w: 1.0,
-                            h: content_h,
+                            h: window_h,
                         },
                         preview_border_color,
                     );
@@ -635,10 +654,9 @@ impl rustine::gui::Application for MyApplication {
                     if state.files_preview_entry.is_some() && state.files_preview_valid {
                         let preview_padding = 0.0;
 
-                        // Calculate image display area (below the title)
-                        let image_area_y = line_height + preview_padding;
+                        let image_area_y = preview_padding;
                         let image_area_w = preview_width - (preview_padding * 2.0);
-                        let image_area_h = content_h - line_height - (preview_padding * 3.0);
+                        let image_area_h = window_h - (preview_padding * 3.0);
 
                         // Always render the preview image - gfx will handle it if pixel buffer exists
                         frame.push_image(
@@ -650,7 +668,7 @@ impl rustine::gui::Application for MyApplication {
                                 w: image_area_w,
                                 h: image_area_h,
                             },
-                            gfx::Fit::FIT_KEEP_ASPECT,
+                            state.files_preview_fit,
                             0xFFFFFFFFu32,
                         );
                     } else {
@@ -668,22 +686,20 @@ impl rustine::gui::Application for MyApplication {
             }
         }
 
-        // Status bar at the bottom
-        let status_bar_color = 0x161B22FFu32;
         let status_text = match state.selected_tab {
             Tab::Files => format!("{}", state.files_dir.display()),
             Tab::Drives => "↑/↓ select | M mount/unmount | E open".to_string(),
         };
 
-        let status_y = h - STATUS_BAR_HEIGHT;
+        let status_y = 0.0;
         frame.fill_rectangle(
             &gfx::Rectangle {
                 x: 0.0,
                 y: status_y,
-                w,
+                w: list_width,
                 h: STATUS_BAR_HEIGHT,
             },
-            status_bar_color,
+            bg_color,
         );
 
         frame.push_text(
