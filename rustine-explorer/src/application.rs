@@ -1,4 +1,4 @@
-use crate::{files, list, mount, preview, sysinfo};
+use crate::{command, files, list, mount, preview, sysinfo};
 use rustine::{
     AutoResetEvent, Mailbox, gfx,
     gui::{self, Key},
@@ -201,6 +201,7 @@ impl rustine::gui::Application for MyApplication {
                     Tab::Drives => state.drives_list.select_prev(drives_len),
                     Tab::Files => {
                         state.files_list.select_prev(files_len);
+                        cache_current_selection(&mut state);
                         // Update preview if open
                         self.update_preview(&mut state);
                     }
@@ -213,6 +214,7 @@ impl rustine::gui::Application for MyApplication {
                     Tab::Drives => state.drives_list.select_next(drives_len),
                     Tab::Files => {
                         state.files_list.select_next(files_len);
+                        cache_current_selection(&mut state);
                         // Update preview if open
                         self.update_preview(&mut state);
                     }
@@ -249,13 +251,7 @@ impl rustine::gui::Application for MyApplication {
             Key::RIGHT => {}
             Key::LEFT if state.selected_tab == Tab::Files => {
                 // Save current selection before leaving
-                if let Some(idx) = state.files_list.selected
-                    && let Some(entry) = state.files_entries.get(idx)
-                {
-                    let entry_name = entry.name.clone();
-                    let current_dir = state.files_dir.clone();
-                    state.folder_selection_map.insert(current_dir, entry_name);
-                }
+                cache_current_selection(&mut state);
 
                 let target = state
                     .files_dir
@@ -270,6 +266,7 @@ impl rustine::gui::Application for MyApplication {
             Key::PERIOD if state.selected_tab == Tab::Files => {
                 state.show_hidden_files = !state.show_hidden_files;
 
+                cache_current_selection(&mut state);
                 let target = state.files_dir.clone();
 
                 update_files_entries(&mut state, target);
@@ -330,7 +327,62 @@ impl rustine::gui::Application for MyApplication {
                 state.password_mode = false;
                 state.drives_list.selected = None;
             }
-            Key::ENTER => {}
+            Key::ENTER => {
+                if let Some(selected_entry) = &state
+                    .files_list
+                    .selected
+                    .and_then(|idx| state.files_entries.get(idx))
+                {
+                    let path = &selected_entry.path;
+                    let ext = path
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_ascii_lowercase());
+
+                    const MEDIA_EXTS: [&str; 16] = [
+                        "mp4", "mkv", "webm", "webp", "png", "jpg", "jpeg", "tiff", "gif", "heic",
+                        "mov", "mp3", "wav", "ogg", "flac", "avi",
+                    ];
+
+                    let program = if let Some(e) = &ext {
+                        if MEDIA_EXTS.contains(&e.as_str()) {
+                            "firefox"
+                        } else {
+                            "code"
+                        }
+                    } else {
+                        "xdg-open"
+                    };
+
+                    match command::spawn_command_with_path(program, &[], path) {
+                        Ok(res) => match res {
+                            command::CommandResult::Started(pid) => {
+                                log::info!("Command started with PID: {}", pid);
+                            }
+                            command::CommandResult::Completed {
+                                status,
+                                stdout,
+                                stderr,
+                            } => {
+                                if !status.success() {
+                                    log::warning!("Command completed with status: {:?}", status);
+                                    if !stdout.is_empty() {
+                                        log::info!("stdout: {}", stdout);
+                                    }
+                                    if !stderr.is_empty() {
+                                        log::warning!("stderr: {}", stderr);
+                                    }
+                                } else {
+                                    log::info!("Command executed successfully");
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            log::error!("Error running command: {}", e);
+                        }
+                    }
+                }
+            }
             Key::ESCAPE if state.password_mode => {
                 // Cancel password entry
                 state.password_buffer.clear();
@@ -339,6 +391,97 @@ impl rustine::gui::Application for MyApplication {
             }
             Key::Q => {
                 gui.request_quit();
+            }
+            Key::DELETE => {
+                if let Some(selected_entry) = &state
+                    .files_list
+                    .selected
+                    .and_then(|idx| state.files_entries.get(idx))
+                {
+                    if selected_entry.entry_type != files::EntryType::File
+                        && selected_entry.entry_type != files::EntryType::Directory
+                    {
+                        log::info!("Selected entry is not a file or directory");
+                        return;
+                    }
+
+                    match files::delete_path(&selected_entry.path) {
+                        Ok(res) => match res {
+                            files::FileOpResult::Deleted(p) => {
+                                log::info!("Deleted: {}", p.display());
+
+                                if let Some(mut idx) = state.files_list.selected {
+                                    idx = idx.saturating_sub(1);
+                                    if idx < state.files_entries.len() {
+                                        state.files_list.selected = Some(idx);
+                                        cache_current_selection(&mut state);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        },
+                        Err(e) => {
+                            log::error!("Error deleting: {}", e);
+                        }
+                    }
+
+                    let target = state.files_dir.clone();
+                    update_files_entries(&mut state, target);
+                    self.update_preview(&mut state);
+                }
+            }
+            Key::F12 => {
+                if let Some(selected_entry) = &state
+                    .files_list
+                    .selected
+                    .and_then(|idx| state.files_entries.get(idx))
+                {
+                    if selected_entry.entry_type != files::EntryType::File
+                        && selected_entry.entry_type != files::EntryType::Directory
+                    {
+                        log::info!("Selected entry is not a file or directory");
+                        return;
+                    }
+
+                    let path = if selected_entry.entry_type == files::EntryType::Directory {
+                        &selected_entry.path
+                    } else {
+                        selected_entry.path.parent().unwrap_or(&selected_entry.path)
+                    };
+
+                    // Open terminal to current directory
+                    match command::spawn_command_with_path(
+                        "alacritty",
+                        &["--working-directory"],
+                        path,
+                    ) {
+                        Ok(res) => match res {
+                            command::CommandResult::Started(pid) => {
+                                log::info!("Command started with PID: {}", pid);
+                            }
+                            command::CommandResult::Completed {
+                                status,
+                                stdout,
+                                stderr,
+                            } => {
+                                if !status.success() {
+                                    log::warning!("Command completed with status: {:?}", status);
+                                    if !stdout.is_empty() {
+                                        log::info!("stdout: {}", stdout);
+                                    }
+                                    if !stderr.is_empty() {
+                                        log::warning!("stderr: {}", stderr);
+                                    }
+                                } else {
+                                    log::info!("Command executed successfully");
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            log::error!("Error running command: {}", e);
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -625,6 +768,16 @@ impl rustine::gui::Application for MyApplication {
             text_color,
             gfx::fonts::CASKAYDIAMONO_FONT_ID,
         );
+    }
+}
+
+fn cache_current_selection(state: &mut std::cell::RefMut<'_, MyApplicationState>) {
+    if let Some(idx) = state.files_list.selected
+        && let Some(entry) = state.files_entries.get(idx)
+    {
+        let entry_name = entry.name.clone();
+        let current_dir = state.files_dir.clone();
+        state.folder_selection_map.insert(current_dir, entry_name);
     }
 }
 
