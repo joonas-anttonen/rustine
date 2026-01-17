@@ -487,7 +487,9 @@ impl rustine::gui::Application for MyApplication {
 
         // Update scroll offsets to keep selected items in view
         state.drives_list.update_scroll(line_height, content_h);
+        state.drives_list.count = state.devices.len();
         state.files_list.update_scroll(line_height, content_h);
+        state.files_list.count = state.files_entries.len();
 
         // Calculate layout based on preview panel state
         let preview_width = if state.files_preview_open && state.selected_tab == Tab::Files {
@@ -510,9 +512,7 @@ impl rustine::gui::Application for MyApplication {
                     content,
                     line_height,
                     highlight_color,
-                    state.drives_list.selected,
-                    state.devices.len(),
-                    state.drives_list.scroll_offset,
+                    &state.drives_list,
                     |frame, index, y, _is_selected| {
                         if let Some(device) = state.devices.get(index) {
                             let size_str = rustine::utilities::format_bytes_iec(
@@ -601,9 +601,7 @@ impl rustine::gui::Application for MyApplication {
                     content,
                     line_height,
                     highlight_color,
-                    state.files_list.selected,
-                    state.files_entries.len(),
-                    state.files_list.scroll_offset,
+                    &state.files_list,
                     |frame, index, y, _is_selected| {
                         if let Some(entry) = state.files_entries.get(index) {
                             let status_color = match entry.entry_type {
@@ -752,8 +750,6 @@ fn toggle_mount(state: &mut std::cell::RefMut<'_, MyApplicationState>) {
     match sysinfo::get_block_devices() {
         Ok(devices) => {
             state.devices = devices.into_iter().filter(|d| d.is_partition).collect();
-            let drives_len = state.devices.len();
-            state.drives_list.clamp(drives_len);
         }
         Err(e) => {
             log::error!("Failed to rescan block devices: {}", e)

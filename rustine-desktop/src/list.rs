@@ -6,6 +6,7 @@ pub struct ListState {
     pub selected: Option<usize>,
     /// Starting Y offset for rendering. Adjusted based on selected item to keep it in view.
     pub scroll_offset: f32,
+    pub count: usize,
 }
 
 impl ListState {
@@ -13,13 +14,7 @@ impl ListState {
         Self {
             selected: None,
             scroll_offset: 0.0,
-        }
-    }
-
-    pub fn with_selected(selected: Option<usize>) -> Self {
-        Self {
-            selected,
-            scroll_offset: 0.0,
+            count: 0,
         }
     }
 
@@ -47,20 +42,6 @@ impl ListState {
             Some(idx) if idx + 1 < len => idx + 1,
             Some(_) | None => 0,
         });
-    }
-
-    /// Ensure the selection stays within bounds.
-    pub fn clamp(&mut self, len: usize) {
-        if len == 0 {
-            self.selected = None;
-            return;
-        }
-
-        if let Some(idx) = self.selected
-            && idx >= len
-        {
-            self.selected = Some(len - 1);
-        }
     }
 
     /// Update scroll offset to ensure the selected item is visible in the viewport.
@@ -101,9 +82,7 @@ pub fn render_list<F>(
     content: Rectangle,
     line_height: f32,
     highlight_color: u32,
-    selected: Option<usize>,
-    count: usize,
-    scroll_offset: f32,
+    state: &ListState,
     mut render_item: F,
 ) where
     F: FnMut(&mut RenderFrame, usize, f32, bool),
@@ -111,9 +90,9 @@ pub fn render_list<F>(
     // Push scissor to clip content to the viewport
     frame.push_scissor(content);
 
-    let adjusted_y = content.y - scroll_offset;
+    let adjusted_y = content.y - state.scroll_offset;
 
-    for idx in 0..count {
+    for idx in 0..state.count {
         let y = adjusted_y + idx as f32 * line_height;
 
         // Skip items that are completely outside the viewport
@@ -121,7 +100,7 @@ pub fn render_list<F>(
             continue;
         }
 
-        let is_selected = selected == Some(idx);
+        let is_selected = state.selected == Some(idx);
 
         if is_selected {
             frame.fill_rectangle(
@@ -139,7 +118,7 @@ pub fn render_list<F>(
     }
 
     // Draw scrollbar if not all items fit in view
-    let total_height = count as f32 * line_height;
+    let total_height = state.count as f32 * line_height;
     if total_height > content.h {
         const SCROLLBAR_WIDTH: f32 = 2.0;
         const SCROLLBAR_MARGIN: f32 = 2.0;
@@ -149,7 +128,7 @@ pub fn render_list<F>(
 
         // Calculate scrollbar position and height
         let scrollbar_height = (content.h / total_height) * content.h;
-        let scrollbar_y = content.y + (scroll_offset / total_height) * content.h;
+        let scrollbar_y = content.y + (state.scroll_offset / total_height) * content.h;
         frame.fill_rectangle(
             &Rectangle {
                 x: scrollbar_x,
