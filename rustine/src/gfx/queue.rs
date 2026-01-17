@@ -7,6 +7,7 @@ use crate::{
     gfx::presentation::PresentationProvider,
 };
 
+use std::rc::Rc;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -27,7 +28,7 @@ pub struct Queue {
 
     presentation_provider: Option<presentation::SwapchainProvider>,
 
-    device: Arc<Device>,
+    device: Rc<Device>,
 }
 
 impl Drop for Queue {
@@ -59,7 +60,7 @@ impl Queue {
         self.drain();
     }
 
-    pub fn new(device: &Arc<Device>, concurrent_commands: u32) -> Self {
+    pub fn new(device: &Rc<Device>, concurrent_commands: u32) -> Self {
         let family_index = device.general_queue_family_index();
         let queue_handle = device.general_queue();
 
@@ -77,7 +78,7 @@ impl Queue {
             available_commands,
             queued_commands: VecDeque::new(),
             presentation_provider: None,
-            device: Arc::clone(device),
+            device: Rc::clone(device),
         }
     }
 

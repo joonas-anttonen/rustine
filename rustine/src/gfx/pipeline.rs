@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::{gfx::vulkan as vk, gfx::*, vk_call, vk_next, warning};
-use std::sync::Arc;
+use std::rc::Rc;
 
 pub struct Parameters {
     pub shader: ShaderProgram,
@@ -24,7 +24,7 @@ pub struct Pipeline {
     pipeline: vk::VkPipeline,
     pipeline_layout: vk::VkPipelineLayout,
     descriptor_layout: vk::VkDescriptorSetLayout,
-    device: Arc<Device>,
+    device: Rc<Device>,
 }
 
 impl Eq for Pipeline {}
@@ -71,7 +71,7 @@ impl Pipeline {
         self.pipeline_layout
     }
 
-    pub fn new(device: Arc<Device>, params: &Parameters) -> Result<Self> {
+    pub fn new(device: Rc<Device>, params: &Parameters) -> Result<Self> {
         // 1. Descriptor Set Layout and Pipeline Layout
         let descriptor_layout =
             Self::create_descriptor_layout(device.handle(), &params.descriptors).unwrap();
@@ -431,7 +431,7 @@ impl Pipeline {
 
 pub struct Sampler {
     handle: vk::VkSampler,
-    device: Arc<Device>,
+    device: Rc<Device>,
 }
 
 impl Eq for Sampler {}
@@ -460,7 +460,7 @@ impl Sampler {
     }
 
     pub fn new(
-        device: Arc<Device>,
+        device: Rc<Device>,
         filter: Filter,
         address_mode: SamplerAddressMode,
         border_color: SamplerBorderColor,

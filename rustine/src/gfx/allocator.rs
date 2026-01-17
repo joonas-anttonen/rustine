@@ -1,7 +1,7 @@
 #![allow(dead_code, non_camel_case_types, clippy::upper_case_acronyms)]
 
 use std::rc::Rc;
-use std::sync::{Arc, atomic};
+use std::sync::atomic;
 
 use crate::gfx::vulkan as vk;
 use crate::gfx::*;
@@ -42,7 +42,7 @@ unsafe extern "C" fn vma_free_callback(
 
 pub struct Allocator {
     handle: ffi::VmaAllocator,
-    device: Arc<Device>,
+    device: Rc<Device>,
 }
 
 impl Drop for Allocator {
@@ -63,11 +63,11 @@ impl Allocator {
         self.handle
     }
 
-    pub fn device(&self) -> &Arc<Device> {
+    pub fn device(&self) -> &Rc<Device> {
         &self.device
     }
 
-    pub fn new(instance: &Instance, device: Arc<Device>) -> Result<Rc<Self>> {
+    pub fn new(instance: &Instance, device: Rc<Device>) -> Result<Rc<Self>> {
         let mut flags = ffi::VmaAllocatorCreateFlags::NONE as u32;
         // If Windows platform, enable external memory handle types
         if cfg!(target_os = "windows") {
@@ -100,7 +100,7 @@ impl Allocator {
 
         Ok(Rc::new(Allocator {
             handle: allocator_handle,
-            device: Arc::clone(&device),
+            device: Rc::clone(&device),
         }))
     }
 
@@ -907,7 +907,7 @@ mod ffi {
         ///
         /// You may set this flag only if you:
         ///
-        /// 1. (For Vulkan version < 1.2) Found as available and enabled device extension 
+        /// 1. (For Vulkan version < 1.2) Found as available and enabled device extension
         ///    VK_KHR_buffer_device_address.
         ///    This extension is promoted to core Vulkan 1.2.
         /// 2. Found as available and enabled device feature `VkPhysicalDeviceBufferDeviceAddressFeatures::bufferDeviceAddress`.

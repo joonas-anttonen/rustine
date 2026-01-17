@@ -438,8 +438,8 @@ impl Gui {
                 }
 
                 let presentation_parameters = presentation::Parameters {
-                    width: width,
-                    height: height,
+                    width,
+                    height,
                     surface_handle: gui.gfx_surface.to_ptr(),
                     vertical_sync: 0,
                 };

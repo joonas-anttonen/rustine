@@ -2,7 +2,6 @@ use crate::{error, vk_call, warning};
 use crate::{gfx::PixelBuffer, gfx::vulkan as vk, gfx::*};
 
 use std::rc::Rc;
-use std::sync::Arc;
 
 pub enum AcquireStatus {
     Success(PresentationImage),
@@ -103,7 +102,7 @@ pub struct SwapchainProvider {
     current_acquire_index: u32,
     acquire_fence: vk::VkFence,
     acquire_semaphores: Vec<vk::VkSemaphore>,
-    device: Arc<Device>,
+    device: Rc<Device>,
 }
 
 impl Drop for SwapchainProvider {
@@ -212,7 +211,7 @@ impl SwapchainProvider {
     }
 
     pub fn new(
-        device: &Arc<Device>,
+        device: &Rc<Device>,
         params: Parameters,
         old_swapchain: vk::VkSwapchainKHR,
     ) -> Self {
@@ -421,7 +420,7 @@ impl SwapchainProvider {
             current_acquire_index: 0,
             acquire_fence,
             acquire_semaphores,
-            device: Arc::clone(device),
+            device: Rc::clone(device),
         }
     }
 }

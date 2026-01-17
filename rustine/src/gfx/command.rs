@@ -4,11 +4,12 @@ use crate::{error, vk_call, warning};
 use crate::{gfx::pipeline::*, gfx::vulkan as vk, gfx::*};
 
 use std::collections::HashSet;
+use std::rc::Rc;
 use std::sync::Arc;
 
 pub struct CommandPool {
     handle: vk::VkCommandPool,
-    device: Arc<Device>,
+    device: Rc<Device>,
 }
 
 impl Drop for CommandPool {
@@ -21,7 +22,7 @@ impl Drop for CommandPool {
 }
 
 impl CommandPool {
-    pub fn new(family_index: u32, device: &Arc<Device>) -> Arc<Self> {
+    pub fn new(family_index: u32, device: &Rc<Device>) -> Arc<Self> {
         let command_pool_create_info = vk::VkCommandPoolCreateInfo {
             sType: vk::VkStructureType::COMMAND_POOL_CREATE_INFO as u32,
             pNext: std::ptr::null(),
@@ -42,7 +43,7 @@ impl CommandPool {
 
         Arc::new(CommandPool {
             handle: command_pool_handle,
-            device: Arc::clone(device),
+            device: Rc::clone(device),
         })
     }
 

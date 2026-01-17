@@ -50,7 +50,7 @@ pub struct Gfx {
     released_images: Arc<Mutex<VecDeque<u32>>>,
     queue: Queue,
     allocator: Rc<allocator::Allocator>,
-    device: Arc<Device>,
+    device: Rc<Device>,
     instance: Instance,
     frame_n: u64,
     frame_cpu_times: RingBuffer<f64>,
@@ -166,7 +166,7 @@ impl Gfx {
 
     pub fn new(
         instance: Instance,
-        device: Arc<Device>,
+        device: Rc<Device>,
         allocator: Rc<allocator::Allocator>,
     ) -> Self {
         let linear_sampler = Sampler::new(
@@ -383,7 +383,7 @@ impl Gfx {
         &self.instance
     }
 
-    pub fn device(&self) -> &Arc<Device> {
+    pub fn device(&self) -> &Rc<Device> {
         &self.device
     }
 
@@ -842,10 +842,10 @@ impl GfxBuilder {
         };
 
         // 3. Create logical device
-        let vk_device = Arc::new(Device::new(&self.params, selected_device)?);
+        let vk_device = Rc::new(Device::new(&self.params, selected_device)?);
 
         // 4. Create VMA
-        let allocator = allocator::Allocator::new(&vk_instance, Arc::clone(&vk_device))?;
+        let allocator = allocator::Allocator::new(&vk_instance, Rc::clone(&vk_device))?;
 
         Ok(Gfx::new(vk_instance, vk_device, allocator))
     }
