@@ -1,11 +1,9 @@
 use crate::gfx::pipeline::*;
 use crate::{Parameters, RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
 
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::time::{Duration, Instant};
 
 const FALLBACK_TEXTURE_ID: u32 = u32::MAX;
@@ -610,6 +608,7 @@ impl Gfx {
         // Preprocess: update vertices for images with dynamic fitting based on actual pixel buffer sizes
         self.preprocess_render_frame(&mut frame);
 
+        // TODO: Corrupting data between frames in flight, fix this
         // Update vertex and index buffers with pre-computed data from UI
         if !frame.vertices.is_empty() {
             self.test_data.test_vertex_buffer.write(&frame.vertices);
@@ -639,7 +638,7 @@ impl Gfx {
 
             cmd.layout_barrier(&target_frame, Layout::TRANSFER_DST);
 
-            cmd.clear_pixel_buffer(&target_frame, &[0f32, 0f32, 0f32, 0f32]);
+            cmd.clear_pixel_buffer(&target_frame, &[0.0, 0.0, 0.0, 0.0]);
 
             cmd.layout_barrier(&target_frame, Layout::COLOR_ATTACHMENT);
 
@@ -658,10 +657,10 @@ impl Gfx {
 
             let push_constants = PerCommand {
                 scale: Vector2f::new(
-                    2f32 / target_frame.width() as f32,
-                    2f32 / target_frame.height() as f32,
+                    2.0 / target_frame.width() as f32,
+                    2.0 / target_frame.height() as f32,
                 ),
-                sdf_range: 1f32,
+                sdf_range: 1.0,
                 is_sdf: false,
             };
             cmd.push_constants(

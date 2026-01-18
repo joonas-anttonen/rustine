@@ -55,6 +55,7 @@ impl<T> Mailbox<T> {
         if let Ok(mut pending) = self.queue.lock() {
             // If the mailbox has a capacity and is full, remove the oldest item.
             if self.capacity > 0 && pending.len() >= self.capacity {
+                log::warning!("Mailbox::discard");
                 pending.pop_front();
             }
 
