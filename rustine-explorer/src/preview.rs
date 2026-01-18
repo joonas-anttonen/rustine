@@ -314,7 +314,7 @@ pub fn preview_worker_thread(
         if exit_flag.load(Ordering::Relaxed) {
             break;
         }
-        match request_queue.pop() {
+        match request_queue.pop_back_and_discard() {
             Some(PreviewRequest::Load(_path)) => {
                 if let Some(handler) = handlers.iter().find(|handler| handler.can_handle(&_path)) {
                     request_flag.store(false, Ordering::Relaxed);

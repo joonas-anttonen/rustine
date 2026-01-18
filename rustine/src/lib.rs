@@ -15,19 +15,37 @@ use std::{
     sync::{Arc, Condvar, Mutex},
 };
 
+/// A thread-safe mailbox for sending and receiving data with optional capacity limit.
 pub struct Mailbox<T> {
     queue: Mutex<VecDeque<T>>,
     event: Arc<AutoResetEvent>,
+    capacity: usize,
 }
 
 impl<T> Mailbox<T> {
+    /// Creates a new mailbox without a capacity limit.
+    ///
+    /// Use `with_capacity` to specify a capacity limit.
     pub fn new(event: Arc<AutoResetEvent>) -> Arc<Self> {
         Arc::new(Self {
             queue: Mutex::new(std::collections::VecDeque::new()),
             event,
+            capacity: 0,
         })
     }
 
+    /// Creates a new mailbox with a specified capacity.
+    ///
+    /// If the mailbox reaches its capacity, the oldest item will be removed to make room for new ones.
+    pub fn with_capacity(event: Arc<AutoResetEvent>, capacity: usize) -> Arc<Self> {
+        Arc::new(Self {
+            queue: Mutex::new(std::collections::VecDeque::with_capacity(capacity)),
+            event,
+            capacity,
+        })
+    }
+
+    /// Waits until the mailbox has at least one item.
     pub fn wait(&self) {
         self.event.wait();
     }
@@ -35,15 +53,20 @@ impl<T> Mailbox<T> {
     /// Pushes an item into the mailbox queue and signals the waiter.
     pub fn push(&self, item: T) {
         if let Ok(mut pending) = self.queue.lock() {
+            // If the mailbox has a capacity and is full, remove the oldest item.
+            if self.capacity > 0 && pending.len() >= self.capacity {
+                pending.pop_front();
+            }
+
             pending.push_back(item);
             self.event.set();
         }
     }
 
     /// Pops the latest item from the mailbox and discards any older items.
-    pub fn pop(&self) -> Option<T> {
+    pub fn pop_back_and_discard(&self) -> Option<T> {
         if let Ok(mut pending) = self.queue.lock() {
-            let request = pending.pop_front();
+            let request = pending.pop_back();
             pending.clear();
             request
         } else {
@@ -51,8 +74,8 @@ impl<T> Mailbox<T> {
         }
     }
 
-    /// Pops a single item from the mailbox without discarding any other items.
-    pub fn pop_one(&self) -> Option<T> {
+    /// Pops a oldest item from the mailbox.
+    pub fn pop_front(&self) -> Option<T> {
         if let Ok(mut pending) = self.queue.lock() {
             pending.pop_front()
         } else {

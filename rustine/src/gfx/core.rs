@@ -467,7 +467,7 @@ impl Gfx {
 
     pub fn clear_render_commands(&mut self) {
         self.cached_render_frame = None;
-        self.render_commands.pop();
+        self.render_commands.pop_back_and_discard();
     }
 
     // TODO: Maybe pool?
@@ -484,7 +484,7 @@ impl Gfx {
     }
 
     fn drain_released_images(&mut self) {
-        while let Some(image_id) = self.released_images.pop_one() {
+        while let Some(image_id) = self.released_images.pop_front() {
             warning!("Releasing image: {}", image_id);
 
             self.pixel_buffers.remove(&image_id);
@@ -495,7 +495,7 @@ impl Gfx {
 
     fn stage_incoming_images(&mut self) {
         // Consume paired image submissions and stage uploads
-        if let Some((image_id, io_image)) = { self.pending_images.pop_one() } {
+        if let Some((image_id, io_image)) = { self.pending_images.pop_front() } {
             self.create_pixel_buffer_for(image_id, &io_image);
             self.pending_image_uploads.push_back((image_id, io_image));
         }
@@ -595,7 +595,7 @@ impl Gfx {
         };
 
         // Check for new render commands; if present, cache them and use; otherwise use cached frame
-        if let Some(frame) = self.render_commands.pop() {
+        if let Some(frame) = self.render_commands.pop_back_and_discard() {
             self.cached_render_frame = Some(frame);
         }
 
