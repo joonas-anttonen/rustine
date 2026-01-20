@@ -207,6 +207,14 @@ pub struct GpuVertex {
     pub color: u32,
 }
 
+#[repr(C)]
+#[derive(Clone)]
+pub struct Gpu3DVertex {
+    pub position: Vector3f,
+    pub normal: Vector3f,
+    pub texture: Vector2f,
+}
+
 /// Descriptor for an image quad that requires dynamic fitting based on actual pixel buffer size.
 #[derive(Debug, Clone)]
 pub struct ImageDescriptor {
