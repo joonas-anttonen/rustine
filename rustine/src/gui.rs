@@ -171,7 +171,15 @@ impl Gui {
                 frame_delta_times.push(dt as f64);
                 last_instant = frame_start;
 
-                let mut frame = gfx::RenderFrame::new(gui.pixel_size());
+                // Try to reuse a cached render frame from the GFX thread to avoid
+                // repeated large allocations every frame. Acquire while holding
+                // the gfx mutex, then release before invoking the application
+                // render callback to avoid deadlocks.
+                let mut frame = {
+                    let mut gfx = gui.gfx.lock().unwrap();
+                    gfx.acquire_frame_for_gui(gui.pixel_size())
+                };
+
                 gui.application.render(gui, &mut frame);
 
                 {

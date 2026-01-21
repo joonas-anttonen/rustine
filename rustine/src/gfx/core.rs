@@ -39,6 +39,8 @@ pub struct Gfx {
     pending_uploads: VecDeque<ImageUpload>,
     render_commands: Arc<Mailbox<RenderFrame>>,
     cached_render_frame: Option<RenderFrame>,
+    /// Small pool of reusable RenderFrame instances for the GUI thread.
+    render_frame_pool: Vec<RenderFrame>,
     next_image_id: u32,
     pixel_buffers: HashMap<u32, Rc<PixelBuffer>>,
     released_images: Arc<Mailbox<u32>>,
@@ -345,6 +347,7 @@ impl Gfx {
             pending_uploads,
             render_commands: Mailbox::<RenderFrame>::new(Arc::clone(&work_available)),
             cached_render_frame: None,
+            render_frame_pool: Vec::with_capacity(3),
             next_image_id: 0,
             released_images: Mailbox::new(Arc::clone(&work_available)),
             frame_cpu_times: RingBuffer::new(120),
@@ -457,6 +460,27 @@ impl Gfx {
         Arc::clone(&self.render_commands)
     }
 
+    /// Acquire a reusable `RenderFrame` for the GUI thread.
+    ///
+    /// If the GFX thread has a cached frame available, reuse its allocations
+    /// by clearing the contents while keeping capacity. Otherwise allocate
+    /// a fresh `RenderFrame` with the requested `size`.
+    pub fn acquire_frame_for_gui(&mut self, size: Vector2u) -> RenderFrame {
+        // Try to reuse a frame from the small pool first to avoid allocations.
+        if let Some(mut frame) = self.render_frame_pool.pop() {
+            frame.vertices.clear();
+            frame.indices.clear();
+            frame.batches.clear();
+            frame.image_descriptors.clear();
+            frame.scissor_stack.clear();
+            frame.size = size;
+            frame
+        } else {
+            warning!("Allocating new RenderFrame for GUI");
+            RenderFrame::new(size)
+        }
+    }
+
     pub fn clear_render_commands(&mut self) {
         self.cached_render_frame = None;
         self.render_commands.pop_back_and_discard();
@@ -537,7 +561,7 @@ impl Gfx {
         self.pixel_buffers.insert(image_id, Rc::new(pixel_buffer));
     }
 
-    fn preprocess_render_frame(&self, frame: &mut RenderFrame) {
+    fn preprocess_render_frame(&mut self, frame: &mut RenderFrame) {
         for desc in &frame.image_descriptors {
             let pixel_buffer = self.pixel_buffers.get(&desc.image_id);
             let (img_w, img_h) = if let Some(pb) = pixel_buffer {
@@ -552,16 +576,28 @@ impl Gfx {
             let offset = desc.vertex_offset as usize;
             if offset + 3 < frame.vertices.len() {
                 for i in 0..4 {
-                    frame.vertices[offset + i].position = positions[i];
-                    frame.vertices[offset + i].texture = uvs[i];
-                    frame.vertices[offset + i].color = desc.color;
+                    let gpu_vertex = GpuVertex {
+                        position: positions[i],
+                        texture: uvs[i],
+                        color: desc.color,
+                    };
+                    frame.vertices[offset + i] = gpu_vertex;
                 }
             }
         }
     }
 
     fn render_empty(&mut self) {
-        self.queue.enqueue_present(move |cmd, present_image| {
+        self.queue.enqueue_present(|cmd, present_image| {
+            // Handle all pending uploads to their target buffers
+            for upload in &self.pending_uploads {
+                cmd.layout_barrier(&upload.target, Layout::TRANSFER_DST);
+                cmd.copy_buffer_to_image(&upload.buffer, &upload.target);
+
+                cmd.layout_barrier(&upload.target, Layout::SHADER_READ_ONLY);
+            }
+            self.pending_uploads.clear();
+
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::PRESENT_SRC_KHR);
         });
     }
@@ -581,12 +617,25 @@ impl Gfx {
             }
         };
 
-        // Check for new render commands; if present, cache them and use; otherwise use cached frame
-        if let Some(frame) = self.render_commands.pop_back_and_discard() {
-            self.cached_render_frame = Some(frame);
+        // Bounded pool capacity for recycling frames
+        const FRAME_POOL_CAPACITY: usize = 3;
+
+        if let Some(newest) = self.render_commands.pop_back() {
+            // Recycle remaining (older) frames
+            while let Some(mut old) = self.render_commands.pop_back() {
+                if self.render_frame_pool.len() < FRAME_POOL_CAPACITY {
+                    old.clear();
+                    self.render_frame_pool.push(old);
+                }
+            }
+
+            if let Some(current_cached) = self.cached_render_frame.replace(newest) {
+                self.render_frame_pool.push(current_cached);
+            }
         }
 
-        let mut frame = match self.cached_render_frame.clone() {
+        // Take ownership of the cached frame (avoid cloning large allocations)
+        let mut frame = match self.cached_render_frame.take() {
             Some(f) => f,
             None => {
                 self.render_empty();
@@ -707,7 +756,7 @@ impl Gfx {
             cmd.layout_barrier(&target_frame, Layout::TRANSFER_SRC);
         });
 
-        self.queue.enqueue_present(move |cmd, present_image| {
+        self.queue.enqueue_present(|cmd, present_image| {
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
             cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
             cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
@@ -717,6 +766,8 @@ impl Gfx {
         let frame_end = Instant::now();
         let frame_duration = frame_end.duration_since(frame_start).as_secs_f64();
         self.frame_cpu_times.push(frame_duration);
+
+        self.cached_render_frame = Some(frame);
 
         self.next_frame();
     }

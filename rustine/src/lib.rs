@@ -77,6 +77,15 @@ impl<T> Mailbox<T> {
         }
     }
 
+    /// Pops the latest item from the mailbox.
+    pub fn pop_back(&self) -> Option<T> {
+        if let Ok(mut pending) = self.queue.lock() {
+            pending.pop_back()
+        } else {
+            None
+        }
+    }
+
     /// Pops a oldest item from the mailbox.
     pub fn pop_front(&self) -> Option<T> {
         if let Ok(mut pending) = self.queue.lock() {

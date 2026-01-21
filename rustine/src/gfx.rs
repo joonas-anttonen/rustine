@@ -153,11 +153,7 @@ pub struct DrawCommand {
 }
 
 impl DrawCommand {
-    pub fn new(
-        index_offset: u32,
-        index_count: u32,
-        image_id: Option<u32>,
-    ) -> Self {
+    pub fn new(index_offset: u32, index_count: u32, image_id: Option<u32>) -> Self {
         Self {
             index_offset,
             index_count,
@@ -393,7 +389,6 @@ fn scissors_equal(a: &Option<Rectangle>, b: &Option<Rectangle>) -> bool {
 }
 
 /// Pre-computed render frame: all vertices and indices are pre-built by UI thread.
-#[derive(Clone)]
 pub struct RenderFrame {
     pub vertices: Vec<GpuVertex>,
     pub indices: Vec<u32>,
@@ -403,6 +398,12 @@ pub struct RenderFrame {
     pub image_descriptors: Vec<ImageDescriptor>,
     /// Stack of scissor rectangles. The top of the stack is applied to new draw commands.
     scissor_stack: Vec<Option<Rectangle>>,
+}
+
+impl Drop for RenderFrame {
+    fn drop(&mut self) {
+        warning!("RenderFrame::drop");
+    }
 }
 
 impl RenderFrame {
@@ -415,6 +416,14 @@ impl RenderFrame {
             size,
             scissor_stack: Vec::new(),
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.vertices.clear();
+        self.indices.clear();
+        self.batches.clear();
+        self.image_descriptors.clear();
+        self.scissor_stack.clear();
     }
 
     pub fn push_batch(&mut self, batch: DrawBatch) {
@@ -490,10 +499,7 @@ impl RenderFrame {
         let can_merge = batch
             .commands
             .last()
-            .map(|cmd| {
-                cmd.image_id == image_id
-                    && scissors_equal(&cmd.scissor, &current_scissor)
-            })
+            .map(|cmd| cmd.image_id == image_id && scissors_equal(&cmd.scissor, &current_scissor))
             .unwrap_or(false);
 
         if can_merge {
@@ -548,10 +554,7 @@ impl RenderFrame {
         let can_merge = batch
             .commands
             .last()
-            .map(|cmd| {
-                cmd.image_id == image_id
-                    && scissors_equal(&cmd.scissor, &current_scissor)
-            })
+            .map(|cmd| cmd.image_id == image_id && scissors_equal(&cmd.scissor, &current_scissor))
             .unwrap_or(false);
 
         if can_merge {
@@ -565,13 +568,7 @@ impl RenderFrame {
         }
     }
 
-    pub fn push_image(
-        &mut self,
-        image: &Image,
-        layout: Rectangle,
-        fit: Fit,
-        color: u32,
-    ) {
+    pub fn push_image(&mut self, image: &Image, layout: Rectangle, fit: Fit, color: u32) {
         if layout.w <= 0.0 || layout.h <= 0.0 {
             return;
         }
