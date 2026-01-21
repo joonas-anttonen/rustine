@@ -778,7 +778,7 @@ impl CommandBuffer {
             vk::vkCmdClearColorImage(
                 self.handle,
                 buffer.image(),
-                vk::VkImageLayout::TRANSFER_DST_OPTIMAL,
+                buffer.layout().to_vk(),
                 &clear_color,
                 1,
                 &image_subresource_range,

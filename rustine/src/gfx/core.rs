@@ -16,16 +16,14 @@ struct TestData {
 }
 
 struct ImageUpload {
-    buffer: Rc<MemoryBuffer>,
-    target: Rc<PixelBuffer>,
+    source: Rc<MemoryBuffer>,
+    destination: Rc<PixelBuffer>,
     image_id: u32,
 }
 
 #[repr(C)]
 struct PerCommand {
     scale: Vector2f,
-    is_sdf: bool,
-    sdf_range: f32,
 }
 
 /// The core graphics subsystem, managing Vulkan initialization and device selection.
@@ -36,7 +34,7 @@ struct PerCommand {
 pub struct Gfx {
     test_data: TestData,
     pending_images: Arc<Mailbox<(u32, io::Image)>>,
-    pending_uploads: VecDeque<ImageUpload>,
+    pending_image_uploads: VecDeque<ImageUpload>,
     render_commands: Arc<Mailbox<RenderFrame>>,
     cached_render_frame: Option<RenderFrame>,
     /// Small pool of reusable RenderFrame instances for the GUI thread.
@@ -278,8 +276,8 @@ impl Gfx {
         // Set up fallback texture to be uploaded in first render
         let fallback_texture_clone = Rc::clone(&fallback_texture);
         let pending_fallback = ImageUpload {
-            buffer: Rc::new(fallback_upload),
-            target: fallback_texture_clone,
+            source: Rc::new(fallback_upload),
+            destination: fallback_texture_clone,
             image_id: GEOMETRY_TEXTURE_ID,
         };
 
@@ -317,8 +315,8 @@ impl Gfx {
 
                 let font_texture_clone = Rc::clone(&font_texture);
                 let pending_font = ImageUpload {
-                    buffer: Rc::new(font_upload),
-                    target: font_texture_clone,
+                    source: Rc::new(font_upload),
+                    destination: font_texture_clone,
                     image_id: font_data.texture_id,
                 };
                 pending_uploads.push_back(pending_font);
@@ -344,7 +342,7 @@ impl Gfx {
             queue: command_queue,
             pixel_buffers,
             pending_images: Mailbox::<(u32, io::Image)>::new(Arc::clone(&work_available)),
-            pending_uploads,
+            pending_image_uploads: pending_uploads,
             render_commands: Mailbox::<RenderFrame>::new(Arc::clone(&work_available)),
             cached_render_frame: None,
             render_frame_pool: Vec::with_capacity(3),
@@ -504,7 +502,7 @@ impl Gfx {
 
             self.pixel_buffers.remove(&image_id);
             // Also remove from pending uploads if not yet staged
-            self.pending_uploads
+            self.pending_image_uploads
                 .retain(|upload| upload.image_id != image_id);
         }
     }
@@ -520,9 +518,9 @@ impl Gfx {
                 self.ensure_pixel_buffer_for(image_id, &io_image);
 
                 if let Some(target_buffer) = self.pixel_buffers.get(&image_id) {
-                    self.pending_uploads.push_back(ImageUpload {
-                        buffer: upload_buffer,
-                        target: Rc::clone(target_buffer),
+                    self.pending_image_uploads.push_back(ImageUpload {
+                        source: upload_buffer,
+                        destination: Rc::clone(target_buffer),
                         image_id,
                     });
                 }
@@ -590,13 +588,13 @@ impl Gfx {
     fn render_empty(&mut self) {
         self.queue.enqueue_present(|cmd, present_image| {
             // Handle all pending uploads to their target buffers
-            for upload in &self.pending_uploads {
-                cmd.layout_barrier(&upload.target, Layout::TRANSFER_DST);
-                cmd.copy_buffer_to_image(&upload.buffer, &upload.target);
+            for upload in &self.pending_image_uploads {
+                cmd.layout_barrier(&upload.destination, Layout::TRANSFER_DST);
+                cmd.copy_buffer_to_image(&upload.source, &upload.destination);
 
-                cmd.layout_barrier(&upload.target, Layout::SHADER_READ_ONLY);
+                cmd.layout_barrier(&upload.destination, Layout::SHADER_READ_ONLY);
             }
-            self.pending_uploads.clear();
+            self.pending_image_uploads.clear();
 
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::PRESENT_SRC_KHR);
         });
@@ -605,10 +603,13 @@ impl Gfx {
     pub fn render(&mut self) {
         let frame_start = Instant::now();
 
-        // Drain any released images before staging new ones
+        // Perform image management tasks
         self.drain_released_images();
         self.stage_incoming_images();
 
+        // Grab a reference to the target frame for rendering, if available.
+        // It might not be available if we have no presenter (yet).
+        // If not available, render an empty frame.
         let target_frame = match self.test_data.target_frame.as_ref() {
             Some(frame) => Rc::clone(frame),
             None => {
@@ -617,24 +618,27 @@ impl Gfx {
             }
         };
 
-        // Bounded pool capacity for recycling frames
-        const FRAME_POOL_CAPACITY: usize = 3;
-
+        // Take the latest incoming overlay frame, return any older frames to the pool.
         if let Some(newest) = self.render_commands.pop_back() {
-            // Recycle remaining (older) frames
             while let Some(mut old) = self.render_commands.pop_back() {
+                const FRAME_POOL_CAPACITY: usize = 3;
                 if self.render_frame_pool.len() < FRAME_POOL_CAPACITY {
+                    // Avoid stale data in the pool.
                     old.clear();
                     self.render_frame_pool.push(old);
                 }
             }
 
+            // Cache the newest frame for rendering, returning any previous frame to the pool.
             if let Some(current_cached) = self.cached_render_frame.replace(newest) {
                 self.render_frame_pool.push(current_cached);
             }
         }
 
-        // Take ownership of the cached frame (avoid cloning large allocations)
+        // Grab the cached render frame for rendering.
+        // It might not be available if no render commands have been issued.
+        // If not available, render an empty frame.
+        // We take() here and return it back at the end of this render call.
         let mut frame = match self.cached_render_frame.take() {
             Some(f) => f,
             None => {
@@ -643,9 +647,12 @@ impl Gfx {
             }
         };
 
-        // Preprocess: update vertices for images with dynamic fitting based on actual pixel buffer sizes
+        // Perform preprocessing on the render frame
         self.preprocess_render_frame(&mut frame);
 
+        // Allocate and upload vertex and index data.
+        // This will rarely actually allocate anything,
+        // as buffers are allocated from VMA internal pools.
         let vertex_count = frame.vertices.len().max(1);
         let vertex_buffer = Rc::new(
             self.allocator
@@ -674,19 +681,16 @@ impl Gfx {
         }
 
         self.queue.enqueue(|cmd| {
-            // Handle all pending uploads to their target buffers
-            for upload in &self.pending_uploads {
-                cmd.layout_barrier(&upload.target, Layout::TRANSFER_DST);
-                cmd.copy_buffer_to_image(&upload.buffer, &upload.target);
-
-                cmd.layout_barrier(&upload.target, Layout::SHADER_READ_ONLY);
+            // Perform pending image uploads
+            for image_upload in &self.pending_image_uploads {
+                cmd.layout_barrier(&image_upload.destination, Layout::TRANSFER_DST);
+                cmd.copy_buffer_to_image(&image_upload.source, &image_upload.destination);
+                cmd.layout_barrier(&image_upload.destination, Layout::SHADER_READ_ONLY);
             }
-            self.pending_uploads.clear();
+            self.pending_image_uploads.clear();
 
             cmd.layout_barrier(&target_frame, Layout::TRANSFER_DST);
-
             cmd.clear_pixel_buffer(&target_frame, &[0.0, 0.0, 0.0, 0.0]);
-
             cmd.layout_barrier(&target_frame, Layout::COLOR_ATTACHMENT);
 
             let render_area = Rectangle {
@@ -707,8 +711,6 @@ impl Gfx {
                     2.0 / target_frame.width() as f32,
                     2.0 / target_frame.height() as f32,
                 ),
-                sdf_range: 1.0,
-                is_sdf: false,
             };
             cmd.push_constants(
                 &self.test_data.test_pipeline,
@@ -752,11 +754,10 @@ impl Gfx {
             }
 
             cmd.end_rendering();
-
-            cmd.layout_barrier(&target_frame, Layout::TRANSFER_SRC);
         });
 
         self.queue.enqueue_present(|cmd, present_image| {
+            cmd.layout_barrier(&target_frame, Layout::TRANSFER_SRC);
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
             cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
             cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);

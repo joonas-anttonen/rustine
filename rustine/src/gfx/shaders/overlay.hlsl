@@ -1,8 +1,6 @@
 struct PerCommand
 {
 	float2 Scale;
-    float sdfRange;
-    bool isSdf;
 };
 
 [[vk::push_constant]] PerCommand command;
