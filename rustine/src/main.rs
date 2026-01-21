@@ -81,15 +81,6 @@ fn main() {
             gfx::Image::default()
         };
 
-        // Create a fallback image handle used for rendering
-        let fallback_image_pixels = vec![0u8; 4]; // Transparent black pixel
-        let display_image_fallback = gfx_core.create_image(io::Image {
-            width: 1,
-            height: 1,
-            format: gfx::Format::R8G8B8A8_UNORM,
-            pixels: fallback_image_pixels,
-        });
-
         let image_mailbox = gfx_core.image_mailbox();
         let render_mailbox = gfx_core.render_mailbox();
 
@@ -119,7 +110,6 @@ fn main() {
                 render_mailbox,
                 display_image_static,
                 display_image_dynamic,
-                display_image_fallback,
                 &EXIT_FLAG,
             );
 
@@ -139,7 +129,6 @@ fn gui_thread_function(
     render_mailbox: Arc<Mailbox<gfx::RenderFrame>>,
     static_image: gfx::Image,
     dynamic_image: gfx::Image,
-    fallback_image: gfx::Image,
     exit_flag: &atomic::AtomicBool,
 ) {
     info!("GUI START");
@@ -152,7 +141,6 @@ fn gui_thread_function(
             gui.pixel_size(),
             &static_image,
             &dynamic_image,
-            &fallback_image,
         );
 
         render_mailbox.push(frame);
@@ -165,7 +153,6 @@ fn generate_render_frame(
     frame_size: Vector2u,
     static_image: &gfx::Image,
     dynamic_image: &gfx::Image,
-    fallback_image: &gfx::Image,
 ) -> gfx::RenderFrame {
     let mut frame = gfx::RenderFrame::new(frame_size);
 
@@ -228,7 +215,6 @@ fn generate_render_frame(
     // Draw images in content area (avoiding the edge bars)
     frame.push_image(
         static_image,
-        None,
         gfx::Rectangle {
             x: content_x,
             y: content_y,
@@ -241,7 +227,6 @@ fn generate_render_frame(
 
     frame.push_image(
         dynamic_image,
-        Some(fallback_image),
         gfx::Rectangle {
             x: content_x + half_content_w,
             y: content_y,

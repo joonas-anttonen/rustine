@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::time::{Duration, Instant};
 
-const FALLBACK_TEXTURE_ID: u32 = u32::MAX;
+const GEOMETRY_TEXTURE_ID: u32 = u32::MAX;
 
 struct TestData {
     target_frame: Option<Rc<PixelBuffer>>,
@@ -16,7 +16,6 @@ struct TestData {
     linear_sampler: Rc<Sampler>,
     nearest_sampler: Rc<Sampler>,
     test_pipeline: Rc<Pipeline>,
-    fallback_texture: Rc<PixelBuffer>,
 }
 
 struct PendingUpload {
@@ -279,14 +278,14 @@ impl Gfx {
         let pending_fallback = PendingUpload {
             buffer: Rc::new(fallback_upload),
             target: fallback_texture_clone,
-            image_id: FALLBACK_TEXTURE_ID,
+            image_id: GEOMETRY_TEXTURE_ID,
         };
 
         let mut pending_uploads = VecDeque::new();
         pending_uploads.push_back(pending_fallback);
 
         let mut pixel_buffers = HashMap::new();
-        pixel_buffers.insert(FALLBACK_TEXTURE_ID, Rc::clone(&fallback_texture));
+        pixel_buffers.insert(GEOMETRY_TEXTURE_ID, Rc::clone(&fallback_texture));
 
         // Create all available font atlases
         for font_id in fonts::ALL_FONT_IDS {
@@ -332,7 +331,6 @@ impl Gfx {
             test_vertex_buffer: Rc::new(test_vertex_buffer),
             test_index_buffer: Rc::new(test_index_buffer),
             pending_uploads,
-            fallback_texture,
         };
 
         let command_queue = Queue::new(&device, 4);
@@ -680,23 +678,15 @@ impl Gfx {
 
                         // In short, image_id being Some indicates intention that this is
                         // a textured draw. If no image with that id exists (or otherwise invalid),
-                        // try the fallback in the same manner.
-                        // Otherwise, use the fallback texture for a pure geometry draw.
+                        // skip draw.
                         let texture = if let Some(image_id) = draw_cmd.image_id {
                             pixel_buffers
                                 .get(&image_id)
                                 .and_then(|t| t.is_defined().then_some(t))
-                                .or_else(|| {
-                                    draw_cmd.image_fallback_id.and_then(|fallback_id| {
-                                        pixel_buffers
-                                            .get(&fallback_id)
-                                            .and_then(|t| t.is_defined().then_some(t))
-                                    })
-                                })
                         } else {
                             sampler = nearest_sampler.clone();
                             pixel_buffers
-                                .get(&FALLBACK_TEXTURE_ID)
+                                .get(&GEOMETRY_TEXTURE_ID)
                                 .and_then(|t| t.is_defined().then_some(t))
                         };
 

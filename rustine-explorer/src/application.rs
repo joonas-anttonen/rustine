@@ -719,7 +719,6 @@ impl rustine::gui::Application for MyApplication {
                         // Always render the preview image - gfx will handle it if pixel buffer exists
                         frame.push_image(
                             &state.preview_image,
-                            None,
                             gfx::Rectangle {
                                 x: preview_x + preview_padding,
                                 y: image_area_y,

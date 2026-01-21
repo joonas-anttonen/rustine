@@ -148,7 +148,6 @@ pub struct DrawCommand {
     pub index_count: u32,
     /// Optional image/texture ID to bind.
     pub image_id: Option<u32>,
-    pub image_fallback_id: Option<u32>,
     /// Scissor rectangle for this draw; None means fullscreen.
     pub scissor: Option<Rectangle>,
 }
@@ -158,13 +157,11 @@ impl DrawCommand {
         index_offset: u32,
         index_count: u32,
         image_id: Option<u32>,
-        image_fallback_id: Option<u32>,
     ) -> Self {
         Self {
             index_offset,
             index_count,
             image_id,
-            image_fallback_id,
             scissor: None,
         }
     }
@@ -219,7 +216,6 @@ pub struct Gpu3DVertex {
 #[derive(Debug, Clone)]
 pub struct ImageDescriptor {
     pub image_id: u32,
-    pub fallback_id: Option<u32>,
     pub layout: Rectangle,
     pub fit: Fit,
     pub color: u32,
@@ -448,7 +444,6 @@ impl RenderFrame {
         uvs: [Vector2f; 4],
         color: u32,
         image_id: Option<u32>,
-        image_fallback_id: Option<u32>,
     ) {
         let vertex_base = self.vertices.len() as u32;
         let index_offset = self.indices.len() as u32;
@@ -497,7 +492,6 @@ impl RenderFrame {
             .last()
             .map(|cmd| {
                 cmd.image_id == image_id
-                    && cmd.image_fallback_id == image_fallback_id
                     && scissors_equal(&cmd.scissor, &current_scissor)
             })
             .unwrap_or(false);
@@ -507,7 +501,7 @@ impl RenderFrame {
                 cmd.index_count += 6;
             }
         } else {
-            let mut cmd = DrawCommand::new(index_offset, 6, image_id, image_fallback_id);
+            let mut cmd = DrawCommand::new(index_offset, 6, image_id);
             cmd.scissor = current_scissor;
             batch.push_command(cmd);
         }
@@ -519,7 +513,6 @@ impl RenderFrame {
         uvs: [Vector2f; 3],
         color: u32,
         image_id: Option<u32>,
-        image_fallback_id: Option<u32>,
     ) {
         let vertex_base = self.vertices.len() as u32;
         let index_offset = self.indices.len() as u32;
@@ -557,7 +550,6 @@ impl RenderFrame {
             .last()
             .map(|cmd| {
                 cmd.image_id == image_id
-                    && cmd.image_fallback_id == image_fallback_id
                     && scissors_equal(&cmd.scissor, &current_scissor)
             })
             .unwrap_or(false);
@@ -567,7 +559,7 @@ impl RenderFrame {
                 cmd.index_count += 3;
             }
         } else {
-            let mut cmd = DrawCommand::new(index_offset, 3, image_id, image_fallback_id);
+            let mut cmd = DrawCommand::new(index_offset, 3, image_id);
             cmd.scissor = current_scissor;
             batch.push_command(cmd);
         }
@@ -576,7 +568,6 @@ impl RenderFrame {
     pub fn push_image(
         &mut self,
         image: &Image,
-        fallback_image: Option<&Image>,
         layout: Rectangle,
         fit: Fit,
         color: u32,
@@ -590,7 +581,6 @@ impl RenderFrame {
         // Store descriptor for dynamic fitting during render
         self.image_descriptors.push(ImageDescriptor {
             image_id: image.id,
-            fallback_id: fallback_image.map(|f| f.id),
             layout,
             fit,
             color,
@@ -601,9 +591,8 @@ impl RenderFrame {
         let img_h = image.height.max(1) as f32;
 
         let (positions, uvs) = compute_fit(img_w, img_h, &layout, Fit::NONE); // No fitting during push_image
-        let fallback_id = fallback_image.map(|f| f.id);
 
-        self.push_quad(positions, uvs, color, Some(image.id), fallback_id);
+        self.push_quad(positions, uvs, color, Some(image.id));
     }
 
     /// Render text using the embedded bitmap fonts.
@@ -668,7 +657,7 @@ impl RenderFrame {
                     Vector2f::new(u0, v1),
                 ];
 
-                self.push_quad(positions, uvs, color, Some(font_id), None);
+                self.push_quad(positions, uvs, color, Some(font_id));
 
                 cursor_x += metrics.advance_width as f32 * scale;
             } else {
@@ -705,7 +694,7 @@ impl RenderFrame {
                     ];
 
                     let error_color = 0xFF0000FFu32;
-                    self.push_quad(positions, uvs, error_color, None, None);
+                    self.push_quad(positions, uvs, error_color, None);
 
                     cursor_x += first_metrics.advance_width as f32 * scale;
                 }
@@ -744,7 +733,7 @@ impl RenderFrame {
             Vector2f::new(0.0, 0.0),
         ];
 
-        self.push_quad(positions, uvs, color, None, None);
+        self.push_quad(positions, uvs, color, None);
     }
 
     /// Draw a rectangle outline with the given color and thickness.
@@ -788,7 +777,7 @@ impl RenderFrame {
             Vector2f::new(x1, yi0),
             Vector2f::new(x0, yi0),
         ];
-        self.push_quad(top_positions, uvs, color, None, None);
+        self.push_quad(top_positions, uvs, color, None);
 
         // Bottom edge (covers both bottom corners)
         let bottom_positions = [
@@ -797,7 +786,7 @@ impl RenderFrame {
             Vector2f::new(x1, y1),
             Vector2f::new(x0, y1),
         ];
-        self.push_quad(bottom_positions, uvs, color, None, None);
+        self.push_quad(bottom_positions, uvs, color, None);
 
         // Left edge (between top and bottom)
         let left_positions = [
@@ -806,7 +795,7 @@ impl RenderFrame {
             Vector2f::new(xi0, yi1),
             Vector2f::new(x0, yi1),
         ];
-        self.push_quad(left_positions, uvs, color, None, None);
+        self.push_quad(left_positions, uvs, color, None);
 
         // Right edge (between top and bottom)
         let right_positions = [
@@ -815,7 +804,7 @@ impl RenderFrame {
             Vector2f::new(x1, yi1),
             Vector2f::new(xi1, yi1),
         ];
-        self.push_quad(right_positions, uvs, color, None, None);
+        self.push_quad(right_positions, uvs, color, None);
     }
 
     /// Render an antialiased polyline connecting the given points.
@@ -902,7 +891,7 @@ impl RenderFrame {
 
             // Create quad for this segment (CCW winding for front-facing)
             let positions = [p0_left, p1_left, p1_right, p0_right];
-            self.push_quad(positions, uvs, color, None, None);
+            self.push_quad(positions, uvs, color, None);
         }
     }
 
@@ -930,7 +919,7 @@ impl RenderFrame {
         ];
 
         for triangle in triangles {
-            self.push_triangle(triangle, uvs, color, None, None);
+            self.push_triangle(triangle, uvs, color, None);
         }
     }
 
