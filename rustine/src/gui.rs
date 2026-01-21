@@ -141,7 +141,7 @@ impl Gui {
         self.damaged.swap(false, Ordering::Acquire)
     }
 
-    pub fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: gfx::LoopMode) {
+    pub fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
         info!("GUI START");
 
         //let start_instant = std::time::Instant::now();
@@ -158,7 +158,7 @@ impl Gui {
         while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) && !gui.should_close() {
             let frame_start = std::time::Instant::now();
 
-            if let gfx::LoopMode::Event = mode {
+            if let RunMode::Event = mode {
                 gui.wait_events();
             } else {
                 gui.process_events();
@@ -187,7 +187,7 @@ impl Gui {
 
                     gfx.render_mailbox().push(frame);
 
-                    if let gfx::LoopMode::Event = mode {
+                    if let RunMode::Event = mode {
                         gfx.wake_up();
                     }
                 }

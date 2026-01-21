@@ -17,6 +17,16 @@ use std::{
     sync::{Arc, Condvar, Mutex},
 };
 
+/// Controls how the GUI and GFX run loops handle timing and synchronization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunMode {
+    /// Continuous loop with frame rate limiting.
+    Continuous,
+    /// Wait on a condition variable until work is signaled.
+    /// Useful for on-demand rendering or reducing CPU usage.
+    Event,
+}
+
 /// A thread-safe mailbox for sending and receiving data with optional capacity limit.
 pub struct Mailbox<T> {
     queue: Mutex<VecDeque<T>>,

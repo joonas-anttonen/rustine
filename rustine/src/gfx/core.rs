@@ -73,7 +73,7 @@ impl Gfx {
     pub fn run(
         am_gfx: Arc<Mutex<gfx::Gfx>>,
         exit_flag: &std::sync::atomic::AtomicBool,
-        mode: LoopMode,
+        mode: RunMode,
     ) {
         log::set_current_thread_name("gfx");
 
@@ -99,7 +99,7 @@ impl Gfx {
             }
 
             // Handle event-driven mode: wait for work notification
-            if let LoopMode::Event = mode {
+            if let RunMode::Event = mode {
                 work_available.wait();
 
                 if exit_flag.load(Ordering::Relaxed) {
@@ -151,7 +151,7 @@ impl Gfx {
             }
 
             // Frame rate limiting only in continuous mode
-            if let LoopMode::Continuous = mode {
+            if let RunMode::Continuous = mode {
                 let elapsed = frame_start.elapsed();
                 if elapsed < target_frame_time {
                     let mut remaining = target_frame_time - elapsed;

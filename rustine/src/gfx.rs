@@ -32,16 +32,6 @@ use crate::version::Version;
 
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
 
-/// Controls how the GFX main loop handles timing and synchronization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LoopMode {
-    /// Continuous loop with frame rate limiting via spin-sleep.
-    Continuous,
-    /// Wait on a condition variable until work is signaled.
-    /// Useful for on-demand rendering or reducing CPU usage.
-    Event,
-}
-
 pub struct Image {
     pub width: u32,
     pub height: u32,
