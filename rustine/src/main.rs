@@ -96,7 +96,7 @@ fn main() {
             .build(gfx.clone(), application);
         thread::scope(|s| {
             s.spawn(|| {
-                gfx::Gfx::run(Arc::clone(&gfx), &EXIT_FLAG, RunMode::Continuous);
+                gfx::run(Arc::clone(&gfx), &EXIT_FLAG, RunMode::Continuous);
             });
 
             let image_mailbox_cloned = Arc::clone(&image_mailbox);

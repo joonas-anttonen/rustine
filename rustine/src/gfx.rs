@@ -26,6 +26,8 @@ pub mod pipeline;
 pub mod fonts;
 pub mod shaders;
 
+pub use core::run;
+
 use crate::*;
 
 use crate::version::Version;

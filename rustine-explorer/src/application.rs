@@ -406,8 +406,8 @@ impl rustine::gui::Application for MyApplication {
                     }
 
                     match files::delete_path(&selected_entry.path) {
-                        Ok(res) => match res {
-                            files::FileOpResult::Deleted(p) => {
+                        Ok(res) => {
+                            if let files::FileOpResult::Deleted(p) = res {
                                 log::info!("Deleted: {}", p.display());
 
                                 if let Some(mut idx) = state.files_list.selected {
@@ -418,8 +418,7 @@ impl rustine::gui::Application for MyApplication {
                                     }
                                 }
                             }
-                            _ => {}
-                        },
+                        }
                         Err(e) => {
                             log::error!("Error deleting: {}", e);
                         }

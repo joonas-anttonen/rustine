@@ -112,6 +112,14 @@ impl Drop for Gui {
     }
 }
 
+/// Runs the main GUI loop.
+///
+/// Intended to be called from the main thread.
+/// Behavior when calling this from a non-main thread is undefined.
+pub fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
+    Gui::run(gui, exit_flag, mode);
+}
+
 impl Gui {
     /// Wakes up the GUI event loop by posting an empty event.
     pub fn wake_up() {
@@ -141,7 +149,7 @@ impl Gui {
         self.damaged.swap(false, Ordering::Acquire)
     }
 
-    pub fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
+    fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
         info!("GUI START");
 
         //let start_instant = std::time::Instant::now();

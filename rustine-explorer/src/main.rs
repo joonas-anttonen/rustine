@@ -51,15 +51,15 @@ fn main() -> std::process::ExitCode {
             .window_type(rustine::gui::WindowType::Normal);
 
         let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
-        let gui = gui_builder.build(gfx.clone(), application);
+        let gui = gui_builder.build(Arc::clone(&gfx), application);
         let mode = rustine::RunMode::Event;
 
         std::thread::scope(|scope| {
             scope.spawn(|| {
-                rustine::gfx::Gfx::run(gfx.clone(), &SHUTDOWN_FLAG, mode);
+                rustine::gfx::run(Arc::clone(&gfx), &SHUTDOWN_FLAG, mode);
             });
 
-            rustine::gui::Gui::run(&gui, &SHUTDOWN_FLAG, mode);
+            rustine::gui::run(&gui, &SHUTDOWN_FLAG, mode);
 
             SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
             gfx.lock().unwrap().wake_up();
