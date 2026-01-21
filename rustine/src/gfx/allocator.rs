@@ -15,6 +15,8 @@ pub use ffi::vmaDestroyImage;
 pub use ffi::vmaGetAllocationInfo;
 
 static ALLOCATED_BYTES: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
+static ALLOC_COUNT: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
+static DEALLOC_COUNT: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 
 unsafe extern "C" fn vma_allocate_callback(
     _allocator: ffi::VmaAllocator,
@@ -24,6 +26,7 @@ unsafe extern "C" fn vma_allocate_callback(
     _p_user_data: *mut std::ffi::c_void,
 ) {
     ALLOCATED_BYTES.fetch_add(size.0 as usize, atomic::Ordering::Relaxed);
+    ALLOC_COUNT.fetch_add(1, atomic::Ordering::Relaxed);
     debug!(
         "vma::alloc {}",
         utilities::format_bytes_iec(size.0 as usize)
@@ -37,6 +40,7 @@ unsafe extern "C" fn vma_free_callback(
     _p_user_data: *mut std::ffi::c_void,
 ) {
     ALLOCATED_BYTES.fetch_sub(size.0 as usize, atomic::Ordering::Relaxed);
+    DEALLOC_COUNT.fetch_add(1, atomic::Ordering::Relaxed);
     debug!("vma::free {}", utilities::format_bytes_iec(size.0 as usize));
 }
 
@@ -57,6 +61,13 @@ impl Drop for Allocator {
 impl Allocator {
     pub fn current_allocated_bytes() -> usize {
         ALLOCATED_BYTES.load(atomic::Ordering::Relaxed)
+    }
+
+    pub fn alloc_counts() -> (usize, usize) {
+        (
+            ALLOC_COUNT.load(atomic::Ordering::Relaxed),
+            DEALLOC_COUNT.load(atomic::Ordering::Relaxed),
+        )
     }
 
     pub fn handle(&self) -> ffi::VmaAllocator {

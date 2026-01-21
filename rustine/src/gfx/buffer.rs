@@ -230,7 +230,7 @@ impl MemoryBuffer {
 
 impl Drop for MemoryBuffer {
     fn drop(&mut self) {
-        warning!("MemoryBuffer::drop");
+        //warning!("MemoryBuffer::drop");
         unsafe {
             allocator::vmaDestroyBuffer(self.allocator.handle(), self.handle, self.allocation);
         }

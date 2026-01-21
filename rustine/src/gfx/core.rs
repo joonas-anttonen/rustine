@@ -10,15 +10,12 @@ const GEOMETRY_TEXTURE_ID: u32 = u32::MAX;
 
 struct TestData {
     target_frame: Option<Rc<PixelBuffer>>,
-    test_vertex_buffer: Rc<MemoryBuffer>,
-    test_index_buffer: Rc<MemoryBuffer>,
-    pending_uploads: VecDeque<PendingUpload>,
     linear_sampler: Rc<Sampler>,
     nearest_sampler: Rc<Sampler>,
     test_pipeline: Rc<Pipeline>,
 }
 
-struct PendingUpload {
+struct ImageUpload {
     buffer: Rc<MemoryBuffer>,
     target: Rc<PixelBuffer>,
     image_id: u32,
@@ -39,7 +36,7 @@ struct PerCommand {
 pub struct Gfx {
     test_data: TestData,
     pending_images: Arc<Mailbox<(u32, io::Image)>>,
-    pending_image_uploads: VecDeque<(u32, io::Image)>,
+    pending_uploads: VecDeque<ImageUpload>,
     render_commands: Arc<Mailbox<RenderFrame>>,
     cached_render_frame: Option<RenderFrame>,
     next_image_id: u32,
@@ -121,6 +118,25 @@ impl Gfx {
 
                 let stat_now = Instant::now();
                 if stat_now.duration_since(last_stat_instant).as_secs_f64() >= 1.0 {
+                    let (allocations, deallocations) = alloc::counts();
+                    let current_ram = alloc::rss_bytes().unwrap_or(0);
+                    info!(
+                        "RAM -> {} (live allocs: {}, total allocs: {})",
+                        utilities::format_bytes_iec(current_ram),
+                        allocations - deallocations,
+                        allocations
+                    );
+
+                    let (vram_allocations, vram_deallocations) =
+                        allocator::Allocator::alloc_counts();
+                    let current_vram = allocator::Allocator::current_allocated_bytes();
+                    info!(
+                        "VRAM -> {} (live allocs: {}, total allocs: {})",
+                        utilities::format_bytes_iec(current_vram),
+                        vram_allocations - vram_deallocations,
+                        vram_allocations
+                    );
+
                     if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
                         debug!(
                             "GFX frame dt -> min: {}, max: {}, mean: {}",
@@ -234,22 +250,6 @@ impl Gfx {
         };
         let test_pipeline = Pipeline::new(device.clone(), &test_pipeline_params).unwrap();
 
-        let test_vertex_buffer = allocator
-            .create_memory_buffer(
-                1024 * 1024, // 1MB for vertices
-                buffer::MemoryUsage::VERTEX_BUFFER,
-                buffer::MemoryAccess::READ_WRITE,
-            )
-            .unwrap();
-
-        let test_index_buffer = allocator
-            .create_memory_buffer(
-                1024 * 1024, // 1MB for indices
-                buffer::MemoryUsage::INDEX_BUFFER,
-                buffer::MemoryAccess::READ_WRITE,
-            )
-            .unwrap();
-
         // Create fallback texture: 1x1 white pixel
         let fallback_pixel_data = [0xFFu8, 0xFFu8, 0xFFu8, 0xFFu8]; // RGBA white
         let fallback_upload = allocator
@@ -275,7 +275,7 @@ impl Gfx {
 
         // Set up fallback texture to be uploaded in first render
         let fallback_texture_clone = Rc::clone(&fallback_texture);
-        let pending_fallback = PendingUpload {
+        let pending_fallback = ImageUpload {
             buffer: Rc::new(fallback_upload),
             target: fallback_texture_clone,
             image_id: GEOMETRY_TEXTURE_ID,
@@ -314,7 +314,7 @@ impl Gfx {
                 pixel_buffers.insert(font_data.texture_id, Rc::clone(&font_texture));
 
                 let font_texture_clone = Rc::clone(&font_texture);
-                let pending_font = PendingUpload {
+                let pending_font = ImageUpload {
                     buffer: Rc::new(font_upload),
                     target: font_texture_clone,
                     image_id: font_data.texture_id,
@@ -328,9 +328,6 @@ impl Gfx {
             linear_sampler: Rc::new(linear_sampler),
             nearest_sampler: Rc::new(nearest_sampler),
             test_pipeline: Rc::new(test_pipeline),
-            test_vertex_buffer: Rc::new(test_vertex_buffer),
-            test_index_buffer: Rc::new(test_index_buffer),
-            pending_uploads,
         };
 
         let command_queue = Queue::new(&device, 4);
@@ -345,7 +342,7 @@ impl Gfx {
             queue: command_queue,
             pixel_buffers,
             pending_images: Mailbox::<(u32, io::Image)>::new(Arc::clone(&work_available)),
-            pending_image_uploads: VecDeque::new(),
+            pending_uploads,
             render_commands: Mailbox::<RenderFrame>::new(Arc::clone(&work_available)),
             cached_render_frame: None,
             next_image_id: 0,
@@ -440,8 +437,7 @@ impl Gfx {
             Arc::downgrade(&self.released_images),
         );
 
-        self.create_pixel_buffer_for(image_id, &io_image);
-        self.pending_image_uploads.push_back((image_id, io_image));
+        self.pending_images.push((image_id, io_image));
 
         image
     }
@@ -466,7 +462,6 @@ impl Gfx {
         self.render_commands.pop_back_and_discard();
     }
 
-    // TODO: Maybe pool?
     fn acquire_upload_buffer(&mut self, required_size: usize) -> Rc<MemoryBuffer> {
         let buffer = self
             .allocator
@@ -485,26 +480,23 @@ impl Gfx {
 
             self.pixel_buffers.remove(&image_id);
             // Also remove from pending uploads if not yet staged
-            self.pending_image_uploads.retain(|(id, _)| *id != image_id);
+            self.pending_uploads
+                .retain(|upload| upload.image_id != image_id);
         }
     }
 
     fn stage_incoming_images(&mut self) {
-        // Consume paired image submissions and stage uploads
-        if let Some((image_id, io_image)) = { self.pending_images.pop_front() } {
-            self.create_pixel_buffer_for(image_id, &io_image);
-            self.pending_image_uploads.push_back((image_id, io_image));
-        }
-
         // Process pending uploads up to max_uploads_per_frame
         let mut uploads_processed = 0;
         while uploads_processed < self.max_uploads_per_frame {
-            if let Some((image_id, io_image)) = self.pending_image_uploads.pop_front() {
+            if let Some((image_id, io_image)) = self.pending_images.pop_front() {
                 let upload_buffer = self.acquire_upload_buffer(io_image.pixels.len());
                 upload_buffer.write(&io_image.pixels);
 
+                self.ensure_pixel_buffer_for(image_id, &io_image);
+
                 if let Some(target_buffer) = self.pixel_buffers.get(&image_id) {
-                    self.test_data.pending_uploads.push_back(PendingUpload {
+                    self.pending_uploads.push_back(ImageUpload {
                         buffer: upload_buffer,
                         target: Rc::clone(target_buffer),
                         image_id,
@@ -517,14 +509,13 @@ impl Gfx {
         }
     }
 
-    fn create_pixel_buffer_for(&mut self, image_id: u32, io_image: &io::Image) {
-        // Check if we already have a pixel buffer with the same dimensions and format
-        if self.pixel_buffers.iter().any(|(id, pb)| {
-            id == &image_id
-                && pb.width() == io_image.width
-                && pb.height() == io_image.height
-                && pb.format() == io_image.format
-        }) {
+    /// Ensures a pixel buffer exists for the given image ID and matches the image's properties.
+    fn ensure_pixel_buffer_for(&mut self, image_id: u32, io_image: &io::Image) {
+        if let Some(pb) = self.pixel_buffers.get(&image_id)
+            && pb.width() == io_image.width
+            && pb.height() == io_image.height
+            && pb.format() == io_image.format
+        {
             return;
         }
 
@@ -606,33 +597,42 @@ impl Gfx {
         // Preprocess: update vertices for images with dynamic fitting based on actual pixel buffer sizes
         self.preprocess_render_frame(&mut frame);
 
-        // TODO: Corrupting data between frames in flight, fix this
-        // Update vertex and index buffers with pre-computed data from UI
+        let vertex_count = frame.vertices.len().max(1);
+        let vertex_buffer = Rc::new(
+            self.allocator
+                .create_memory_buffer(
+                    vertex_count * std::mem::size_of::<GpuVertex>(),
+                    buffer::MemoryUsage::VERTEX_BUFFER,
+                    buffer::MemoryAccess::WRITE,
+                )
+                .unwrap(),
+        );
         if !frame.vertices.is_empty() {
-            self.test_data.test_vertex_buffer.write(&frame.vertices);
+            vertex_buffer.write(&frame.vertices);
         }
+        let index_count = frame.indices.len().max(1);
+        let index_buffer = Rc::new(
+            self.allocator
+                .create_memory_buffer(
+                    index_count * std::mem::size_of::<u32>(),
+                    buffer::MemoryUsage::INDEX_BUFFER,
+                    buffer::MemoryAccess::WRITE,
+                )
+                .unwrap(),
+        );
         if !frame.indices.is_empty() {
-            self.test_data.test_index_buffer.write(&frame.indices);
+            index_buffer.write(&frame.indices);
         }
 
-        let pending_uploads = std::mem::take(&mut self.test_data.pending_uploads);
-        let test_pipeline = Rc::clone(&self.test_data.test_pipeline);
-        let test_vertex_buffer = Rc::clone(&self.test_data.test_vertex_buffer);
-        let test_index_buffer = Rc::clone(&self.test_data.test_index_buffer);
-        let linear_sampler = Rc::clone(&self.test_data.linear_sampler);
-        let nearest_sampler = Rc::clone(&self.test_data.nearest_sampler);
-        let cached_frame = Some(frame);
-        let target_frame_clone = Rc::clone(&target_frame);
-        let pixel_buffers = self.pixel_buffers.clone();
-
-        self.queue.enqueue(move |cmd| {
+        self.queue.enqueue(|cmd| {
             // Handle all pending uploads to their target buffers
-            for upload in &pending_uploads {
+            for upload in &self.pending_uploads {
                 cmd.layout_barrier(&upload.target, Layout::TRANSFER_DST);
                 cmd.copy_buffer_to_image(&upload.buffer, &upload.target);
 
                 cmd.layout_barrier(&upload.target, Layout::SHADER_READ_ONLY);
             }
+            self.pending_uploads.clear();
 
             cmd.layout_barrier(&target_frame, Layout::TRANSFER_DST);
 
@@ -648,9 +648,9 @@ impl Gfx {
             };
 
             cmd.begin_rendering(&render_area, &[&target_frame]);
-            cmd.bind_pipeline(&test_pipeline);
-            cmd.bind_vertex_buffer(&test_vertex_buffer);
-            cmd.bind_index_buffer(&test_index_buffer);
+            cmd.bind_pipeline(&self.test_data.test_pipeline);
+            cmd.bind_vertex_buffer(&vertex_buffer);
+            cmd.bind_index_buffer(&index_buffer);
             cmd.set_viewport(&render_area);
 
             let push_constants = PerCommand {
@@ -662,38 +662,42 @@ impl Gfx {
                 is_sdf: false,
             };
             cmd.push_constants(
-                &test_pipeline,
+                &self.test_data.test_pipeline,
                 Stage::VERTEX | Stage::FRAGMENT,
                 &push_constants,
             );
 
             // Execute draw batches if frame is present
-            if let Some(frame) = &cached_frame {
-                for batch in &frame.batches {
-                    for draw_cmd in &batch.commands {
-                        let scissor = draw_cmd.scissor.unwrap_or(render_area);
-                        cmd.set_scissor(&scissor);
+            for batch in &frame.batches {
+                for draw_cmd in &batch.commands {
+                    let scissor = draw_cmd.scissor.unwrap_or(render_area);
+                    cmd.set_scissor(&scissor);
 
-                        let mut sampler = linear_sampler.clone();
+                    let mut sampler = self.test_data.linear_sampler.clone();
 
-                        // In short, image_id being Some indicates intention that this is
-                        // a textured draw. If no image with that id exists (or otherwise invalid),
-                        // skip draw.
-                        let texture = if let Some(image_id) = draw_cmd.image_id {
-                            pixel_buffers
-                                .get(&image_id)
-                                .and_then(|t| t.is_defined().then_some(t))
-                        } else {
-                            sampler = nearest_sampler.clone();
-                            pixel_buffers
-                                .get(&GEOMETRY_TEXTURE_ID)
-                                .and_then(|t| t.is_defined().then_some(t))
-                        };
+                    // In short, image_id being Some indicates intention that this is
+                    // a textured draw. If no image with that id exists (or otherwise invalid),
+                    // skip draw.
+                    let texture = if let Some(image_id) = draw_cmd.image_id {
+                        self.pixel_buffers
+                            .get(&image_id)
+                            .and_then(|t| t.is_defined().then_some(t))
+                    } else {
+                        sampler = self.test_data.nearest_sampler.clone();
+                        self.pixel_buffers
+                            .get(&GEOMETRY_TEXTURE_ID)
+                            .and_then(|t| t.is_defined().then_some(t))
+                    };
 
-                        if let Some(texture) = texture {
-                            cmd.push_pixel_descriptor(&test_pipeline, 0, texture, 1, &sampler);
-                            cmd.draw_indexed(draw_cmd.index_count, 1, draw_cmd.index_offset, 0, 0);
-                        }
+                    if let Some(texture) = texture {
+                        cmd.push_pixel_descriptor(
+                            &self.test_data.test_pipeline,
+                            0,
+                            texture,
+                            1,
+                            &sampler,
+                        );
+                        cmd.draw_indexed(draw_cmd.index_count, 1, draw_cmd.index_offset, 0, 0);
                     }
                 }
             }
@@ -705,9 +709,9 @@ impl Gfx {
 
         self.queue.enqueue_present(move |cmd, present_image| {
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
-            cmd.blit_to_present(&target_frame_clone, present_image, Filter::Linear);
+            cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
             cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
-            target_frame_clone.set_layout(Layout::PRESENT_SRC_KHR);
+            target_frame.set_layout(Layout::PRESENT_SRC_KHR);
         });
 
         let frame_end = Instant::now();
