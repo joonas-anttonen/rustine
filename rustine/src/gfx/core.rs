@@ -728,7 +728,7 @@ impl Gfx {
                     let scissor = draw_cmd.scissor.unwrap_or(render_area);
                     cmd.set_scissor(&scissor);
 
-                    let mut sampler = self.test_data.linear_sampler.clone();
+                    let mut sampler = &self.test_data.linear_sampler;
 
                     // In short, image_id being Some indicates intention that this is
                     // a textured draw. If no image with that id exists (or otherwise invalid),
@@ -738,7 +738,7 @@ impl Gfx {
                             .get(&image_id)
                             .and_then(|t| t.is_defined().then_some(t))
                     } else {
-                        sampler = self.test_data.nearest_sampler.clone();
+                        sampler = &self.test_data.nearest_sampler;
                         self.pixel_buffers
                             .get(&GEOMETRY_TEXTURE_ID)
                             .and_then(|t| t.is_defined().then_some(t))
