@@ -750,7 +750,7 @@ impl Gfx {
                             0,
                             texture,
                             1,
-                            &sampler,
+                            sampler,
                         );
                         cmd.draw_indexed(draw_cmd.index_count, 1, draw_cmd.index_offset, 0, 0);
                     }

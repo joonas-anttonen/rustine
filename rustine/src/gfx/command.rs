@@ -373,8 +373,8 @@ impl CommandBuffer {
         sampler: &Rc<Sampler>,
     ) {
         // We trust that the pipeline is already tracked via bind_pipeline
-        self.pixel_buffers_in_use.insert(Rc::clone(&pixel_buffer));
-        self.samplers_in_use.insert(Rc::clone(&sampler));
+        self.pixel_buffers_in_use.insert(Rc::clone(pixel_buffer));
+        self.samplers_in_use.insert(Rc::clone(sampler));
 
         let descriptor_image_info = vk::VkDescriptorImageInfo {
             sampler: vk::VkSampler::default(),
