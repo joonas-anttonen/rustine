@@ -215,7 +215,7 @@ impl Gfx {
             depth_test: false,
             bindings: vec![Binding {
                 binding: 0,
-                stride: std::mem::size_of::<GpuVertex>() as u32,
+                stride: std::mem::size_of::<Gpu2Vertex>() as u32,
                 rate: Rate::VERTEX,
             }],
             attributes: vec![
@@ -223,19 +223,19 @@ impl Gfx {
                     binding: 0,
                     location: 0,
                     format: Format::R32G32_SFLOAT,
-                    offset: std::mem::offset_of!(GpuVertex, position) as u32,
+                    offset: std::mem::offset_of!(Gpu2Vertex, position) as u32,
                 },
                 Attribute {
                     binding: 0,
                     location: 1,
                     format: Format::R32G32_SFLOAT,
-                    offset: std::mem::offset_of!(GpuVertex, texture) as u32,
+                    offset: std::mem::offset_of!(Gpu2Vertex, texture) as u32,
                 },
                 Attribute {
                     binding: 0,
                     location: 2,
                     format: Format::U32,
-                    offset: std::mem::offset_of!(GpuVertex, color) as u32,
+                    offset: std::mem::offset_of!(Gpu2Vertex, color) as u32,
                 },
             ],
             push_constants: vec![PushConstantRange {
@@ -578,7 +578,7 @@ impl Gfx {
             let offset = desc.vertex_offset as usize;
             if offset + 3 < frame.vertices.len() {
                 for i in 0..4 {
-                    let gpu_vertex = GpuVertex {
+                    let gpu_vertex = Gpu2Vertex {
                         position: positions[i],
                         texture: uvs[i],
                         color: desc.color,
@@ -661,7 +661,7 @@ impl Gfx {
         let vertex_buffer = Rc::new(
             self.allocator
                 .create_memory_buffer(
-                    vertex_count * std::mem::size_of::<GpuVertex>(),
+                    vertex_count * std::mem::size_of::<Gpu2Vertex>(),
                     buffer::MemoryUsage::VERTEX_BUFFER,
                     buffer::MemoryAccess::WRITE,
                 )

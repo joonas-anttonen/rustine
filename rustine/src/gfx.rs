@@ -26,6 +26,8 @@ pub mod pipeline;
 pub mod fonts;
 pub mod shaders;
 
+mod mesh;
+
 pub use core::run;
 
 use crate::*;
@@ -186,18 +188,10 @@ impl Default for DrawBatch {
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct GpuVertex {
+pub struct Gpu2Vertex {
     pub position: Vector2f,
     pub texture: Vector2f,
     pub color: u32,
-}
-
-#[repr(C)]
-#[derive(Clone)]
-pub struct Gpu3DVertex {
-    pub position: Vector3f,
-    pub normal: Vector3f,
-    pub texture: Vector2f,
 }
 
 /// Descriptor for an image quad that requires dynamic fitting based on actual pixel buffer size.
@@ -382,7 +376,7 @@ fn scissors_equal(a: &Option<Rectangle>, b: &Option<Rectangle>) -> bool {
 
 /// Pre-computed render frame: all vertices and indices are pre-built by UI thread.
 pub struct RenderFrame {
-    pub vertices: Vec<GpuVertex>,
+    pub vertices: Vec<Gpu2Vertex>,
     pub indices: Vec<u32>,
     pub batches: Vec<DrawBatch>,
     pub size: Vector2u,
@@ -450,22 +444,22 @@ impl RenderFrame {
         let index_offset = self.indices.len() as u32;
 
         self.vertices.extend_from_slice(&[
-            GpuVertex {
+            Gpu2Vertex {
                 position: positions[0],
                 texture: uvs[0],
                 color,
             },
-            GpuVertex {
+            Gpu2Vertex {
                 position: positions[1],
                 texture: uvs[1],
                 color,
             },
-            GpuVertex {
+            Gpu2Vertex {
                 position: positions[2],
                 texture: uvs[2],
                 color,
             },
-            GpuVertex {
+            Gpu2Vertex {
                 position: positions[3],
                 texture: uvs[3],
                 color,
@@ -516,17 +510,17 @@ impl RenderFrame {
         let index_offset = self.indices.len() as u32;
 
         self.vertices.extend_from_slice(&[
-            GpuVertex {
+            Gpu2Vertex {
                 position: positions[0],
                 texture: uvs[0],
                 color,
             },
-            GpuVertex {
+            Gpu2Vertex {
                 position: positions[1],
                 texture: uvs[1],
                 color,
             },
-            GpuVertex {
+            Gpu2Vertex {
                 position: positions[2],
                 texture: uvs[2],
                 color,

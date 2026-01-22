@@ -233,3 +233,114 @@ impl Vector3<f32> {
         (*other - *self).length()
     }
 }
+
+pub type Vector4f = Vector4<f32>;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Vector4<T> {
+    pub x: T,
+    pub y: T,
+    pub z: T,
+    pub w: T,
+}
+
+impl Default for Vector4<f32> {
+    fn default() -> Self {
+        Vector4::<f32>::new(0.0, 0.0, 0.0, 0.0)
+    }
+}
+
+impl Vector4<f32> {
+    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
+        Self { x, y, z, w }
+    }
+}
+
+impl From<Color> for Vector4<f32> {
+    fn from(color: Color) -> Self {
+        Self {
+            x: color.r,
+            y: color.g,
+            z: color.b,
+            w: color.a,
+        }
+    }
+}
+
+/// Color with red, green, blue, and alpha components.
+///
+/// Each component is a floating-point value typically in the range [0.0, 1.0].
+///
+/// Layout-compatible with `Vector4<f32>`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Color {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+impl From<Vector3<f32>> for Color {
+    /// Creates a `Color` from a `Vector3`, setting alpha to 1.0.
+    fn from(vec: Vector3<f32>) -> Self {
+        Self {
+            r: vec.x,
+            g: vec.y,
+            b: vec.z,
+            a: 1.0,
+        }
+    }
+}
+
+impl From<Vector4<f32>> for Color {
+    fn from(vec: Vector4<f32>) -> Self {
+        Self {
+            r: vec.x,
+            g: vec.y,
+            b: vec.z,
+            a: vec.w,
+        }
+    }
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        Color::new(0.0, 0.0, 0.0, 0.0)
+    }
+}
+
+impl Color {
+    /// Creates a new `Color` with the specified red, green, blue, and alpha components.
+    pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self { r, g, b, a }
+    }
+
+    /// Returns a new `Color` with the specified alpha value.
+    pub fn with_alpha(&self, alpha: f32) -> Self {
+        Self {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a: alpha,
+        }
+    }
+
+    /// Creates a `Color` from a 32-bit unsigned integer in RGBA format.
+    pub fn from_u32(rgba: u32) -> Self {
+        let r = ((rgba >> 24) & 0xFF) as f32 / 255.0;
+        let g = ((rgba >> 16) & 0xFF) as f32 / 255.0;
+        let b = ((rgba >> 8) & 0xFF) as f32 / 255.0;
+        let a = (rgba & 0xFF) as f32 / 255.0;
+        Self { r, g, b, a }
+    }
+
+    /// Packs the color into a 32-bit unsigned integer in RGBA format.
+    pub fn to_u32(&self) -> u32 {
+        ((self.r.clamp(0.0, 1.0) * 255.0) as u32) << 24
+            | ((self.g.clamp(0.0, 1.0) * 255.0) as u32) << 16
+            | ((self.b.clamp(0.0, 1.0) * 255.0) as u32) << 8
+            | ((self.a.clamp(0.0, 1.0) * 255.0) as u32)
+    }
+}
