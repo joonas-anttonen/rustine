@@ -6,6 +6,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/avutil.h>
 #include <libswscale/swscale.h>
 }
 
@@ -24,6 +25,10 @@ struct rffmpeg_decoder {
     uint32_t frame_count = 0;
     double fps = 0.0;
     double duration_sec = 0.0;
+
+    // Mapped source pixel format (maps deprecated YUVJ* -> YUV*) and flag
+    AVPixelFormat src_mapped_pix_fmt = AV_PIX_FMT_NONE;
+    bool src_is_yuvj = false;
 
     // For reading from memory
     AVIOContext* avio_ctx = nullptr;
@@ -80,6 +85,17 @@ static int64_t seek_packet(void* opaque, int64_t offset, int whence) {
 
     dec->data_pos = new_pos;
     return new_pos;
+}
+
+// Map deprecated YUVJ* pixel formats to modern YUV* equivalents.
+static AVPixelFormat rffmpeg_map_deprecated_pixfmt(AVPixelFormat pix) {
+    switch (pix) {
+    case AV_PIX_FMT_YUVJ420P: return AV_PIX_FMT_YUV420P;
+    case AV_PIX_FMT_YUVJ422P: return AV_PIX_FMT_YUV422P;
+    case AV_PIX_FMT_YUVJ444P: return AV_PIX_FMT_YUV444P;
+    case AV_PIX_FMT_YUVJ440P: return AV_PIX_FMT_YUV440P;
+    default: return pix;
+    }
 }
 
 static void rffmpeg_free_decoder_internal(rffmpeg_decoder* dec) {
@@ -736,10 +752,15 @@ static rffmpeg_status rffmpeg_init_decoder_common(rffmpeg_decoder* dec,
     // the first plane in data[0]. Keep a reference so we can free it later.
     dec->rgba_buffer = dec->rgba_frame->data[0];
 
+    // Map deprecated YUVJ* formats to modern equivalents and create
+    // software scaler context using the mapped pixel format as source.
+    dec->src_mapped_pix_fmt = rffmpeg_map_deprecated_pixfmt(dec->codec_ctx->pix_fmt);
+    dec->src_is_yuvj = (dec->src_mapped_pix_fmt != dec->codec_ctx->pix_fmt);
+
     // Create software scaler context for format conversion
     dec->sws_ctx = sws_getContext(dec->width,
         dec->height,
-        dec->codec_ctx->pix_fmt,
+        dec->src_mapped_pix_fmt,
         dec->width,
         dec->height,
         AV_PIX_FMT_RGBA,
@@ -869,6 +890,17 @@ extern "C" rffmpeg_status rffmpegDecoderNext(
 
         if (ret < 0) {
             return RFFMPEG_STATUS_DECODE_FAILED;
+        }
+
+        // If the source used deprecated YUVJ* formats, map the frame format
+        // to the non-`j` equivalent and mark it as full-range (JPEG) so
+        // sws_scale performs correct color-range handling without triggering
+        // deprecated-pixel-format warnings.
+        if (decoder->src_mapped_pix_fmt != AV_PIX_FMT_NONE) {
+            decoder->frame->format = decoder->src_mapped_pix_fmt;
+        }
+        if (decoder->src_is_yuvj) {
+            decoder->frame->color_range = AVCOL_RANGE_JPEG;
         }
 
         // Convert to RGBA
