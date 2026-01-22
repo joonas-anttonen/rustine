@@ -116,12 +116,14 @@ impl Allocator {
         }))
     }
 
-    pub fn create_memory_buffer(
+    pub fn create_memory_buffer<T>(
         self: &Rc<Self>,
-        size: usize,
+        count: usize,
         usage: buffer::MemoryUsage,
         access: buffer::MemoryAccess,
     ) -> Result<MemoryBuffer> {
+        let size = std::mem::size_of::<T>() * count;
+
         let buffer_create_info = vk::VkBufferCreateInfo {
             sType: vk::VkStructureType::BUFFER_CREATE_INFO,
             pNext: std::ptr::null(),

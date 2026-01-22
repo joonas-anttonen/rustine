@@ -188,7 +188,7 @@ impl Default for DrawBatch {
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct Gpu2Vertex {
+pub struct Gpu2DVertex {
     pub position: Vector2f,
     pub texture: Vector2f,
     pub color: u32,
@@ -376,7 +376,7 @@ fn scissors_equal(a: &Option<Rectangle>, b: &Option<Rectangle>) -> bool {
 
 /// Pre-computed render frame: all vertices and indices are pre-built by UI thread.
 pub struct RenderFrame {
-    pub vertices: Vec<Gpu2Vertex>,
+    pub vertices: Vec<Gpu2DVertex>,
     pub indices: Vec<u32>,
     pub batches: Vec<DrawBatch>,
     pub size: Vector2u,
@@ -444,22 +444,22 @@ impl RenderFrame {
         let index_offset = self.indices.len() as u32;
 
         self.vertices.extend_from_slice(&[
-            Gpu2Vertex {
+            Gpu2DVertex {
                 position: positions[0],
                 texture: uvs[0],
                 color,
             },
-            Gpu2Vertex {
+            Gpu2DVertex {
                 position: positions[1],
                 texture: uvs[1],
                 color,
             },
-            Gpu2Vertex {
+            Gpu2DVertex {
                 position: positions[2],
                 texture: uvs[2],
                 color,
             },
-            Gpu2Vertex {
+            Gpu2DVertex {
                 position: positions[3],
                 texture: uvs[3],
                 color,
@@ -510,17 +510,17 @@ impl RenderFrame {
         let index_offset = self.indices.len() as u32;
 
         self.vertices.extend_from_slice(&[
-            Gpu2Vertex {
+            Gpu2DVertex {
                 position: positions[0],
                 texture: uvs[0],
                 color,
             },
-            Gpu2Vertex {
+            Gpu2DVertex {
                 position: positions[1],
                 texture: uvs[1],
                 color,
             },
-            Gpu2Vertex {
+            Gpu2DVertex {
                 position: positions[2],
                 texture: uvs[2],
                 color,

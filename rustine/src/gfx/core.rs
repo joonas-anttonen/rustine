@@ -215,7 +215,7 @@ impl Gfx {
             depth_test: false,
             bindings: vec![Binding {
                 binding: 0,
-                stride: std::mem::size_of::<Gpu2Vertex>() as u32,
+                stride: std::mem::size_of::<Gpu2DVertex>() as u32,
                 rate: Rate::VERTEX,
             }],
             attributes: vec![
@@ -223,19 +223,19 @@ impl Gfx {
                     binding: 0,
                     location: 0,
                     format: Format::R32G32_SFLOAT,
-                    offset: std::mem::offset_of!(Gpu2Vertex, position) as u32,
+                    offset: std::mem::offset_of!(Gpu2DVertex, position) as u32,
                 },
                 Attribute {
                     binding: 0,
                     location: 1,
                     format: Format::R32G32_SFLOAT,
-                    offset: std::mem::offset_of!(Gpu2Vertex, texture) as u32,
+                    offset: std::mem::offset_of!(Gpu2DVertex, texture) as u32,
                 },
                 Attribute {
                     binding: 0,
                     location: 2,
                     format: Format::U32,
-                    offset: std::mem::offset_of!(Gpu2Vertex, color) as u32,
+                    offset: std::mem::offset_of!(Gpu2DVertex, color) as u32,
                 },
             ],
             push_constants: vec![PushConstantRange {
@@ -252,12 +252,12 @@ impl Gfx {
                 AttachmentBlend::straight_alpha_blend(),
             )],
         };
-        let test_pipeline = Pipeline::new(device.clone(), &test_pipeline_params).unwrap();
+        let test_pipeline = Pipeline::new(Rc::clone(&device), &test_pipeline_params).unwrap();
 
         // Create fallback texture: 1x1 white pixel
         let fallback_pixel_data = [0xFFu8, 0xFFu8, 0xFFu8, 0xFFu8]; // RGBA white
         let fallback_upload = allocator
-            .create_memory_buffer(
+            .create_memory_buffer::<u8>(
                 4,
                 buffer::MemoryUsage::TRANSFER_SRC,
                 buffer::MemoryAccess::WRITE,
@@ -295,7 +295,7 @@ impl Gfx {
         for font_id in fonts::ALL_FONT_IDS {
             if let Some(font_data) = fonts::get_font_atlas(*font_id) {
                 let font_upload = allocator
-                    .create_memory_buffer(
+                    .create_memory_buffer::<u8>(
                         font_data.atlas_data.len(),
                         buffer::MemoryUsage::TRANSFER_SRC,
                         buffer::MemoryAccess::WRITE,
@@ -491,7 +491,7 @@ impl Gfx {
     fn acquire_upload_buffer(&mut self, required_size: usize) -> Rc<MemoryBuffer> {
         let buffer = self
             .allocator
-            .create_memory_buffer(
+            .create_memory_buffer::<u8>(
                 required_size,
                 buffer::MemoryUsage::TRANSFER_SRC,
                 buffer::MemoryAccess::WRITE,
@@ -578,7 +578,7 @@ impl Gfx {
             let offset = desc.vertex_offset as usize;
             if offset + 3 < frame.vertices.len() {
                 for i in 0..4 {
-                    let gpu_vertex = Gpu2Vertex {
+                    let gpu_vertex = Gpu2DVertex {
                         position: positions[i],
                         texture: uvs[i],
                         color: desc.color,
@@ -660,8 +660,8 @@ impl Gfx {
         let vertex_count = frame.vertices.len().max(1);
         let vertex_buffer = Rc::new(
             self.allocator
-                .create_memory_buffer(
-                    vertex_count * std::mem::size_of::<Gpu2Vertex>(),
+                .create_memory_buffer::<Gpu2DVertex>(
+                    vertex_count,
                     buffer::MemoryUsage::VERTEX_BUFFER,
                     buffer::MemoryAccess::WRITE,
                 )
@@ -673,8 +673,8 @@ impl Gfx {
         let index_count = frame.indices.len().max(1);
         let index_buffer = Rc::new(
             self.allocator
-                .create_memory_buffer(
-                    index_count * std::mem::size_of::<u32>(),
+                .create_memory_buffer::<u32>(
+                    index_count,
                     buffer::MemoryUsage::INDEX_BUFFER,
                     buffer::MemoryAccess::WRITE,
                 )
