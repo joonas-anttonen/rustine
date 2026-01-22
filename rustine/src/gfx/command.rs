@@ -292,13 +292,13 @@ impl CommandBuffer {
 
             for i in 0..MAX_COLOR_ATTACHMENTS - 1 {
                 self.pixel_buffers_in_use
-                    .insert(color_attachments[i].clone());
+                    .insert(Rc::clone(color_attachments[i]));
 
                 vk_color_attachments[i] = vk::VkRenderingAttachmentInfo {
                     sType: vk::VkStructureType::RENDERING_ATTACHMENT_INFO,
                     pNext: std::ptr::null(),
                     imageView: color_attachments[i].image_view(),
-                    imageLayout: Layout::COLOR_ATTACHMENT.to_vk(),
+                    imageLayout: color_attachments[i].layout().to_vk(),
                     resolveMode: vk::VkResolveModeFlags::NONE,
                     resolveImageView: vk::VkImageView::default(),
                     resolveImageLayout: vk::VkImageLayout::UNDEFINED,
@@ -373,13 +373,13 @@ impl CommandBuffer {
         sampler: &Rc<Sampler>,
     ) {
         // We trust that the pipeline is already tracked via bind_pipeline
-        self.pixel_buffers_in_use.insert(pixel_buffer.clone());
-        self.samplers_in_use.insert(sampler.clone());
+        self.pixel_buffers_in_use.insert(Rc::clone(&pixel_buffer));
+        self.samplers_in_use.insert(Rc::clone(&sampler));
 
         let descriptor_image_info = vk::VkDescriptorImageInfo {
             sampler: vk::VkSampler::default(),
             imageView: pixel_buffer.image_view(),
-            imageLayout: Layout::SHADER_READ_ONLY.to_vk(),
+            imageLayout: pixel_buffer.layout().to_vk(),
         };
         let descriptor_sampler_info = vk::VkDescriptorImageInfo {
             sampler: sampler.handle(),
@@ -489,15 +489,15 @@ impl CommandBuffer {
     ///
     /// Requires that the destination image is in `TRANSFER_DST_OPTIMAL` layout.
     pub fn copy_buffer_to_image(&mut self, src: &Rc<MemoryBuffer>, dst: &Rc<PixelBuffer>) {
-        self.memory_buffers_in_use.insert(src.clone());
-        self.pixel_buffers_in_use.insert(dst.clone());
+        self.memory_buffers_in_use.insert(Rc::clone(src));
+        self.pixel_buffers_in_use.insert(Rc::clone(dst));
 
         unsafe {
             vk::vkCmdCopyBufferToImage(
                 self.handle,
                 src.handle(),
                 dst.image(),
-                vk::VkImageLayout::TRANSFER_DST_OPTIMAL,
+                dst.layout().to_vk(),
                 1,
                 &vk::VkBufferImageCopy {
                     bufferOffset: vk::VkDeviceSize(0),
@@ -526,8 +526,8 @@ impl CommandBuffer {
     ///
     /// Requires that the source image is in `TRANSFER_SRC_OPTIMAL` layout and the destination image is in `TRANSFER_DST_OPTIMAL` layout.
     pub fn blit(&mut self, src: &Rc<PixelBuffer>, dst: &Rc<PixelBuffer>, filter: Filter) {
-        self.pixel_buffers_in_use.insert(src.clone());
-        self.pixel_buffers_in_use.insert(dst.clone());
+        self.pixel_buffers_in_use.insert(Rc::clone(src));
+        self.pixel_buffers_in_use.insert(Rc::clone(dst));
 
         self.blit_raw(src.image(), src.size(), dst.image(), dst.size(), filter);
     }
@@ -543,7 +543,7 @@ impl CommandBuffer {
         dst: &presentation::PresentationImage,
         filter: Filter,
     ) {
-        self.pixel_buffers_in_use.insert(src.clone());
+        self.pixel_buffers_in_use.insert(Rc::clone(src));
 
         self.blit_raw(src.image(), src.size(), dst.image, dst.size(), filter);
     }
@@ -717,7 +717,7 @@ impl CommandBuffer {
 
     pub fn layout_barrier(&mut self, buffer: &Rc<PixelBuffer>, new_layout: Layout) {
         let old_layout = buffer.layout();
-        self.pixel_buffers_in_use.insert(buffer.clone());
+        self.pixel_buffers_in_use.insert(Rc::clone(buffer));
         self.raw_image_barrier(buffer.image(), old_layout, new_layout);
         buffer.set_layout(new_layout);
     }
@@ -764,7 +764,7 @@ impl CommandBuffer {
     /// Clears the given pixel buffer to the specified color.
     /// Current layout of `buffer` must be `SHARED_PRESENT_KHR`, `GENERAL` or `TRANSFER_DST_OPTIMAL`.
     pub fn clear_pixel_buffer(&mut self, buffer: &Rc<PixelBuffer>, color: &[f32; 4]) {
-        self.pixel_buffers_in_use.insert(buffer.clone());
+        self.pixel_buffers_in_use.insert(Rc::clone(buffer));
 
         let clear_color = vk::VkClearColorValue { float32: *color };
         let image_subresource_range = vk::VkImageSubresourceRange {
