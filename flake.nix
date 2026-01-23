@@ -41,6 +41,7 @@
 
           ffmpeg
           ffmpeg.dev
+          libwebp
       
         ];
 

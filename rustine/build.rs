@@ -89,14 +89,17 @@ fn build_rustine_webp(project_dir: &Path, out_dir: &Path, generator: &'static st
     let lib_dir = prefer_lib64(&destination_dir);
     link_search(&lib_dir);
     link_static("rustine_webp");
-    link_static("webp");
-    link_static("webpdemux");
+    // Use system-provided libwebp and libwebpdemux as dynamic libraries.
+    // Link webpdemux before webp so the linker resolves symbols from webp
+    // which may be referenced by the static webpdemux archive.
+    link_dynamic("webpdemux");
+    link_dynamic("webp");
 
     let rustine_webp_dir = project_dir.join("ext").join("rustine-webp");
     rerun_if_changed(rustine_webp_dir.join("CMakeLists.txt"));
     rerun_if_changed(rustine_webp_dir.join("rustine-webp.cpp"));
     rerun_if_changed(rustine_webp_dir.join("rustine-webp.hpp"));
-    rerun_if_changed(project_dir.join("ext").join("libwebp"));
+
 }
 
 fn build_rustine_ffmpeg(project_dir: &Path, out_dir: &Path, generator: &'static str) {

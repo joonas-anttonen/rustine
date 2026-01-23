@@ -1,3 +1,0 @@
-[submodule "rustine/ext/libwebp"]
-	path = rustine/ext/libwebp
-	url = https://chromium.googlesource.com/webm/libwebp

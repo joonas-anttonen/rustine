@@ -10,25 +10,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 
-# Build libwebp as a static dependency without extra tools.
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
-set(WEBP_LINK_STATIC ON CACHE BOOL "Link libwebp statically" FORCE)
-set(WEBP_BUILD_ANIM_UTILS OFF CACHE BOOL "Disable libwebp animation utils" FORCE)
-set(WEBP_BUILD_CWEBP OFF CACHE BOOL "Disable libwebp cwebp tool" FORCE)
-set(WEBP_BUILD_DWEBP OFF CACHE BOOL "Disable libwebp dwebp tool" FORCE)
-set(WEBP_BUILD_GIF2WEBP OFF CACHE BOOL "Disable libwebp gif2webp tool" FORCE)
-set(WEBP_BUILD_IMG2WEBP OFF CACHE BOOL "Disable libwebp img2webp tool" FORCE)
-set(WEBP_BUILD_VWEBP OFF CACHE BOOL "Disable libwebp vwebp tool" FORCE)
-set(WEBP_BUILD_WEBPINFO OFF CACHE BOOL "Disable libwebp webpinfo tool" FORCE)
-set(WEBP_BUILD_LIBWEBPMUX OFF CACHE BOOL "Disable libwebpmux" FORCE)
-set(WEBP_BUILD_WEBPMUX OFF CACHE BOOL "Disable libwebpmux tool" FORCE)
-set(WEBP_BUILD_EXTRAS OFF CACHE BOOL "Disable libwebp extras" FORCE)
-set(WEBP_BUILD_WEBP_JS OFF CACHE BOOL "Disable libwebp webp.js" FORCE)
-set(WEBP_BUILD_FUZZTEST OFF CACHE BOOL "Disable libwebp fuzz tests" FORCE)
-set(WEBP_USE_THREAD ON CACHE BOOL "Enable libwebp threading" FORCE)
-set(WEBP_ENABLE_SIMD ON CACHE BOOL "Enable libwebp SIMD" FORCE)
+find_package(PkgConfig REQUIRED)
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../libwebp ${CMAKE_CURRENT_BINARY_DIR}/libwebp)
+# Prefer using system-provided libwebp (via pkg-config). If `libwebpdemux` is
+# available as a separate pkg-config module, prefer linking it too.
+pkg_check_modules(WEBP REQUIRED libwebp)
+pkg_check_modules(WEBPDEMUX QUIET libwebpdemux)
 
 add_library(rustine_webp STATIC rustine-webp.cpp)
 set_target_properties(rustine_webp PROPERTIES OUTPUT_NAME "rustine_webp")
@@ -36,9 +23,16 @@ set_target_properties(rustine_webp PROPERTIES OUTPUT_NAME "rustine_webp")
 target_include_directories(
 	rustine_webp
 	PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-				 ${CMAKE_CURRENT_SOURCE_DIR}/../libwebp/src)
+		   ${WEBP_INCLUDE_DIRS})
 
-target_link_libraries(rustine_webp PUBLIC webp webpdemux)
+if (WEBPDEMUX_FOUND)
+	target_include_directories(rustine_webp PUBLIC ${WEBPDEMUX_INCLUDE_DIRS})
+	# Link webpdemux before webp to ensure libwebp symbols are available
+	# when linking static webpdemux objects that reference them.
+	target_link_libraries(rustine_webp PUBLIC ${WEBPDEMUX_LIBRARIES} ${WEBP_LIBRARIES})
+else()
+	target_link_libraries(rustine_webp PUBLIC ${WEBP_LIBRARIES})
+endif()
 
 install(
 	TARGETS rustine_webp
