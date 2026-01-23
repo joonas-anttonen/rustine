@@ -35,7 +35,7 @@ pub struct PreviewFrame {
 pub struct WebPPreviewHandler;
 
 impl WebPPreviewHandler {
-    pub const SUPPORTED_EXTENSIONS: &'static [&'static str] = &["webp"];
+    pub const SUPPORTED_EXTENSIONS: &'static [&'static str] = &["WEBP"];
 }
 
 impl PreviewHandler for WebPPreviewHandler {
@@ -43,8 +43,8 @@ impl PreviewHandler for WebPPreviewHandler {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| {
-                let lower = ext.to_ascii_lowercase();
-                WebPPreviewHandler::SUPPORTED_EXTENSIONS.contains(&lower.as_str())
+                let upper = ext.to_uppercase();
+                WebPPreviewHandler::SUPPORTED_EXTENSIONS.contains(&upper.as_str())
             })
             .unwrap_or(false)
     }
@@ -167,7 +167,7 @@ struct FfmpegPreviewHandler;
 
 impl FfmpegPreviewHandler {
     pub const SUPPORTED_EXTENSIONS: &'static [&'static str] =
-        &["mp4", "mkv", "webm", "webp", "mov", "avi", "flv", "m4v"];
+        &["MP4", "MKV", "WEBM", "WEBP", "MOV", "AVI", "FLV", "M4V"];
 }
 
 impl PreviewHandler for FfmpegPreviewHandler {
@@ -175,8 +175,8 @@ impl PreviewHandler for FfmpegPreviewHandler {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| {
-                let lower = ext.to_ascii_lowercase();
-                FfmpegPreviewHandler::SUPPORTED_EXTENSIONS.contains(&lower.as_str())
+                let upper = ext.to_uppercase();
+                FfmpegPreviewHandler::SUPPORTED_EXTENSIONS.contains(&upper.as_str())
             })
             .unwrap_or(false)
     }
@@ -282,7 +282,7 @@ pub fn can_preview(path: &std::path::Path) -> bool {
     let extension = path
         .extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase());
+        .map(|ext| ext.to_uppercase());
 
     let mut can_handle = WebPPreviewHandler::SUPPORTED_EXTENSIONS
         .iter()
@@ -290,6 +290,12 @@ pub fn can_preview(path: &std::path::Path) -> bool {
 
     if !can_handle {
         can_handle = FfmpegPreviewHandler::SUPPORTED_EXTENSIONS
+            .iter()
+            .any(|&s| Some(s) == extension.as_deref());
+    }
+
+    if !can_handle {
+        can_handle = GltfPreviewHandler::SUPPORTED_EXTENSIONS
             .iter()
             .any(|&s| Some(s) == extension.as_deref());
     }
@@ -307,35 +313,38 @@ pub fn preview_worker_thread(
     rustine::log::Log::global().set_current_thread_name("preview-worker");
 
     // Handlers for different preview types (WebP first, then FFmpeg for video)
-    let handlers: Vec<Box<dyn PreviewHandler + Send>> =
-        vec![Box::new(WebPPreviewHandler), Box::new(FfmpegPreviewHandler)];
+    let handlers: Vec<Box<dyn PreviewHandler + Send>> = vec![
+        Box::new(WebPPreviewHandler),
+        Box::new(FfmpegPreviewHandler),
+        Box::new(GltfPreviewHandler),
+    ];
 
     loop {
         if exit_flag.load(Ordering::Relaxed) {
             break;
         }
         match request_queue.pop_back_and_discard() {
-            Some(PreviewRequest::Load(_path)) => {
-                if let Some(handler) = handlers.iter().find(|handler| handler.can_handle(&_path)) {
+            Some(PreviewRequest::Load(path)) => {
+                if let Some(handler) = handlers.iter().find(|handler| handler.can_handle(&path)) {
                     request_flag.store(false, Ordering::Relaxed);
                     match handler.handle(
-                        &_path,
+                        &path,
                         Arc::clone(&image_mailbox),
                         target_image_id,
                         request_flag,
                     ) {
                         PreviewStatus::Ok => {
-                            log::debug!("Preview succeeded for {:?}", _path)
+                            log::debug!("Preview succeeded for {:?}", path)
                         }
                         PreviewStatus::EndOfStream => {
-                            log::debug!("Preview reached end of stream for {:?}", _path)
+                            log::debug!("Preview reached end of stream for {:?}", path)
                         }
                         PreviewStatus::Error(err) => {
-                            log::error!("Preview error for {:?}: {}", _path, err);
+                            log::error!("Preview error for {:?}: {}", path, err);
                         }
                     };
                 } else {
-                    log::warning!("No handler found for previewing {:?}", _path);
+                    log::warning!("No handler found for previewing {:?}", path);
                 }
             }
             Some(PreviewRequest::Clear) => {}
@@ -347,4 +356,35 @@ pub fn preview_worker_thread(
     }
 
     rustine::log::info!("Preview worker thread exiting");
+}
+
+struct GltfPreviewHandler;
+
+impl GltfPreviewHandler {
+    pub const SUPPORTED_EXTENSIONS: &'static [&'static str] = &["GLB"];
+}
+
+impl PreviewHandler for GltfPreviewHandler {
+    fn can_handle(&self, path: &Path) -> bool {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| {
+                let upper = ext.to_uppercase();
+                GltfPreviewHandler::SUPPORTED_EXTENSIONS.contains(&upper.as_str())
+            })
+            .unwrap_or(false)
+    }
+
+    fn handle(
+        &self,
+        path: &Path,
+        _image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
+        _target_image_id: u32,
+        _exit_flag: &AtomicBool,
+    ) -> PreviewStatus {
+        match rustine::io::gltf::deserialize(path.to_str().unwrap()) {
+            Ok(_) => PreviewStatus::EndOfStream,
+            Err(err) => PreviewStatus::Error(format!("Failed to deserialize glTF: {}", err)),
+        }
+    }
 }

@@ -16,6 +16,8 @@ crate-type = ["cdylib", "rlib"]
 rustine-sc = { path = "../rustine-sc" }
 chrono = ">=0.4"
 libc = ">=0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [build-dependencies]
 rustine-sc = { path = "../rustine-sc" }
