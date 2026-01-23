@@ -11,6 +11,7 @@ pub use rustinesc::*;
 pub use version::Version;
 mod numerics;
 pub use numerics::*;
+pub mod model;
 
 use std::{
     collections::VecDeque,

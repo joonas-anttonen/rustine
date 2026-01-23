@@ -9,7 +9,6 @@ mod device;
 pub use device::*;
 pub mod vulkan;
 pub use core::Gfx;
-use std::sync;
 pub mod presentation;
 pub mod queue;
 pub use presentation::AcquireStatus;
@@ -34,13 +33,17 @@ use crate::*;
 
 use crate::version::Version;
 
+use std::sync::Weak;
+
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
+
+pub const INVALID_IMAGE_ID: u32 = 999_999_999;
 
 pub struct Image {
     pub width: u32,
     pub height: u32,
-    pub id: u32,
-    released_images: sync::Weak<Mailbox<u32>>,
+    id: u32,
+    released_images: Weak<Mailbox<u32>>,
 }
 
 impl Drop for Image {
@@ -56,8 +59,8 @@ impl Default for Image {
         Self {
             width: 0,
             height: 0,
-            id: u32::MAX,
-            released_images: sync::Weak::new(),
+            id: INVALID_IMAGE_ID,
+            released_images: Weak::new(),
         }
     }
 }
@@ -67,7 +70,7 @@ impl Image {
         id: u32,
         width: u32,
         height: u32,
-        released_images: sync::Weak<Mailbox<u32>>,
+        released_images: Weak<Mailbox<u32>>,
     ) -> Self {
         Self {
             width,
@@ -75,6 +78,10 @@ impl Image {
             id,
             released_images,
         }
+    }
+
+    pub fn id(&self) -> u32 {
+        self.id
     }
 
     /// It is always safe to add an image to the released images queue.

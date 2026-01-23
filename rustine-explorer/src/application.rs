@@ -128,7 +128,7 @@ impl rustine::gui::Application for MyApplication {
         // Spawn the preview worker thread
         let image_mailbox = gui.image_mailbox();
         let request_queue = Arc::clone(&state.preview_request_queue);
-        let preview_image_id = state.preview_image.id;
+        let preview_image_id = state.preview_image.id();
         let exit_flag = Arc::clone(&self.exit_flag);
         let preview_request_flag = Arc::clone(&self.preview_request_flag);
 

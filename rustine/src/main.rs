@@ -100,7 +100,7 @@ fn main() {
             });
 
             let image_mailbox_cloned = Arc::clone(&image_mailbox);
-            let display_image_id = display_image_dynamic.id;
+            let display_image_id = display_image_dynamic.id();
             s.spawn(move || {
                 image_loader_thread(image_mailbox_cloned, display_image_id, &EXIT_FLAG);
             });

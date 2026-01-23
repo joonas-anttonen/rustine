@@ -545,6 +545,11 @@ impl Gfx {
             return;
         }
 
+        if image_id == INVALID_IMAGE_ID {
+            warning!("Attempted to ensure pixel buffer for invalid image ID");
+            return;
+        }
+
         let pixel_buffer = self
             .allocator
             .create_pixel_buffer(
