@@ -9,15 +9,9 @@ add_library(${RUSTINE_VMA_TARGET} STATIC
     rustine-vma.cpp
 )
 
-# Include directories for the interop library
-target_include_directories(${RUSTINE_VMA_TARGET} PRIVATE "../vma/include")
-
 # Link with Vulkan
 find_package(Vulkan REQUIRED)
 target_link_libraries(${RUSTINE_VMA_TARGET} PRIVATE Vulkan::Vulkan)
-
-# Link with VulkanMemoryAllocator
-target_link_libraries(${RUSTINE_VMA_TARGET} PRIVATE VulkanMemoryAllocator)
 
 # Set output directories
 set_target_properties(${RUSTINE_VMA_TARGET} PROPERTIES
