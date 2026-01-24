@@ -26,13 +26,6 @@ pub struct GpuCloudVertex {
     pub color: u32,
 }
 
-/// Topology of a mesh.
-pub enum MeshTopology {
-    Triangles,
-    Lines,
-    Points,
-}
-
 /// Material properties for a mesh primitive.
 pub struct Material {
     pub diffuse: Vector4f,

@@ -383,7 +383,10 @@ impl PreviewHandler for GltfPreviewHandler {
         _exit_flag: &AtomicBool,
     ) -> PreviewStatus {
         match rustine::io::gltf::deserialize(path.to_str().unwrap()) {
-            Ok(_) => PreviewStatus::EndOfStream,
+            Ok(gltf) => {
+                let _ = rustine::io::gltf::parse(gltf);
+                PreviewStatus::EndOfStream
+            }
             Err(err) => PreviewStatus::Error(format!("Failed to deserialize glTF: {}", err)),
         }
     }

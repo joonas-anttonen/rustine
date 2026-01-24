@@ -824,7 +824,7 @@ impl Comparison {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Topology {
     Points,
-    Lines,
+    Wires,
     Triangles,
 }
 
@@ -832,7 +832,7 @@ impl Topology {
     pub fn to_vk(&self) -> vk::VkPrimitiveTopology {
         match self {
             Topology::Points => vk::VkPrimitiveTopology::POINT_LIST,
-            Topology::Lines => vk::VkPrimitiveTopology::LINE_LIST,
+            Topology::Wires => vk::VkPrimitiveTopology::LINE_LIST,
             Topology::Triangles => vk::VkPrimitiveTopology::TRIANGLE_LIST,
         }
     }

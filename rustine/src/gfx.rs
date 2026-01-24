@@ -21,11 +21,12 @@ pub mod buffer;
 pub use buffer::MemoryBuffer;
 pub use buffer::PixelBuffer;
 pub mod pipeline;
+pub use pipeline::Topology;
 
 pub mod fonts;
 pub mod shaders;
 
-mod mesh;
+pub mod mesh;
 
 pub use core::run;
 
