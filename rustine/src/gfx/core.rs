@@ -595,8 +595,6 @@ impl Gfx {
     }
 
     fn render_empty(&mut self) {
-        warning!("Rendering empty frame");
-        
         self.queue.enqueue_present(|cmd, present_image| {
             // Handle all pending uploads to their target buffers
             for upload in &self.pending_image_uploads {
@@ -607,7 +605,16 @@ impl Gfx {
             }
             self.pending_image_uploads.clear();
 
-            cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::PRESENT_SRC_KHR);
+            if let Some(target_frame) = self.test_data.target_frame.as_ref() {
+                cmd.layout_barrier(&target_frame, Layout::TRANSFER_SRC);
+                cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
+                cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
+                cmd.present_image_barrier(
+                    present_image,
+                    Layout::TRANSFER_DST,
+                    Layout::PRESENT_SRC_KHR,
+                );
+            }
         });
     }
 
@@ -649,6 +656,10 @@ impl Gfx {
                     self.render_frame_pool.push(current_cached);
                 }
             }
+        } else if self.pending_image_uploads.is_empty() {
+            warning!("No new render commands available, presenting old frame");
+            self.render_empty();
+            return;
         }
 
         // Grab the cached render frame for rendering.
@@ -777,7 +788,7 @@ impl Gfx {
             cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
             cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
             cmd.present_image_barrier(present_image, Layout::TRANSFER_DST, Layout::PRESENT_SRC_KHR);
-            target_frame.set_layout(Layout::PRESENT_SRC_KHR);
+            cmd.layout_barrier(&target_frame, Layout::TRANSFER_DST);
         });
 
         let frame_end = Instant::now();

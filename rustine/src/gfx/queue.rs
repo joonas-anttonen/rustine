@@ -147,7 +147,7 @@ impl Queue {
         command_buffer.end();
 
         // Find the most recent queued command that is not a Present.
-        let previous_command_buffer = self
+        /*let previous_command_buffer = self
             .queued_commands
             .iter()
             .rev()
@@ -155,9 +155,9 @@ impl Queue {
 
         if previous_command_buffer.is_some() {
             warning!("Queue::enqueue: Found previous command buffer that is not a Present");
-        }
+        }*/
 
-        let submit_status = self.submit(&command_buffer, previous_command_buffer);
+        let submit_status = self.submit(&command_buffer, None);
         match submit_status {
             SubmitStatus::Success => {
                 self.queued_commands.push_back(command_buffer);

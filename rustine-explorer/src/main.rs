@@ -52,7 +52,7 @@ fn main() -> std::process::ExitCode {
 
         let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
         let gui = gui_builder.build(Arc::clone(&gfx), application);
-        let mode = rustine::RunMode::Event;
+        let mode = rustine::RunMode::Continuous;
 
         std::thread::scope(|scope| {
             scope.spawn(|| {
