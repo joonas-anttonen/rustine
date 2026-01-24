@@ -179,13 +179,15 @@ impl PresentationProvider for SwapchainProvider {
                 self.swapchain_handle,
                 u64::MAX,
                 acquire_semaphore,
-                vk::VkFence::default(),
+                self.acquire_fence,
                 &mut image_index,
             )
         };
 
-        // Reset the acquire fence
-        /*unsafe {
+        // Wait for the acquire fence. This is not really necessary,
+        // we will wait for an available command buffer regardless.
+        // But we might as well wait here as well for full feng shui.
+        unsafe {
             vk::vkWaitForFences(
                 self.device.handle(),
                 1,
@@ -194,7 +196,7 @@ impl PresentationProvider for SwapchainProvider {
                 std::u64::MAX,
             );
             vk::vkResetFences(self.device.handle(), 1, &self.acquire_fence);
-        }*/
+        }
 
         match result {
             vk::VkResult::SUCCESS | vk::VkResult::SUBOPTIMAL_KHR => {

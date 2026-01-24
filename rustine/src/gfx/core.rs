@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 const GEOMETRY_TEXTURE_ID: u32 = u32::MAX;
 
 struct TestData {
-    target_frame: Option<Rc<PixelBuffer>>,
     linear_sampler: Rc<Sampler>,
     nearest_sampler: Rc<Sampler>,
     test_pipeline: Rc<Pipeline>,
@@ -36,20 +35,23 @@ pub struct Gfx {
     pending_images: Arc<Mailbox<(u32, io::Image)>>,
     pending_image_uploads: VecDeque<ImageUpload>,
     render_commands: Arc<Mailbox<RenderFrame>>,
-    cached_render_frame: Option<RenderFrame>,
+    cached_gui_commands: Option<RenderFrame>,
     /// Small pool of reusable RenderFrame instances for the GUI thread.
     render_frame_pool: Vec<RenderFrame>,
     next_image_id: u32,
     pixel_buffers: HashMap<u32, Rc<PixelBuffer>>,
     released_images: Arc<Mailbox<u32>>,
+    frame_n: u64,
+    frame_skips: u64,
+    frame_cpu_times: RingBuffer<f64>,
+    max_uploads_per_frame: usize,
+    work_available: Arc<AutoResetEvent>,
+    target_frame: Option<Rc<PixelBuffer>>,
+    target_damaged: bool,
     queue: Queue,
     allocator: Rc<allocator::Allocator>,
     device: Rc<Device>,
     instance: Instance,
-    frame_n: u64,
-    frame_cpu_times: RingBuffer<f64>,
-    max_uploads_per_frame: usize,
-    work_available: Arc<AutoResetEvent>,
 }
 
 // SAFETY: Core manages a Vulkan instance which can be safely shared and accessed across threads.
@@ -118,7 +120,8 @@ impl Gfx {
                 last_instant = now;
                 frame_delta_times.push(_dt as f64);
 
-                am_gfx.lock().unwrap().render();
+                let mut gfx = am_gfx.lock().unwrap();
+                gfx.render();
 
                 let stat_now = Instant::now();
                 if stat_now.duration_since(last_stat_instant).as_secs_f64() >= 1.0 {
@@ -141,9 +144,21 @@ impl Gfx {
                         vram_allocations
                     );
 
+                    let full_frames = gfx.frame_n - gfx.frame_skips;
+                    info!("GFX frame -> {} (full: {})", gfx.frame_n, full_frames);
+
+                    if let Some((min, max, mean)) = gfx.frame_cpu_times.min_max_mean() {
+                        debug!(
+                            "GFX cpu -> min: {}, max: {}, mean: {}",
+                            utilities::format_duration(min),
+                            utilities::format_duration(max),
+                            utilities::format_duration(mean)
+                        );
+                    }
+
                     if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
                         debug!(
-                            "GFX frame dt -> min: {}, max: {}, mean: {}",
+                            "GFX dt -> min: {}, max: {}, mean: {}",
                             utilities::format_duration(min),
                             utilities::format_duration(max),
                             utilities::format_duration(mean)
@@ -328,7 +343,6 @@ impl Gfx {
         }
 
         let test_data = TestData {
-            target_frame: None,
             linear_sampler: Rc::new(linear_sampler),
             nearest_sampler: Rc::new(nearest_sampler),
             test_pipeline: Rc::new(test_pipeline),
@@ -343,18 +357,21 @@ impl Gfx {
             allocator,
             test_data,
             frame_n: 0,
+            frame_skips: 0,
             queue: command_queue,
             pixel_buffers,
             pending_images: Mailbox::<(u32, io::Image)>::new(Arc::clone(&work_available)),
             pending_image_uploads: pending_uploads,
             render_commands: Mailbox::<RenderFrame>::new(Arc::clone(&work_available)),
-            cached_render_frame: None,
+            cached_gui_commands: None,
             render_frame_pool: Vec::with_capacity(3),
             next_image_id: 0,
             released_images: Mailbox::new(Arc::clone(&work_available)),
             frame_cpu_times: RingBuffer::new(120),
             max_uploads_per_frame: 4,
             work_available,
+            target_frame: None,
+            target_damaged: false,
         }
     }
 
@@ -422,7 +439,8 @@ impl Gfx {
                 Samples::X1,
             )
             .unwrap();
-        self.test_data.target_frame = Some(Rc::new(target_frame));
+        self.target_frame = Some(Rc::new(target_frame));
+        self.target_damaged = true;
 
         self.render();
     }
@@ -470,11 +488,7 @@ impl Gfx {
     pub fn acquire_frame_for_gui(&mut self, size: Vector2u) -> RenderFrame {
         // Try to reuse a frame from the small pool first to avoid allocations.
         if let Some(mut frame) = self.render_frame_pool.pop() {
-            frame.vertices.clear();
-            frame.indices.clear();
-            frame.batches.clear();
-            frame.image_descriptors.clear();
-            frame.scissor_stack.clear();
+            frame.clear();
             frame.size = size;
             frame
         } else {
@@ -484,7 +498,7 @@ impl Gfx {
     }
 
     pub fn clear_render_commands(&mut self) {
-        self.cached_render_frame = None;
+        self.cached_gui_commands = None;
         self.render_commands.pop_back_and_discard();
     }
 
@@ -605,7 +619,7 @@ impl Gfx {
             }
             self.pending_image_uploads.clear();
 
-            if let Some(target_frame) = self.test_data.target_frame.as_ref() {
+            if let Some(target_frame) = self.target_frame.as_ref() {
                 cmd.layout_barrier(&target_frame, Layout::TRANSFER_SRC);
                 cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
                 cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
@@ -616,6 +630,9 @@ impl Gfx {
                 );
             }
         });
+
+        self.frame_skips += 1;
+        self.next_frame();
     }
 
     pub fn render(&mut self) {
@@ -628,10 +645,12 @@ impl Gfx {
         // Grab a reference to the target frame for rendering, if available.
         // It might not be available if we have no presenter (yet).
         // If not available, render an empty frame.
-        let target_frame = match self.test_data.target_frame.as_ref() {
+        let target_frame = match self.target_frame.as_ref() {
             Some(frame) => Rc::clone(frame),
             None => {
                 self.render_empty();
+                self.frame_cpu_times
+                    .push(Instant::now().duration_since(frame_start).as_secs_f64());
                 return;
             }
         };
@@ -649,38 +668,42 @@ impl Gfx {
             }
 
             // Cache the newest frame for rendering, returning any previous frame to the pool.
-            if let Some(mut current_cached) = self.cached_render_frame.replace(newest) {
+            if let Some(mut current_cached) = self.cached_gui_commands.replace(newest) {
                 if self.render_frame_pool.len() < FRAME_POOL_CAPACITY {
                     // Avoid stale data in the pool.
                     current_cached.clear();
                     self.render_frame_pool.push(current_cached);
                 }
             }
-        } else if self.pending_image_uploads.is_empty() {
-            warning!("No new render commands available, presenting old frame");
+        } else if self.pending_image_uploads.is_empty() && !self.target_damaged {
+            // No work to do, present the previous frame, if available.
             self.render_empty();
+            self.frame_cpu_times
+                .push(Instant::now().duration_since(frame_start).as_secs_f64());
             return;
         }
 
-        // Grab the cached render frame for rendering.
-        // It might not be available if no render commands have been issued.
+        // Grab the cached gui commands for rendering.
+        // It might not be available if no commands have been issued.
         // If not available, render an empty frame.
         // We take() here and return it back at the end of this render call.
-        let mut frame = match self.cached_render_frame.take() {
+        let mut gui_commands = match self.cached_gui_commands.take() {
             Some(f) => f,
             None => {
                 self.render_empty();
+                self.frame_cpu_times
+                    .push(Instant::now().duration_since(frame_start).as_secs_f64());
                 return;
             }
         };
 
         // Perform preprocessing on the render frame
-        self.preprocess_render_frame(&mut frame);
+        self.preprocess_render_frame(&mut gui_commands);
 
         // Allocate and upload vertex and index data.
         // This will rarely actually allocate anything,
         // as buffers are allocated from VMA internal pools.
-        let vertex_count = frame.vertices.len().max(1);
+        let vertex_count = gui_commands.vertices.len().max(1);
         let vertex_buffer = Rc::new(
             self.allocator
                 .create_memory_buffer::<Gpu2DVertex>(
@@ -690,10 +713,10 @@ impl Gfx {
                 )
                 .unwrap(),
         );
-        if !frame.vertices.is_empty() {
-            vertex_buffer.write(&frame.vertices);
+        if !gui_commands.vertices.is_empty() {
+            vertex_buffer.write(&gui_commands.vertices);
         }
-        let index_count = frame.indices.len().max(1);
+        let index_count = gui_commands.indices.len().max(1);
         let index_buffer = Rc::new(
             self.allocator
                 .create_memory_buffer::<u32>(
@@ -703,8 +726,8 @@ impl Gfx {
                 )
                 .unwrap(),
         );
-        if !frame.indices.is_empty() {
-            index_buffer.write(&frame.indices);
+        if !gui_commands.indices.is_empty() {
+            index_buffer.write(&gui_commands.indices);
         }
 
         self.queue.enqueue(|cmd| {
@@ -746,7 +769,7 @@ impl Gfx {
             );
 
             // Execute draw batches if frame is present
-            for batch in &frame.batches {
+            for batch in &gui_commands.batches {
                 for draw_cmd in &batch.commands {
                     let scissor = draw_cmd.scissor.unwrap_or(render_area);
                     cmd.set_scissor(&scissor);
@@ -795,7 +818,8 @@ impl Gfx {
         let frame_duration = frame_end.duration_since(frame_start).as_secs_f64();
         self.frame_cpu_times.push(frame_duration);
 
-        self.cached_render_frame = Some(frame);
+        self.cached_gui_commands = Some(gui_commands);
+        self.target_damaged = false;
 
         self.next_frame();
     }
