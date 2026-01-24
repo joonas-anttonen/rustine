@@ -65,7 +65,11 @@ impl MyApplication {
         }
     }
 
-    fn update_preview(&self, state: &mut std::cell::RefMut<'_, MyApplicationState>) {
+    fn update_preview(
+        &self,
+        state: &mut std::cell::RefMut<'_, MyApplicationState>,
+        gui: &rustine::gui::Gui,
+    ) {
         if state.files_preview_open {
             if let Some(idx) = state.files_list.selected
                 && let Some(entry) = state.files_entries.get(idx)
@@ -75,11 +79,16 @@ impl MyApplication {
 
                 if preview::can_preview(&entry_path) {
                     state.files_preview_valid = true;
+
+                    let new_image = gui.create_dynamic_image();
+
                     state
                         .preview_request_queue
-                        .push(preview::PreviewRequest::Load(entry_path));
+                        .push(preview::PreviewRequest::Load(entry_path, new_image.id()));
                     self.preview_request_flag
                         .store(true, std::sync::atomic::Ordering::Relaxed);
+
+                    state.preview_image = new_image;
                 } else {
                     state.files_preview_valid = false;
                     state
@@ -87,6 +96,8 @@ impl MyApplication {
                         .push(preview::PreviewRequest::Clear);
                     self.preview_request_flag
                         .store(true, std::sync::atomic::Ordering::Relaxed);
+
+                    state.preview_image = gfx::Image::default();
                 }
             }
         } else {
@@ -97,6 +108,8 @@ impl MyApplication {
                 .push(preview::PreviewRequest::Clear);
             self.preview_request_flag
                 .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            state.preview_image = gfx::Image::default();
         }
     }
 }
@@ -109,6 +122,11 @@ impl Default for MyApplication {
 
 impl Drop for MyApplication {
     fn drop(&mut self) {
+        let state = self.state.borrow_mut();
+
+        state
+            .preview_request_queue
+            .push(preview::PreviewRequest::Clear);
         self.exit_flag
             .store(true, std::sync::atomic::Ordering::Relaxed);
         self.preview_request_flag
@@ -128,7 +146,6 @@ impl rustine::gui::Application for MyApplication {
         // Spawn the preview worker thread
         let image_mailbox = gui.image_mailbox();
         let request_queue = Arc::clone(&state.preview_request_queue);
-        let preview_image_id = state.preview_image.id();
         let exit_flag = Arc::clone(&self.exit_flag);
         let preview_request_flag = Arc::clone(&self.preview_request_flag);
 
@@ -136,7 +153,6 @@ impl rustine::gui::Application for MyApplication {
             preview::preview_worker_thread(
                 request_queue,
                 image_mailbox,
-                preview_image_id,
                 &exit_flag,
                 &preview_request_flag,
             );
@@ -203,7 +219,7 @@ impl rustine::gui::Application for MyApplication {
                         state.files_list.select_prev(files_len);
                         cache_current_selection(&mut state);
                         // Update preview if open
-                        self.update_preview(&mut state);
+                        self.update_preview(&mut state, gui);
                     }
                 }
             }
@@ -216,7 +232,7 @@ impl rustine::gui::Application for MyApplication {
                         state.files_list.select_next(files_len);
                         cache_current_selection(&mut state);
                         // Update preview if open
-                        self.update_preview(&mut state);
+                        self.update_preview(&mut state, gui);
                     }
                 }
             }
@@ -246,7 +262,7 @@ impl rustine::gui::Application for MyApplication {
                     }
                 }
 
-                self.update_preview(&mut state);
+                self.update_preview(&mut state, gui);
             }
             Key::RIGHT => {}
             Key::LEFT if state.selected_tab == Tab::Files => {
@@ -260,7 +276,7 @@ impl rustine::gui::Application for MyApplication {
                     .unwrap_or_else(|| state.files_dir.clone());
 
                 update_files_entries(&mut state, target);
-                self.update_preview(&mut state);
+                self.update_preview(&mut state, gui);
             }
             Key::LEFT => {}
             Key::PERIOD if state.selected_tab == Tab::Files => {
@@ -270,7 +286,7 @@ impl rustine::gui::Application for MyApplication {
                 let target = state.files_dir.clone();
 
                 update_files_entries(&mut state, target);
-                self.update_preview(&mut state);
+                self.update_preview(&mut state, gui);
             }
             Key::PERIOD => {}
             Key::W if state.selected_tab == Tab::Files => {
@@ -291,7 +307,7 @@ impl rustine::gui::Application for MyApplication {
                 } else {
                     state.files_preview_open = !state.files_preview_open;
                     // Update preview entry based on current selection
-                    self.update_preview(&mut state);
+                    self.update_preview(&mut state, gui);
                 }
             }
             Key::TAB => {}
@@ -426,7 +442,7 @@ impl rustine::gui::Application for MyApplication {
 
                     let target = state.files_dir.clone();
                     update_files_entries(&mut state, target);
-                    self.update_preview(&mut state);
+                    self.update_preview(&mut state, gui);
                 }
             }
             Key::F12 => {

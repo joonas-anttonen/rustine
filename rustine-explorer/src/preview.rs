@@ -12,7 +12,7 @@ pub enum PreviewStatus {
 }
 
 pub enum PreviewRequest {
-    Load(PathBuf),
+    Load(PathBuf, u32),
     Clear,
 }
 
@@ -108,6 +108,10 @@ impl PreviewHandler for WebPPreviewHandler {
         // Multi-frame animation: present all frames with their timings
         let mut prev_timestamp = 0u32;
         loop {
+            if exit_flag.load(Ordering::Relaxed) {
+                return PreviewStatus::Ok;
+            }
+
             let mut frame = vec![0u8; (width * height * 4) as usize];
             match decoder.next_frame(&mut frame) {
                 io::webp::WebPResult::EndOfStream => {
@@ -153,10 +157,6 @@ impl PreviewHandler for WebPPreviewHandler {
                     }
 
                     prev_timestamp = timestamp_ms;
-
-                    if exit_flag.load(Ordering::Relaxed) {
-                        return PreviewStatus::Ok;
-                    }
                 }
             }
         }
@@ -306,7 +306,6 @@ pub fn can_preview(path: &std::path::Path) -> bool {
 pub fn preview_worker_thread(
     request_queue: Arc<Mailbox<PreviewRequest>>,
     image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
-    target_image_id: u32,
     exit_flag: &AtomicBool,
     request_flag: &AtomicBool,
 ) {
@@ -323,16 +322,15 @@ pub fn preview_worker_thread(
         if exit_flag.load(Ordering::Relaxed) {
             break;
         }
+
+        request_queue.wait();
+
         match request_queue.pop_back_and_discard() {
-            Some(PreviewRequest::Load(path)) => {
+            Some(PreviewRequest::Load(path, image_id)) => {
                 if let Some(handler) = handlers.iter().find(|handler| handler.can_handle(&path)) {
                     request_flag.store(false, Ordering::Relaxed);
-                    match handler.handle(
-                        &path,
-                        Arc::clone(&image_mailbox),
-                        target_image_id,
-                        request_flag,
-                    ) {
+                    match handler.handle(&path, Arc::clone(&image_mailbox), image_id, request_flag)
+                    {
                         PreviewStatus::Ok => {
                             log::debug!("Preview succeeded for {:?}", path)
                         }

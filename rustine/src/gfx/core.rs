@@ -1,7 +1,7 @@
 use crate::gfx::pipeline::*;
 use crate::{Parameters, RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::time::{Duration, Instant};
@@ -40,6 +40,8 @@ pub struct Gfx {
     render_frame_pool: Vec<RenderFrame>,
     next_image_id: u32,
     pixel_buffers: HashMap<u32, Rc<PixelBuffer>>,
+    // TODO: Maybe find a better way to ensure no accidental resurrection of deleted pixel buffers
+    pixel_buffers_deleted: HashSet<u32>,
     released_images: Arc<Mailbox<u32>>,
     frame_n: u64,
     frame_skips: u64,
@@ -360,6 +362,7 @@ impl Gfx {
             frame_skips: 0,
             queue: command_queue,
             pixel_buffers,
+            pixel_buffers_deleted: HashSet::new(),
             pending_images: Mailbox::<(u32, io::Image)>::new(Arc::clone(&work_available)),
             pending_image_uploads: pending_uploads,
             render_commands: Mailbox::<RenderFrame>::new(Arc::clone(&work_available)),
@@ -519,6 +522,7 @@ impl Gfx {
             warning!("Releasing image: {}", image_id);
 
             self.pixel_buffers.remove(&image_id);
+            self.pixel_buffers_deleted.insert(image_id);
             // Also remove from pending uploads if not yet staged
             self.pending_image_uploads
                 .retain(|upload| upload.image_id != image_id);
@@ -560,7 +564,24 @@ impl Gfx {
         }
 
         if image_id == INVALID_IMAGE_ID {
-            warning!("Attempted to ensure pixel buffer for invalid image ID");
+            error!("Attempted to create pixel buffer for invalid image ID");
+            return;
+        }
+
+        // TODO: This really shouldn't be needed but there are some cases
+        //       where it's difficult to track image lifetimes precisely.
+        //       See: Previewing of images/videos in rustine-desktop.
+        if self.pixel_buffers_deleted.contains(&image_id) {
+            error!(
+                "Attempted to create pixel buffer for deleted image ID: {}",
+                image_id
+            );
+
+            // Prevent the set from growing indefinitely:
+            if self.pixel_buffers_deleted.len() > 1000 {
+                self.pixel_buffers_deleted.clear();
+            }
+
             return;
         }
 
