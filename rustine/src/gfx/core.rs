@@ -595,6 +595,8 @@ impl Gfx {
     }
 
     fn render_empty(&mut self) {
+        warning!("Rendering empty frame");
+        
         self.queue.enqueue_present(|cmd, present_image| {
             // Handle all pending uploads to their target buffers
             for upload in &self.pending_image_uploads {
