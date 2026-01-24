@@ -629,8 +629,9 @@ impl Gfx {
 
         // Take the latest incoming overlay frame, return any older frames to the pool.
         if let Some(newest) = self.render_commands.pop_back() {
+            const FRAME_POOL_CAPACITY: usize = 3;
+
             while let Some(mut old) = self.render_commands.pop_back() {
-                const FRAME_POOL_CAPACITY: usize = 3;
                 if self.render_frame_pool.len() < FRAME_POOL_CAPACITY {
                     // Avoid stale data in the pool.
                     old.clear();
@@ -639,8 +640,12 @@ impl Gfx {
             }
 
             // Cache the newest frame for rendering, returning any previous frame to the pool.
-            if let Some(current_cached) = self.cached_render_frame.replace(newest) {
-                self.render_frame_pool.push(current_cached);
+            if let Some(mut current_cached) = self.cached_render_frame.replace(newest) {
+                if self.render_frame_pool.len() < FRAME_POOL_CAPACITY {
+                    // Avoid stale data in the pool.
+                    current_cached.clear();
+                    self.render_frame_pool.push(current_cached);
+                }
             }
         }
 
