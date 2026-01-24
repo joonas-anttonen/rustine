@@ -141,11 +141,23 @@ impl Queue {
         }
 
         let mut command_buffer = command_buffer.unwrap();
+        command_buffer.use_for(command::CommandPurpose::Graphics);
         command_buffer.begin();
         command_recorder(&mut command_buffer);
         command_buffer.end();
 
-        let submit_status = self.submit(&command_buffer, None);
+        // Find the most recent queued command that is not a Present.
+        let previous_command_buffer = self
+            .queued_commands
+            .iter()
+            .rev()
+            .find(|cmd| cmd.purpose() != command::CommandPurpose::Present);
+
+        if previous_command_buffer.is_some() {
+            warning!("Queue::enqueue: Found previous command buffer that is not a Present");
+        }
+
+        let submit_status = self.submit(&command_buffer, previous_command_buffer);
         match submit_status {
             SubmitStatus::Success => {
                 self.queued_commands.push_back(command_buffer);
@@ -198,6 +210,7 @@ impl Queue {
             return;
         }
         let mut command_buffer = command_buffer.unwrap();
+        command_buffer.use_for(command::CommandPurpose::Present);
         command_buffer.begin();
         command_recorder(&mut command_buffer, &output_frame);
         command_buffer.end();

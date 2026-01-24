@@ -105,6 +105,13 @@ impl CommandPool {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandPurpose {
+    Graphics,
+    Compute,
+    Present,
+}
+
 /// Represents a command buffer used for recording graphics commands.
 pub struct CommandBuffer {
     memory_buffers_in_use: HashSet<Rc<MemoryBuffer>>,
@@ -116,6 +123,8 @@ pub struct CommandBuffer {
     fence: vk::VkFence,
     semaphore: vk::VkSemaphore,
     pool: Rc<CommandPool>,
+
+    purpose: CommandPurpose,
 }
 
 impl Drop for CommandBuffer {
@@ -146,7 +155,16 @@ impl CommandBuffer {
             fence,
             semaphore,
             pool,
+            purpose: CommandPurpose::Graphics,
         }
+    }
+
+    pub fn use_for(&mut self, usage: CommandPurpose) {
+        self.purpose = usage;
+    }
+
+    pub fn purpose(&self) -> CommandPurpose {
+        self.purpose
     }
 
     pub fn handle(&self) -> vk::VkCommandBuffer {
