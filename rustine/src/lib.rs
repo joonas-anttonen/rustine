@@ -105,6 +105,12 @@ impl<T> Mailbox<T> {
             None
         }
     }
+
+    pub fn retain(&self, f: impl FnMut(&T) -> bool) {
+        if let Ok(mut pending) = self.queue.lock() {
+            pending.retain(f);
+        }
+    }
 }
 
 pub struct AutoResetEvent {

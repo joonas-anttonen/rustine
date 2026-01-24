@@ -1,4 +1,4 @@
-use rustine::{Mailbox, io, log};
+use rustine::{gfx, Mailbox, io, log};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -12,7 +12,7 @@ pub enum PreviewStatus {
 }
 
 pub enum PreviewRequest {
-    Load(PathBuf, u32),
+    Load(PathBuf, Arc<gfx::Image>),
     Clear,
 }
 
@@ -22,7 +22,7 @@ pub trait PreviewHandler {
         &self,
         path: &Path,
         image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
-        target_image_id: u32,
+        target_image_id: Arc<gfx::Image>,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus;
 }
@@ -53,7 +53,7 @@ impl PreviewHandler for WebPPreviewHandler {
         &self,
         path: &Path,
         image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
-        target_image_id: u32,
+        target_image: Arc<gfx::Image>,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus {
         let data = match std::fs::read(path) {
@@ -92,7 +92,7 @@ impl PreviewHandler for WebPPreviewHandler {
                 }
                 io::webp::WebPResult::Ok(_) => {
                     image_mailbox.push((
-                        target_image_id,
+                        target_image.id(),
                         io::Image {
                             width,
                             height,
@@ -133,7 +133,7 @@ impl PreviewHandler for WebPPreviewHandler {
                 }
                 io::webp::WebPResult::Ok(timestamp_ms) => {
                     image_mailbox.push((
-                        target_image_id,
+                        target_image.id(),
                         io::Image {
                             width,
                             height,
@@ -185,7 +185,7 @@ impl PreviewHandler for FfmpegPreviewHandler {
         &self,
         path: &Path,
         image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
-        target_image_id: u32,
+        target_image: Arc<gfx::Image>,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus {
         let path_str = match path.to_str() {
@@ -219,7 +219,7 @@ impl PreviewHandler for FfmpegPreviewHandler {
             match decoder.next_frame(&mut frame) {
                 Ok(timestamp_ms) => {
                     image_mailbox.push((
-                        target_image_id,
+                        target_image.id(),
                         io::Image {
                             width,
                             height,
@@ -377,7 +377,7 @@ impl PreviewHandler for GltfPreviewHandler {
         &self,
         path: &Path,
         _image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
-        _target_image_id: u32,
+        _target_image: Arc<gfx::Image>,
         _exit_flag: &AtomicBool,
     ) -> PreviewStatus {
         match rustine::io::gltf::deserialize(path.to_str().unwrap()) {

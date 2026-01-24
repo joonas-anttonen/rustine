@@ -526,6 +526,9 @@ impl Gfx {
             // Also remove from pending uploads if not yet staged
             self.pending_image_uploads
                 .retain(|upload| upload.image_id != image_id);
+
+            // Also prune the pending images mailbox
+            self.pending_images.retain(|(id, _)| *id != image_id);
         }
     }
 
@@ -568,9 +571,8 @@ impl Gfx {
             return;
         }
 
-        // TODO: This really shouldn't be needed but there are some cases
-        //       where it's difficult to track image lifetimes precisely.
-        //       See: Previewing of images/videos in rustine-desktop.
+        // TODO: This is here to prevent errors on the client side,
+        //       especially around dynamic images. Maybe remove?
         if self.pixel_buffers_deleted.contains(&image_id) {
             error!(
                 "Attempted to create pixel buffer for deleted image ID: {}",
@@ -579,6 +581,7 @@ impl Gfx {
 
             // Prevent the set from growing indefinitely:
             if self.pixel_buffers_deleted.len() > 1000 {
+                error!("pixel_buffers_deleted exceeded 1000 entries!");
                 self.pixel_buffers_deleted.clear();
             }
 

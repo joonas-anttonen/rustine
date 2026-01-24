@@ -28,7 +28,7 @@ struct MyApplicationState {
     files_preview_open: bool,
     files_preview_valid: bool,
     files_preview_entry: Option<files::EntryInfo>,
-    preview_image: gfx::Image,
+    preview_image: Arc<gfx::Image>,
     preview_request_queue: Arc<Mailbox<preview::PreviewRequest>>,
 }
 
@@ -57,7 +57,7 @@ impl MyApplication {
                 files_preview_open: false,
                 files_preview_valid: false,
                 files_preview_entry: None,
-                preview_image: gfx::Image::default(),
+                preview_image: Arc::new(gfx::Image::default()),
                 preview_request_queue: Mailbox::new(Arc::new(AutoResetEvent::new())),
             }),
             exit_flag: Arc::new(AtomicBool::new(false)),
@@ -80,15 +80,16 @@ impl MyApplication {
                 if preview::can_preview(&entry_path) {
                     state.files_preview_valid = true;
 
-                    let new_image = gui.create_dynamic_image();
+                    state.preview_image = Arc::new(gui.create_dynamic_image());
 
                     state
                         .preview_request_queue
-                        .push(preview::PreviewRequest::Load(entry_path, new_image.id()));
+                        .push(preview::PreviewRequest::Load(
+                            entry_path,
+                            Arc::clone(&state.preview_image),
+                        ));
                     self.preview_request_flag
                         .store(true, std::sync::atomic::Ordering::Relaxed);
-
-                    state.preview_image = new_image;
                 } else {
                     state.files_preview_valid = false;
                     state
@@ -97,7 +98,7 @@ impl MyApplication {
                     self.preview_request_flag
                         .store(true, std::sync::atomic::Ordering::Relaxed);
 
-                    state.preview_image = gfx::Image::default();
+                    state.preview_image = Arc::new(gfx::Image::default());
                 }
             }
         } else {
@@ -109,7 +110,7 @@ impl MyApplication {
             self.preview_request_flag
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
-            state.preview_image = gfx::Image::default();
+            state.preview_image = Arc::new(gfx::Image::default());
         }
     }
 }
@@ -139,9 +140,6 @@ impl rustine::gui::Application for MyApplication {
         log::debug!("Application::startup");
 
         let mut state = self.state.borrow_mut();
-
-        // Create the dynamic image for preview
-        state.preview_image = gui.create_dynamic_image();
 
         // Spawn the preview worker thread
         let image_mailbox = gui.image_mailbox();
