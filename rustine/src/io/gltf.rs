@@ -340,14 +340,6 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
         }
     }
 
-    // TESTING: Print nodes
-    for node in &nodes {
-        println!(
-            "Node: transform={:?}, mesh={:?}, children={:?}",
-            node.transform, node.mesh, node.children
-        );
-    }
-
     let model = io::Model {
         triangle_memory: triangle_vertices,
         wire_memory: wire_vertices,
@@ -356,6 +348,9 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
         nodes,
         materials,
     };
+
+    // TESTING:
+    println!("{:?}", model);
 
     Ok(model)
 }

@@ -3,8 +3,13 @@ use rustine::{
     AutoResetEvent, Mailbox, gfx,
     gui::{self, Key},
     log,
+    scene::Scene,
 };
-use std::{collections::HashMap, path::PathBuf, sync::Arc, sync::atomic::AtomicBool};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex, atomic::AtomicBool},
+};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -36,10 +41,11 @@ pub struct MyApplication {
     state: std::cell::RefCell<MyApplicationState>,
     exit_flag: Arc<AtomicBool>,
     preview_request_flag: Arc<AtomicBool>,
+    scene: Arc<Mutex<Scene>>,
 }
 
 impl MyApplication {
-    pub fn new() -> Self {
+    pub fn new(am_scene: Arc<Mutex<Scene>>) -> Self {
         MyApplication {
             state: std::cell::RefCell::new(MyApplicationState {
                 selected_tab: Tab::Files,
@@ -62,6 +68,7 @@ impl MyApplication {
             }),
             exit_flag: Arc::new(AtomicBool::new(false)),
             preview_request_flag: Arc::new(AtomicBool::new(false)),
+            scene: am_scene,
         }
     }
 
@@ -115,12 +122,6 @@ impl MyApplication {
     }
 }
 
-impl Default for MyApplication {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Drop for MyApplication {
     fn drop(&mut self) {
         let state = self.state.borrow_mut();
@@ -146,11 +147,13 @@ impl rustine::gui::Application for MyApplication {
         let request_queue = Arc::clone(&state.preview_request_queue);
         let exit_flag = Arc::clone(&self.exit_flag);
         let preview_request_flag = Arc::clone(&self.preview_request_flag);
+        let scene_mailbox = Arc::clone(&self.scene.lock().unwrap().mailbox());
 
         std::thread::spawn(move || {
             preview::preview_worker_thread(
                 request_queue,
                 image_mailbox,
+                scene_mailbox,
                 &exit_flag,
                 &preview_request_flag,
             );

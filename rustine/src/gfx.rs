@@ -39,6 +39,45 @@ use std::sync::Weak;
 pub const MINIMUM_VULKAN_API_VERSION: Version = Version::new(1, 4, 0);
 
 pub const INVALID_IMAGE_ID: u32 = 999_999_999;
+pub const INVALID_BUFFER_ID: u32 = 999_999_999;
+
+pub struct Buffer {
+    pub size: usize,
+    id: u32,
+    released_buffers: Weak<Mailbox<u32>>,
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        if let Some(mailbox) = self.released_buffers.upgrade() {
+            mailbox.push(self.id);
+        }
+    }
+}
+
+impl Default for Buffer {
+    fn default() -> Self {
+        Self {
+            size: 0,
+            id: INVALID_BUFFER_ID,
+            released_buffers: Weak::new(),
+        }
+    }
+}
+
+impl Buffer {
+    pub fn new(id: u32, size: usize, released_buffers: Weak<Mailbox<u32>>) -> Self {
+        Self {
+            size,
+            id,
+            released_buffers,
+        }
+    }
+
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+}
 
 pub struct Image {
     pub width: u32,

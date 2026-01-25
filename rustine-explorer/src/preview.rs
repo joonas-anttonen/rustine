@@ -1,4 +1,4 @@
-use rustine::{gfx, Mailbox, io, log};
+use rustine::{Mailbox, gfx, io, log};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -22,6 +22,7 @@ pub trait PreviewHandler {
         &self,
         path: &Path,
         image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
+        scene_mailbox: Arc<Mailbox<rustine::scene::Command>>,
         target_image_id: Arc<gfx::Image>,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus;
@@ -53,6 +54,7 @@ impl PreviewHandler for WebPPreviewHandler {
         &self,
         path: &Path,
         image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
+        _scene_mailbox: Arc<Mailbox<rustine::scene::Command>>,
         target_image: Arc<gfx::Image>,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus {
@@ -185,6 +187,7 @@ impl PreviewHandler for FfmpegPreviewHandler {
         &self,
         path: &Path,
         image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
+        _scene_mailbox: Arc<Mailbox<rustine::scene::Command>>,
         target_image: Arc<gfx::Image>,
         exit_flag: &AtomicBool,
     ) -> PreviewStatus {
@@ -306,6 +309,7 @@ pub fn can_preview(path: &std::path::Path) -> bool {
 pub fn preview_worker_thread(
     request_queue: Arc<Mailbox<PreviewRequest>>,
     image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
+    scene_mailbox: Arc<Mailbox<rustine::scene::Command>>,
     exit_flag: &AtomicBool,
     request_flag: &AtomicBool,
 ) {
@@ -329,8 +333,13 @@ pub fn preview_worker_thread(
             Some(PreviewRequest::Load(path, image_id)) => {
                 if let Some(handler) = handlers.iter().find(|handler| handler.can_handle(&path)) {
                     request_flag.store(false, Ordering::Relaxed);
-                    match handler.handle(&path, Arc::clone(&image_mailbox), image_id, request_flag)
-                    {
+                    match handler.handle(
+                        &path,
+                        Arc::clone(&image_mailbox),
+                        Arc::clone(&scene_mailbox),
+                        image_id,
+                        request_flag,
+                    ) {
                         PreviewStatus::Ok => {
                             log::debug!("Preview succeeded for {:?}", path)
                         }
@@ -377,14 +386,18 @@ impl PreviewHandler for GltfPreviewHandler {
         &self,
         path: &Path,
         _image_mailbox: Arc<Mailbox<(u32, io::Image)>>,
+        scene_mailbox: Arc<Mailbox<rustine::scene::Command>>,
         _target_image: Arc<gfx::Image>,
         _exit_flag: &AtomicBool,
     ) -> PreviewStatus {
         match rustine::io::gltf::deserialize(path.to_str().unwrap()) {
-            Ok(gltf) => {
-                let _ = rustine::io::gltf::parse(gltf);
-                PreviewStatus::EndOfStream
-            }
+            Ok(gltf) => match rustine::io::gltf::parse(gltf) {
+                Ok(model) => {
+                    scene_mailbox.push(rustine::scene::Command::Add(model));
+                    PreviewStatus::EndOfStream
+                }
+                Err(err) => PreviewStatus::Error(format!("Failed to parse glTF: {}", err)),
+            },
             Err(err) => PreviewStatus::Error(format!("Failed to deserialize glTF: {}", err)),
         }
     }

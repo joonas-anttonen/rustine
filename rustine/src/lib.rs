@@ -1,5 +1,6 @@
 pub mod gfx;
 pub mod gui;
+pub mod scene;
 pub mod io;
 pub mod log;
 pub use log::Log;

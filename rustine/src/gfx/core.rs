@@ -20,6 +20,13 @@ struct ImageUpload {
     image_id: u32,
 }
 
+struct BufferUpload {
+    source: Rc<MemoryBuffer>,
+    destination: Rc<MemoryBuffer>,
+    destination_offset: usize,
+    buffer_id: u32,
+}
+
 #[repr(C)]
 struct PerCommand {
     scale: Vector2f,
@@ -34,15 +41,20 @@ pub struct Gfx {
     test_data: TestData,
     pending_images: Arc<Mailbox<(u32, io::Image)>>,
     pending_image_uploads: VecDeque<ImageUpload>,
+    pending_buffers: Arc<Mailbox<(u32, io::Buffer)>>,
+    pending_buffer_uploads: VecDeque<BufferUpload>,
     render_commands: Arc<Mailbox<RenderFrame>>,
     cached_gui_commands: Option<RenderFrame>,
     /// Small pool of reusable RenderFrame instances for the GUI thread.
     render_frame_pool: Vec<RenderFrame>,
-    next_image_id: u32,
+    next_resource_id: u32,
     pixel_buffers: HashMap<u32, Rc<PixelBuffer>>,
+    memory_buffers: HashMap<u32, Rc<MemoryBuffer>>,
     // TODO: Maybe find a better way to ensure no accidental resurrection of deleted pixel buffers
     pixel_buffers_deleted: HashSet<u32>,
+    memory_buffers_deleted: HashSet<u32>,
     released_images: Arc<Mailbox<u32>>,
+    released_buffers: Arc<Mailbox<u32>>,
     frame_n: u64,
     frame_skips: u64,
     frame_cpu_times: RingBuffer<f64>,
@@ -363,12 +375,17 @@ impl Gfx {
             queue: command_queue,
             pixel_buffers,
             pixel_buffers_deleted: HashSet::new(),
+            memory_buffers_deleted: HashSet::new(),
             pending_images: Mailbox::<(u32, io::Image)>::new(Arc::clone(&work_available)),
             pending_image_uploads: pending_uploads,
+            memory_buffers: HashMap::new(),
+            released_buffers: Mailbox::new(Arc::clone(&work_available)),
+            pending_buffer_uploads: VecDeque::new(),
+            pending_buffers: Mailbox::new(Arc::clone(&work_available)),
             render_commands: Mailbox::<RenderFrame>::new(Arc::clone(&work_available)),
             cached_gui_commands: None,
             render_frame_pool: Vec::with_capacity(3),
-            next_image_id: 0,
+            next_resource_id: 0,
             released_images: Mailbox::new(Arc::clone(&work_available)),
             frame_cpu_times: RingBuffer::new(120),
             max_uploads_per_frame: 4,
@@ -453,8 +470,8 @@ impl Gfx {
     }
 
     pub fn create_image(&mut self, io_image: io::Image) -> Image {
-        let image_id = self.next_image_id;
-        self.next_image_id += 1;
+        let image_id = self.next_resource_id;
+        self.next_resource_id += 1;
 
         let image = Image::new(
             image_id,
@@ -469,10 +486,35 @@ impl Gfx {
     }
 
     pub fn create_dynamic_image(&mut self) -> Image {
-        let image_id = self.next_image_id;
-        self.next_image_id += 1;
+        let image_id = self.next_resource_id;
+        self.next_resource_id += 1;
 
         Image::new(image_id, 0, 0, Arc::downgrade(&self.released_images))
+    }
+
+    pub fn create_buffer(&mut self, size: usize) -> Buffer {
+        let buffer_id = self.next_resource_id;
+        self.next_resource_id += 1;
+
+        warning!(
+            "Renderer::create_buffer -> {}",
+            utilities::format_bytes_iec(size)
+        );
+
+        let memory_buffer = self
+            .allocator
+            .create_memory_buffer::<u8>(
+                size,
+                buffer::MemoryUsage::TRANSFER_DST
+                    | buffer::MemoryUsage::VERTEX_BUFFER
+                    | buffer::MemoryUsage::INDEX_BUFFER,
+                buffer::MemoryAccess::NONE,
+            )
+            .unwrap();
+        self.memory_buffers
+            .insert(buffer_id, Rc::new(memory_buffer));
+
+        Buffer::new(buffer_id, size, Arc::downgrade(&self.released_buffers))
     }
 
     pub fn image_mailbox(&self) -> Arc<Mailbox<(u32, io::Image)>> {
@@ -515,6 +557,31 @@ impl Gfx {
             )
             .unwrap();
         Rc::new(buffer)
+    }
+
+    fn drain_released_buffers(&mut self) {
+        while let Some(buffer_id) = self.released_buffers.pop_front() {
+            warning!("Releasing buffer: {}", buffer_id);
+
+            self.memory_buffers.remove(&buffer_id);
+            self.memory_buffers_deleted.insert(buffer_id);
+            self.pending_buffer_uploads
+                .retain(|upload| upload.buffer_id != buffer_id);
+
+            self.pending_buffers.retain(|(id, _)| *id != buffer_id);
+        }
+    }
+
+    fn stage_incoming_buffers(&mut self) {
+        let mut keep_going = true;
+        while keep_going {
+            if let Some((_buffer_id, io_buffer)) = self.pending_buffers.pop_front() {
+                let upload_buffer = self.acquire_upload_buffer(io_buffer.size);
+                upload_buffer.write(&io_buffer.data);
+            }
+
+            keep_going = false;
+        }
     }
 
     fn drain_released_images(&mut self) {
@@ -662,7 +729,8 @@ impl Gfx {
     pub fn render(&mut self) {
         let frame_start = Instant::now();
 
-        // Perform image management tasks
+        // Perform resource management tasks
+        self.drain_released_buffers();
         self.drain_released_images();
         self.stage_incoming_images();
 

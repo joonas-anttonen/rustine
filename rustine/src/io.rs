@@ -14,6 +14,11 @@ pub struct Image {
     pub pixels: Vec<u8>,
 }
 
+pub struct Buffer {
+    pub size: usize,
+    pub data: Vec<u8>,
+}
+
 #[derive(Clone)]
 pub struct MeshPrimitive {
     pub offset: u32,
@@ -40,4 +45,25 @@ pub struct Model {
     pub materials: Vec<gfx::mesh::Material>,
     pub meshes: Vec<Mesh>,
     pub nodes: Vec<Node>,
+}
+
+impl Model {
+    pub fn calculate_memory_size(&self) -> usize {
+        self.triangle_memory.len() * std::mem::size_of::<gfx::mesh::GpuMeshVertex>()
+            + self.wire_memory.len() * std::mem::size_of::<gfx::mesh::GpuWireVertex>()
+            + self.point_memory.len() * std::mem::size_of::<gfx::mesh::GpuPointVertex>()
+    }
+}
+
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("triangle_memory", &self.triangle_memory.len())
+            .field("wire_memory", &self.wire_memory.len())
+            .field("point_memory", &self.point_memory.len())
+            .field("materials", &self.materials.len())
+            .field("meshes", &self.meshes.len())
+            .field("nodes", &self.nodes.len())
+            .finish()
+    }
 }
