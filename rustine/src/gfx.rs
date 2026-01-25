@@ -832,7 +832,7 @@ impl RenderFrame {
 
             // Skip degenerate segments
             let delta = p1 - p0;
-            if delta.length_squared() < 1e-6 {
+            if delta.norm_squared() < 1e-6 {
                 continue;
             }
 
@@ -851,7 +851,7 @@ impl RenderFrame {
                 let p_prev = points[segment_idx - 1];
                 let prev_delta = p0 - p_prev;
 
-                if prev_delta.length_squared() >= 1e-6 {
+                if prev_delta.norm_squared() >= 1e-6 {
                     let prev_dir = prev_delta.normalize();
                     let prev_perp = Vector2f::new(-prev_dir.y, prev_dir.x);
 
@@ -868,7 +868,7 @@ impl RenderFrame {
                 let p_next = points[segment_idx + 2];
                 let next_delta = p_next - p1;
 
-                if next_delta.length_squared() >= 1e-6 {
+                if next_delta.norm_squared() >= 1e-6 {
                     let next_dir = next_delta.normalize();
                     let next_perp = Vector2f::new(-next_dir.y, next_dir.x);
 

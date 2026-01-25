@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{Vector2f, Vector3f, gfx, io};
+use crate::{Matrix4f, Quaternionf, Vector2f, Vector3f, gfx, io};
 
 const GLTF_MAGIC: u32 = 0x46546C67;
 const JSON_CHUNK_TYPE: u32 = 0x4E4F534A;
@@ -144,7 +144,7 @@ struct PseudoMesh {
     pub primitive_count: u32,
 }
 
-pub fn parse(gltf_model: Gltf) -> Result<io::Model, std::io::Error> {
+pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
     let mut primitives = Vec::<io::MeshPrimitive>::with_capacity(2048);
     let mut pseudo_meshes = Vec::<PseudoMesh>::with_capacity(2048);
 
@@ -152,9 +152,11 @@ pub fn parse(gltf_model: Gltf) -> Result<io::Model, std::io::Error> {
     let wire_vertices = Vec::<gfx::mesh::GpuWireVertex>::with_capacity(u16::MAX as usize);
     let points_vertices = Vec::<gfx::mesh::GpuCloudVertex>::with_capacity(u16::MAX as usize);
 
+    let mut mesh_index_mapping = std::collections::HashMap::<u32, u32>::new();
+
     let mut current_topology = None;
 
-    for mesh in &gltf_model.meshes {
+    for (mesh_index, mesh) in gltf.meshes.iter().enumerate() {
         let primitive_offset = primitives.len() as u32;
 
         for primitive in &mesh.primitives {
@@ -187,9 +189,9 @@ pub fn parse(gltf_model: Gltf) -> Result<io::Model, std::io::Error> {
                 gfx::Topology::Points => points_vertices.len() as u32,
             };
             let vertex_count = if let Some(indices_accessor) = indices_accessor {
-                gltf_model.read_count(indices_accessor)?
+                gltf.read_count(indices_accessor)?
             } else {
-                let vertex_count = gltf_model.read_count(positions_accessor)?;
+                let vertex_count = gltf.read_count(positions_accessor)?;
                 match topology {
                     gfx::Topology::Triangles => vertex_count / 3,
                     gfx::Topology::Wires => vertex_count / 2,
@@ -201,18 +203,18 @@ pub fn parse(gltf_model: Gltf) -> Result<io::Model, std::io::Error> {
                 match topology {
                     gfx::Topology::Triangles => {
                         let i0 = indices_accessor
-                            .map(|ia| gltf_model.read_index(ia, i + 0))
+                            .map(|ia| gltf.read_index(ia, i + 0))
                             .unwrap_or(Ok(i + 0))?;
                         let i1 = indices_accessor
-                            .map(|ia| gltf_model.read_index(ia, i + 1))
+                            .map(|ia| gltf.read_index(ia, i + 1))
                             .unwrap_or(Ok(i + 1))?;
                         let i2 = indices_accessor
-                            .map(|ia| gltf_model.read_index(ia, i + 2))
+                            .map(|ia| gltf.read_index(ia, i + 2))
                             .unwrap_or(Ok(i + 2))?;
 
-                        let p0 = gltf_model.read_vec3(positions_accessor, i0)?;
-                        let p1 = gltf_model.read_vec3(positions_accessor, i1)?;
-                        let p2 = gltf_model.read_vec3(positions_accessor, i2)?;
+                        let p0 = gltf.read_vec3(positions_accessor, i0)?;
+                        let p1 = gltf.read_vec3(positions_accessor, i1)?;
+                        let p2 = gltf.read_vec3(positions_accessor, i2)?;
 
                         let v0 = gfx::mesh::GpuMeshVertex {
                             position: p0,
@@ -245,14 +247,89 @@ pub fn parse(gltf_model: Gltf) -> Result<io::Model, std::io::Error> {
             });
         }
 
+        mesh_index_mapping.insert(mesh_index as u32, pseudo_meshes.len() as u32);
         pseudo_meshes.push(PseudoMesh {
             primitive_offset,
             primitive_count: primitives.len() as u32 - primitive_offset,
         });
     }
 
+    let _triangle_mesh_memory = std::rc::Rc::new(io::MeshMemory::Triangles(triangle_vertices));
+
+    let mut meshes = Vec::<std::rc::Rc<io::Mesh>>::with_capacity(gltf.meshes.len());
+    {
+        for pseudo_mesh in &pseudo_meshes {
+            let mesh = io::Mesh {
+                primitives: primitives[pseudo_mesh.primitive_offset as usize
+                    ..(pseudo_mesh.primitive_offset + pseudo_mesh.primitive_count) as usize]
+                    .to_vec(),
+            };
+            meshes.push(std::rc::Rc::new(mesh));
+        }
+    }
+
+    let mut nodes = Vec::<io::Node>::with_capacity(gltf.nodes.len());
+    {
+        for node in &gltf.nodes {
+            let mut scale = Vector3f::new(1.0, 1.0, 1.0);
+            if let Some(s) = &node.scale {
+                scale = Vector3f::new(s[0], s[1], s[2]);
+            }
+
+            let mut rotation = Quaternionf::identity();
+            if let Some(r) = &node.rotation {
+                // glTF storage order: x, y, z, w
+                rotation = Quaternionf::new(r[0], r[1], r[2], r[3]);
+            }
+
+            let mut translation = Vector3f::new(0.0, 0.0, 0.0);
+            if let Some(t) = &node.translation {
+                translation = Vector3f::new(t[0], t[1], t[2]);
+            }
+
+            if let Some(m) = &node.matrix {
+                let transform = Matrix4f::from_slice(m);
+
+                translation = transform.translation();
+
+                let linear = transform.linear();
+                let sx = linear.column(0).norm();
+                let sy = linear.column(1).norm();
+                let sz = linear.column(2).norm();
+                scale = Vector3f::new(sx, sy, sz);
+
+                rotation = Quaternionf::from_rotation(&transform.rotation());
+            }
+
+            // Construct final 4x4 transform
+            let transform = Matrix4f::from_trs(translation, rotation, scale);
+
+            let mesh_index = match &node.mesh {
+                Some(i) => Some(match mesh_index_mapping.get(i) {
+                    Some(&mesh_index) => Ok(mesh_index),
+                    None => Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Mesh index not found in mapping",
+                    )),
+                }?),
+                None => None,
+            };
+
+            let node = io::Node {
+                transform: transform,
+                mesh: mesh_index,
+            };
+            nodes.push(node);
+
+            // TESTING: Print scale, rotation, translation, transform
+            println!("Scale: {:?}", scale);
+            println!("Rotation: {:?}", rotation);
+            println!("Translation: {:?}", translation);
+        }
+    }
+
     // TESTING: Print PseudoMesh info
-    for pseudo_mesh in &pseudo_meshes {
+    /*for pseudo_mesh in &pseudo_meshes {
         println!(
             "PseudoMesh: primitive_offset={}, primitive_count={}",
             pseudo_mesh.primitive_offset, pseudo_mesh.primitive_count
@@ -264,7 +341,7 @@ pub fn parse(gltf_model: Gltf) -> Result<io::Model, std::io::Error> {
                 primitive.offset, primitive.count, primitive.material
             );
         }
-    }
+    }*/
 
     todo!()
 }
@@ -336,7 +413,10 @@ impl Gltf {
                         .try_into()
                         .unwrap_or([0; 4]),
                 ) as u32),
-                _ => Ok(0u32),
+                _ => Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Unsupported component type for index",
+                )),
             };
         }
 

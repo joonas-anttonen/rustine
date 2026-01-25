@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
-use std::rc::Rc;
-
-use crate::gfx;
+use crate::{Matrix4f, gfx};
 
 pub mod ffmpeg;
 pub mod gltf;
@@ -23,15 +21,21 @@ pub enum MeshMemory {
 }
 
 pub struct Mesh {
-    pub memory: Rc<MeshMemory>,
     pub primitives: Vec<MeshPrimitive>,
 }
 
+#[derive(Clone)]
 pub struct MeshPrimitive {
     pub offset: u32,
     pub count: u32,
     pub material: Option<u32>,
 }
 
-pub struct Model {}
-pub struct Node {}
+pub struct Model {
+    pub meshes: Vec<Mesh>,
+}
+
+pub struct Node {
+    pub mesh: Option<u32>,
+    pub transform: Matrix4f
+}
