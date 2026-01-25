@@ -220,7 +220,7 @@ impl Vector3<f32> {
     }
 
     /// Cross product (right-handed)
-    pub fn cross(&self, other: &Self) -> Self {
+    pub fn cross(&self, other: Self) -> Self {
         Self {
             x: self.y * other.z - self.z * other.y,
             y: self.z * other.x - self.x * other.z,
@@ -269,12 +269,21 @@ impl Vector3<f32> {
 pub type Vector4f = Vector4<f32>;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vector4<T> {
     pub x: T,
     pub y: T,
     pub z: T,
     pub w: T,
+}
+
+impl std::hash::Hash for Vector4<f32> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.x.to_bits().hash(state);
+        self.y.to_bits().hash(state);
+        self.z.to_bits().hash(state);
+        self.w.to_bits().hash(state);
+    }
 }
 
 impl Default for Vector4<f32> {
@@ -991,7 +1000,7 @@ mod tests {
             assert!((our_dot - their_dot).abs() < eps);
 
             // cross
-            let our_cross = our_a.cross(&our_b);
+            let our_cross = our_a.cross(our_b);
             let their_cross = their_a.cross(&their_b);
             assert!((our_cross.x - their_cross[0]).abs() < eps);
             assert!((our_cross.y - their_cross[1]).abs() < eps);

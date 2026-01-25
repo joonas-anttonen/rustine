@@ -21,16 +21,35 @@ pub struct GpuWireVertex {
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct GpuCloudVertex {
+pub struct GpuPointVertex {
     pub position: Vector3f,
     pub color: u32,
 }
 
 /// Material properties for a mesh primitive.
+#[derive(Copy, Clone, PartialEq)]
 pub struct Material {
     pub diffuse: Vector4f,
     pub metalness: f32,
     pub roughness: f32,
+}
+
+impl std::hash::Hash for Material {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.diffuse.hash(state);
+        self.metalness.to_bits().hash(state);
+        self.roughness.to_bits().hash(state);
+    }
+}
+
+impl Default for Material {
+    fn default() -> Self {
+        Self {
+            diffuse: Vector4f::new(1.0, 1.0, 1.0, 1.0),
+            metalness: 1.0,
+            roughness: 1.0,
+        }
+    }
 }
 
 /// Represents GPU storage of mesh data.

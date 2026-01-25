@@ -140,6 +140,7 @@ pub fn deserialize(path: &str) -> Result<Gltf, std::io::Error> {
 }
 
 struct PseudoMesh {
+    pub topology: gfx::Topology,
     pub primitive_offset: u32,
     pub primitive_count: u32,
 }
@@ -150,22 +151,28 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
 
     let mut triangle_vertices = Vec::<gfx::mesh::GpuMeshVertex>::with_capacity(u16::MAX as usize);
     let wire_vertices = Vec::<gfx::mesh::GpuWireVertex>::with_capacity(u16::MAX as usize);
-    let points_vertices = Vec::<gfx::mesh::GpuCloudVertex>::with_capacity(u16::MAX as usize);
+    let point_vertices = Vec::<gfx::mesh::GpuPointVertex>::with_capacity(u16::MAX as usize);
+    let mut materials = Vec::<gfx::mesh::Material>::with_capacity(gltf.materials.len());
+
+    // For materials, lets add a fallback material that is always present @ index 0.
+    // This will of course offset all material indices by 1.
+    const MATERIAL_OFFSET: u32 = 1;
+    materials.push(gfx::mesh::Material::default());
 
     let mut mesh_index_mapping = std::collections::HashMap::<u32, u32>::new();
 
-    let mut current_topology = None;
-
     for (mesh_index, mesh) in gltf.meshes.iter().enumerate() {
+        let mut mesh_topology = None;
+
         let primitive_offset = primitives.len() as u32;
 
         for primitive in &mesh.primitives {
             let topology = {
                 if let Some(ptopology) = primitive.topology() {
-                    if current_topology.is_some() && current_topology != Some(ptopology) {
+                    if mesh_topology.is_some() && mesh_topology != Some(ptopology) {
                         continue; // Skip inconsistent primitive topology
                     }
-                    current_topology = Some(ptopology);
+                    mesh_topology = Some(ptopology);
                     ptopology
                 } else {
                     continue; // Skip unsupported primitive topology
@@ -186,7 +193,7 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
             let vertex_start = match topology {
                 gfx::Topology::Triangles => triangle_vertices.len() as u32,
                 gfx::Topology::Wires => wire_vertices.len() as u32,
-                gfx::Topology::Points => points_vertices.len() as u32,
+                gfx::Topology::Points => point_vertices.len() as u32,
             };
             let vertex_count = if let Some(indices_accessor) = indices_accessor {
                 gltf.read_count(indices_accessor)?
@@ -216,20 +223,23 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
                         let p1 = gltf.read_vec3(positions_accessor, i1)?;
                         let p2 = gltf.read_vec3(positions_accessor, i2)?;
 
+                        // Flat normal
+                        let n = (p1 - p0).cross(p2 - p0).normalize();
+
                         let v0 = gfx::mesh::GpuMeshVertex {
                             position: p0,
                             texture: Vector2f::default(),
-                            normal: Vector3f::default(),
+                            normal: n,
                         };
                         let v1 = gfx::mesh::GpuMeshVertex {
                             position: p1,
                             texture: Vector2f::default(),
-                            normal: Vector3f::default(),
+                            normal: n,
                         };
                         let v2 = gfx::mesh::GpuMeshVertex {
                             position: p2,
                             texture: Vector2f::default(),
-                            normal: Vector3f::default(),
+                            normal: n,
                         };
 
                         triangle_vertices.push(v0);
@@ -240,37 +250,42 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
                 }
             }
 
+            let material_index = primitive.material.map(|i| i + MATERIAL_OFFSET).unwrap_or(0);
+
             primitives.push(io::MeshPrimitive {
                 offset: vertex_start,
                 count: vertex_count,
-                material: None,
+                material: material_index,
             });
         }
 
         mesh_index_mapping.insert(mesh_index as u32, pseudo_meshes.len() as u32);
         pseudo_meshes.push(PseudoMesh {
+            topology: mesh_topology.unwrap(),
             primitive_offset,
             primitive_count: primitives.len() as u32 - primitive_offset,
         });
     }
 
-    let _triangle_mesh_memory = std::rc::Rc::new(io::MeshMemory::Triangles(triangle_vertices));
-
-    let mut meshes = Vec::<std::rc::Rc<io::Mesh>>::with_capacity(gltf.meshes.len());
+    let mut meshes = Vec::<io::Mesh>::with_capacity(gltf.meshes.len());
     {
         for pseudo_mesh in &pseudo_meshes {
             let mesh = io::Mesh {
+                topology: gfx::Topology::Triangles,
                 primitives: primitives[pseudo_mesh.primitive_offset as usize
                     ..(pseudo_mesh.primitive_offset + pseudo_mesh.primitive_count) as usize]
                     .to_vec(),
             };
-            meshes.push(std::rc::Rc::new(mesh));
+            meshes.push(mesh);
         }
     }
 
     let mut nodes = Vec::<io::Node>::with_capacity(gltf.nodes.len());
     {
         for node in &gltf.nodes {
+            // glTF specification says that either matrix or any combination of TRS is present.
+            // Try TRS first and then let matrix override if present.
+
             let mut scale = Vector3f::new(1.0, 1.0, 1.0);
             if let Some(s) = &node.scale {
                 scale = Vector3f::new(s[0], s[1], s[2]);
@@ -316,35 +331,33 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
             };
 
             let node = io::Node {
+                name: node.name.clone(),
                 transform: transform,
                 mesh: mesh_index,
+                children: node.children.as_ref().unwrap_or(&Vec::new()).clone(),
             };
             nodes.push(node);
-
-            // TESTING: Print scale, rotation, translation, transform
-            println!("Scale: {:?}", scale);
-            println!("Rotation: {:?}", rotation);
-            println!("Translation: {:?}", translation);
-            println!("Transform: {:?}", transform);
         }
     }
 
-    // TESTING: Print PseudoMesh info
-    /*for pseudo_mesh in &pseudo_meshes {
+    // TESTING: Print nodes
+    for node in &nodes {
         println!(
-            "PseudoMesh: primitive_offset={}, primitive_count={}",
-            pseudo_mesh.primitive_offset, pseudo_mesh.primitive_count
+            "Node: transform={:?}, mesh={:?}, children={:?}",
+            node.transform, node.mesh, node.children
         );
-        // TESTING: Print Primitive info
-        for primitive in &primitives {
-            println!(
-                "Primitive: offset={}, count={}, material={:?}",
-                primitive.offset, primitive.count, primitive.material
-            );
-        }
-    }*/
+    }
 
-    todo!()
+    let model = io::Model {
+        triangle_memory: triangle_vertices,
+        wire_memory: wire_vertices,
+        point_memory: point_vertices,
+        meshes,
+        nodes,
+        materials,
+    };
+
+    Ok(model)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -359,6 +372,8 @@ pub struct Gltf {
     /// Required: No, require anyway
     #[serde(rename = "accessors")]
     pub accessors: Vec<Accessor>,
+    // Required: No
+    pub materials: Vec<Material>,
     /// Required: No, require anyway
     pub meshes: Vec<Mesh>,
     /// Required: No, require anyway
@@ -368,12 +383,6 @@ pub struct Gltf {
 }
 
 impl Gltf {
-    /*pub fn get_accessor(&self, index: Option<u32>) -> Option<Accessor> {
-        self.accessors
-            .as_ref()
-            .and_then(|accessors| index.and_then(|i| accessors.get(i as usize).cloned()))
-    }*/
-
     pub fn read_index(
         &self,
         accessor_index: u32,
@@ -555,6 +564,27 @@ impl Accessor {
 
         bytes_per_component * components_per_element
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Material {
+    /// Required: No
+    pub name: Option<String>,
+    /// Required: No
+    pub pbr_metallic_roughness: Option<PbrMetallicRoughness>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PbrMetallicRoughness {
+    /// Required: No, default: [1.0, 1.0, 1.0, 1.0]
+    #[serde(rename = "baseColorFactor")]
+    pub base_color_factor: Option<[f32; 4]>,
+    /// Required: No, default: 1.0
+    #[serde(rename = "metallicFactor")]
+    pub metallic_factor: Option<f32>,
+    /// Required: No, default: 1.0
+    #[serde(rename = "roughnessFactor")]
+    pub roughness_factor: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

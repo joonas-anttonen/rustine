@@ -14,28 +14,30 @@ pub struct Image {
     pub pixels: Vec<u8>,
 }
 
-pub enum MeshMemory {
-    Points(Vec<gfx::mesh::GpuCloudVertex>),
-    Wires(Vec<gfx::mesh::GpuWireVertex>),
-    Triangles(Vec<gfx::mesh::GpuMeshVertex>),
-}
-
-pub struct Mesh {
-    pub primitives: Vec<MeshPrimitive>,
-}
-
 #[derive(Clone)]
 pub struct MeshPrimitive {
     pub offset: u32,
     pub count: u32,
-    pub material: Option<u32>,
+    pub material: u32,
 }
 
-pub struct Model {
-    pub meshes: Vec<Mesh>,
+pub struct Mesh {
+    pub topology: gfx::Topology,
+    pub primitives: Vec<MeshPrimitive>,
 }
 
 pub struct Node {
+    pub name: Option<String>,
     pub mesh: Option<u32>,
-    pub transform: Matrix4f
+    pub transform: Matrix4f,
+    pub children: Vec<u32>,
+}
+
+pub struct Model {
+    pub triangle_memory: Vec<gfx::mesh::GpuMeshVertex>,
+    pub wire_memory: Vec<gfx::mesh::GpuWireVertex>,
+    pub point_memory: Vec<gfx::mesh::GpuPointVertex>,
+    pub materials: Vec<gfx::mesh::Material>,
+    pub meshes: Vec<Mesh>,
+    pub nodes: Vec<Node>,
 }
