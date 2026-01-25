@@ -325,6 +325,7 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
             println!("Scale: {:?}", scale);
             println!("Rotation: {:?}", rotation);
             println!("Translation: {:?}", translation);
+            println!("Transform: {:?}", transform);
         }
     }
 
