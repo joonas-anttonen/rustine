@@ -39,9 +39,9 @@ struct PerCommand {
 /// `Core` is thread-safe and can be shared across threads.
 pub struct Gfx {
     test_data: TestData,
-    pending_images: Arc<Mailbox<(u32, io::Image)>>,
+    incoming_images: Arc<Mailbox<(u32, io::Image)>>,
     pending_image_uploads: VecDeque<ImageUpload>,
-    pending_buffers: Arc<Mailbox<(u32, io::Buffer)>>,
+    incoming_buffers: Arc<Mailbox<(u32, io::Buffer)>>,
     pending_buffer_uploads: VecDeque<BufferUpload>,
     render_commands: Arc<Mailbox<RenderFrame>>,
     cached_gui_commands: Option<RenderFrame>,
@@ -376,12 +376,12 @@ impl Gfx {
             pixel_buffers,
             pixel_buffers_deleted: HashSet::new(),
             memory_buffers_deleted: HashSet::new(),
-            pending_images: Mailbox::<(u32, io::Image)>::new(Arc::clone(&work_available)),
+            incoming_images: Mailbox::<(u32, io::Image)>::new(Arc::clone(&work_available)),
             pending_image_uploads: pending_uploads,
             memory_buffers: HashMap::new(),
             released_buffers: Mailbox::new(Arc::clone(&work_available)),
             pending_buffer_uploads: VecDeque::new(),
-            pending_buffers: Mailbox::new(Arc::clone(&work_available)),
+            incoming_buffers: Mailbox::new(Arc::clone(&work_available)),
             render_commands: Mailbox::<RenderFrame>::new(Arc::clone(&work_available)),
             cached_gui_commands: None,
             render_frame_pool: Vec::with_capacity(3),
@@ -480,7 +480,7 @@ impl Gfx {
             Arc::downgrade(&self.released_images),
         );
 
-        self.pending_images.push((image_id, io_image));
+        self.incoming_images.push((image_id, io_image));
 
         image
     }
@@ -517,8 +517,12 @@ impl Gfx {
         Buffer::new(buffer_id, size, Arc::downgrade(&self.released_buffers))
     }
 
+    pub fn buffer_mailbox(&self) -> Arc<Mailbox<(u32, io::Buffer)>> {
+        Arc::clone(&self.incoming_buffers)
+    }
+
     pub fn image_mailbox(&self) -> Arc<Mailbox<(u32, io::Image)>> {
-        Arc::clone(&self.pending_images)
+        Arc::clone(&self.incoming_images)
     }
 
     pub fn render_mailbox(&self) -> Arc<Mailbox<RenderFrame>> {
@@ -568,14 +572,14 @@ impl Gfx {
             self.pending_buffer_uploads
                 .retain(|upload| upload.buffer_id != buffer_id);
 
-            self.pending_buffers.retain(|(id, _)| *id != buffer_id);
+            self.incoming_buffers.retain(|(id, _)| *id != buffer_id);
         }
     }
 
     fn stage_incoming_buffers(&mut self) {
         let mut keep_going = true;
         while keep_going {
-            if let Some((_buffer_id, io_buffer)) = self.pending_buffers.pop_front() {
+            if let Some((_buffer_id, io_buffer)) = self.incoming_buffers.pop_front() {
                 let upload_buffer = self.acquire_upload_buffer(io_buffer.size);
                 upload_buffer.write(&io_buffer.data);
             }
@@ -595,7 +599,7 @@ impl Gfx {
                 .retain(|upload| upload.image_id != image_id);
 
             // Also prune the pending images mailbox
-            self.pending_images.retain(|(id, _)| *id != image_id);
+            self.incoming_images.retain(|(id, _)| *id != image_id);
         }
     }
 
@@ -603,7 +607,7 @@ impl Gfx {
         // Process pending uploads up to max_uploads_per_frame
         let mut uploads_processed = 0;
         while uploads_processed < self.max_uploads_per_frame {
-            if let Some((image_id, io_image)) = self.pending_images.pop_front() {
+            if let Some((image_id, io_image)) = self.incoming_images.pop_front() {
                 let upload_buffer = self.acquire_upload_buffer(io_image.pixels.len());
                 upload_buffer.write(&io_image.pixels);
 

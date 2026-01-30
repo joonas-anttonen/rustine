@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use crate::{Vector2f, Vector3f, Vector4f, gfx::MemoryBuffer};
+use crate::{Vector2f, Vector3f, Vector4f, gfx, gfx::MemoryBuffer};
 
 #[repr(C)]
 #[derive(Clone)]
@@ -66,4 +66,12 @@ pub struct MeshPrimitive {
 pub struct Mesh {
     pub storage: Rc<MeshStorage>,
     pub primitives: Vec<MeshPrimitive>,
+}
+
+pub struct MeshPool {
+    memory: gfx::Buffer,
+}
+
+impl MeshPool {
+
 }

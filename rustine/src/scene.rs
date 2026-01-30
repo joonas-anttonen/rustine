@@ -32,12 +32,17 @@ impl Scene {
         log::set_current_thread_name("scene");
         log::debug!("Scene::run");
 
-        let cmd_queue = {
+        let (cmd_queue, _mesh_queue) = {
             let scene = _am_scene.lock().unwrap();
-            Arc::clone(&scene.command_queue)
+            let gfx = scene.gfx.lock().unwrap();
+            (Arc::clone(&scene.command_queue), gfx.buffer_mailbox())
         };
 
         loop {
+            if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+
             cmd_queue.wait();
 
             if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -50,6 +55,8 @@ impl Scene {
                         let scene = _am_scene.lock().unwrap();
                         let mut gfx = scene.gfx.lock().unwrap();
                         gfx.create_buffer(model.calculate_memory_size());
+
+                        for _mesh in &model.meshes {}
                     }
                     _ => {
                         log::warning!("Ignoring command: {:?}", cmd);
