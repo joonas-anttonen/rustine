@@ -73,5 +73,38 @@
 				"$rustc"
 			]
 		}
+
+		,
+		{
+			"label": "Run rustine-cc",
+			"detail": "Run rustine-cc (Debug)",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run",
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-cc"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Run rustine-cc (Release)",
+			"detail": "Run rustine-cc (Release)",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run",
+				"--release"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-cc"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
+		}
 	]
 }
