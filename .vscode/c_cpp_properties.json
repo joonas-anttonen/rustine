@@ -24,8 +24,7 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**",
-                "${workspaceFolder}/rustine/ext/vma/include"
+                "${workspaceFolder}/**"
             ],
             "defines": [
                 "_DEBUG",
