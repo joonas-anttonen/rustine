@@ -2,6 +2,8 @@
 
 use crate::{Matrix4f, gfx};
 
+mod byte_rw;
+pub use byte_rw::*;
 pub mod ffmpeg;
 pub mod gltf;
 pub mod webp;

@@ -3,45 +3,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{Matrix4f, Quaternionf, Vector2f, Vector3f, gfx, io};
+use crate::{io::ByteArrayReader, Matrix4f, Quaternionf, Vector2f, Vector3f, gfx, io};
 
 const GLTF_MAGIC: u32 = 0x46546C67;
 const JSON_CHUNK_TYPE: u32 = 0x4E4F534A;
 const BINARY_CHUNK_TYPE: u32 = 0x004E4942;
-
-pub struct ByteArrayReader {
-    buffer: Vec<u8>,
-    position: usize,
-}
-
-impl ByteArrayReader {
-    pub fn new(buffer: Vec<u8>) -> Self {
-        Self {
-            buffer,
-            position: 0,
-        }
-    }
-
-    pub fn read_u32(&mut self) -> Option<u32> {
-        // Enough bytes to read a u32?
-        if self.position + 4 <= self.buffer.len() {
-            let bytes = &self.buffer[self.position..self.position + 4];
-            self.position += 4;
-            Some(u32::from_le_bytes(bytes.try_into().unwrap()))
-        } else {
-            None
-        }
-    }
-
-    pub fn read_slice(&mut self, start: usize, end: usize) -> Option<&[u8]> {
-        if end <= self.buffer.len() && start <= end {
-            self.position = end;
-            Some(&self.buffer[start..end])
-        } else {
-            None
-        }
-    }
-}
 
 pub fn deserialize(path: &str) -> Result<Gltf, std::io::Error> {
     let bytes = std::fs::read(path)?;
@@ -83,10 +49,7 @@ pub fn deserialize(path: &str) -> Result<Gltf, std::io::Error> {
     }
 
     let gltf_model = {
-        let json_chunk = reader.read_slice(
-            reader.position,
-            reader.position + json_chunk_length.unwrap() as usize,
-        );
+        let json_chunk = reader.read_slice(json_chunk_length.unwrap() as usize);
         if json_chunk.is_none() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -111,10 +74,7 @@ pub fn deserialize(path: &str) -> Result<Gltf, std::io::Error> {
         ));
     }
 
-    let binary_chunk = reader.read_slice(
-        reader.position,
-        reader.position + binary_chunk_length.unwrap() as usize,
-    );
+    let binary_chunk = reader.read_slice(binary_chunk_length.unwrap() as usize);
     if binary_chunk.is_none() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
