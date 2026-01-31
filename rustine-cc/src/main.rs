@@ -54,7 +54,8 @@ fn main() {
             .device_selector(rustine::gfx::DeviceSelector::Optimal);
         let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
 
-        let application = Box::new(MyApplication::new());
+        let a_client_image = Arc::new(gfx.lock().unwrap().create_dynamic_image());
+        let application = Box::new(MyApplication::new(Arc::clone(&a_client_image)));
 
         let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
             .window_title("rustine-cc")
@@ -67,10 +68,11 @@ fn main() {
             for device in discovered_devices {
                 let a_client = Arc::new(Mutex::new(GigEClient::new(device)));
 
-                let a_client_clone = Arc::clone(&a_client);
+                let a_client = Arc::clone(&a_client);
+                let a_client_image = Arc::clone(&a_client_image);
                 let a_client_image_mailbox = gui.image_mailbox();
                 scope.spawn(|| {
-                    GigEClient::run(a_client_clone, a_client_image_mailbox);
+                    GigEClient::run(a_client, a_client_image, a_client_image_mailbox);
                 });
             }
 
@@ -99,20 +101,19 @@ impl Drop for MyApplication {
 }
 
 impl MyApplication {
-    fn new() -> Self {
+    fn new(camera_stream_image: Arc<rustine::gfx::Image>) -> Self {
         MyApplication {
             state: std::cell::RefCell::new(MyApplicationState {
-                camera_stream_image: Arc::new(rustine::gfx::Image::default()),
+                camera_stream_image,
             }),
         }
     }
 }
 
 impl rustine::gui::Application for MyApplication {
-    fn startup(&self, gui: &rustine::gui::Gui) {
-        let mut state = self.state.borrow_mut();
-
-        state.camera_stream_image = Arc::new(gui.create_dynamic_image());
+    fn startup(&self, _gui: &rustine::gui::Gui) {
+        //let mut state = self.state.borrow_mut();
+        //state.camera_stream_image = Arc::new(gui.create_dynamic_image());
     }
 
     fn on_key(&self, _gui: &rustine::gui::Gui, _key: rustine::gui::KeyEvent) {}
