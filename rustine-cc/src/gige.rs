@@ -3,6 +3,9 @@
 mod client;
 pub use client::*;
 
+mod demosaic;
+pub use demosaic::*;
+
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::sync::atomic;
 use std::time::Duration;

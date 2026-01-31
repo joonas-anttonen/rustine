@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use libc;
+use std::os::unix::io::AsRawFd;
 use std::{
     net::{SocketAddrV4, UdpSocket},
     sync::{Arc, Mutex, atomic},
@@ -126,6 +128,26 @@ impl GigEClient {
             .set_read_timeout(Some(std::time::Duration::from_millis(1000)))
             .expect("Failed to set read timeout");
 
+        // Try to increase the kernel UDP receive buffer to reduce packet drops
+        let rcvbuf: libc::c_int = 4 * 1024 * 1024; // 4 MiB
+        unsafe {
+            let ret = libc::setsockopt(
+                stream_socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_RCVBUF,
+                &rcvbuf as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+            if ret != 0 {
+                log::warning!(
+                    "Failed to set SO_RCVBUF: {}",
+                    std::io::Error::last_os_error()
+                );
+            } else {
+                log::info!("Set SO_RCVBUF to {}", rcvbuf);
+            }
+        }
+
         let stream_connection = Connection {
             socket: stream_socket,
             remote_address: stream_remote_address,
@@ -153,6 +175,8 @@ impl GigEClient {
 
         let mut heartbeat_time = std::time::Instant::now();
 
+        let mut demosaic_times = rustine::RingBuffer::<f64>::new(100);
+
         loop {
             if std::time::Instant::now().saturating_duration_since(heartbeat_time)
                 >= std::time::Duration::from_millis(timeout as u64)
@@ -160,6 +184,15 @@ impl GigEClient {
                 heartbeat_time = std::time::Instant::now();
                 Self::read_register(&control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)
                     .expect("Failed to read heartbeat timeout");
+
+                if let Some((min, max, mean)) = demosaic_times.min_max_mean() {
+                    log::info!(
+                        "Demosaic min: {:?}, max: {:?}, mean: {:?}",
+                        min,
+                        max,
+                        mean
+                    );
+                }
             }
 
             if let Ok(recv_len) = stream_connection.socket.recv(&mut buf) {
@@ -196,7 +229,6 @@ impl GigEClient {
                         current_packet_id = packet_id;
                         _current_frame_start_time = std::time::Instant::now();
                         data_per_packet = None;
-                        frame_buf.fill(0xFE);
 
                         let _flags = packet_reader.read_u16_be().unwrap();
                         let _payload_type =
@@ -241,13 +273,15 @@ impl GigEClient {
                             }
                             current_packet_id = packet_id;
 
+                            let demosaic_start = std::time::Instant::now();
+
                             // Frame complete
                             let io_image = rustine::io::Image {
                                 width: frame_width,
                                 height: frame_height,
                                 format: rustine::gfx::Format::R8G8B8A8_UNORM,
                                 pixels: Self::convert_pixels(
-                                    frame_buf.as_slice(),
+                                    frame_buf.as_mut_slice(),
                                     frame_width as usize,
                                     frame_height as usize,
                                     frame_pixel_format,
@@ -256,6 +290,9 @@ impl GigEClient {
                             };
 
                             image_mailbox.push((image.id(), io_image));
+
+                            let demosaic_duration = demosaic_start.elapsed();
+                            demosaic_times.push(demosaic_duration.as_secs_f64());
                         }
 
                         current_frame_id = None;
@@ -310,172 +347,15 @@ impl GigEClient {
     }
 
     fn convert_pixels(
-        in_buf: &[u8],
+        in_buf: &mut [u8],
         in_width: usize,
         in_height: usize,
         in_format: GVSPPixelFormat,
         out_format: rustine::gfx::Format,
     ) -> Vec<u8> {
-        // Helper: simple bilinear demosaic for RGGB (BAYER_RG_8)
-        fn demosaic_bayer_rg8(in_buf: &[u8], width: usize, height: usize) -> Vec<u8> {
-            let mut out = vec![0u8; width * height * 4];
-
-            let get_b = |x: isize, y: isize| -> Option<u8> {
-                if x < 0 || y < 0 {
-                    return None;
-                }
-                let ux = x as usize;
-                let uy = y as usize;
-                if ux >= width || uy >= height {
-                    None
-                } else {
-                    let v = in_buf[uy * width + ux];
-                    if v == 0xFE {
-                        None
-                    } else {
-                        Some(v)
-                    }
-                }
-            };
-
-            for y in 0..height {
-                for x in 0..width {
-
-
-                    let px = x as isize;
-                    let py = y as isize;
-
-                    let mut r_sum: u32 = 0;
-                    let mut g_sum: u32 = 0;
-                    let mut b_sum: u32 = 0;
-                    let mut r_cnt = 0u32;
-                    let mut g_cnt = 0u32;
-                    let mut b_cnt = 0u32;
-
-                    // Assume BAYER_RG_8 == RGGB pattern:
-                    // even row, even col: R
-                    // even row, odd col:  G
-                    // odd row, even col:  G
-                    // odd row, odd col:   B
-                    let is_row_even = (y % 2) == 0;
-                    let is_col_even = (x % 2) == 0;
-
-                    let center = get_b(px, py).unwrap_or(0) as u32;
-
-                    if is_row_even && is_col_even {
-                        // R pixel
-                        r_sum += center;
-                        r_cnt += 1;
-                        // G: average of up/down/left/right
-                        for (nx, ny) in &[(px - 1, py), (px + 1, py), (px, py - 1), (px, py + 1)] {
-                            if let Some(v) = get_b(*nx, *ny) {
-                                g_sum += v as u32;
-                                g_cnt += 1;
-                            }
-                        }
-                        // B: average of diagonals
-                        for (nx, ny) in &[
-                            (px - 1, py - 1),
-                            (px + 1, py - 1),
-                            (px - 1, py + 1),
-                            (px + 1, py + 1),
-                        ] {
-                            if let Some(v) = get_b(*nx, *ny) {
-                                b_sum += v as u32;
-                                b_cnt += 1;
-                            }
-                        }
-                    } else if is_row_even && !is_col_even {
-                        // G pixel on R row
-                        g_sum += center;
-                        g_cnt += 1;
-                        // R: average left/right
-                        for (nx, ny) in &[(px - 1, py), (px + 1, py)] {
-                            if let Some(v) = get_b(*nx, *ny) {
-                                r_sum += v as u32;
-                                r_cnt += 1;
-                            }
-                        }
-                        // B: average up/down
-                        for (nx, ny) in &[(px, py - 1), (px, py + 1)] {
-                            if let Some(v) = get_b(*nx, *ny) {
-                                b_sum += v as u32;
-                                b_cnt += 1;
-                            }
-                        }
-                    } else if !is_row_even && is_col_even {
-                        // G pixel on B row
-                        g_sum += center;
-                        g_cnt += 1;
-                        // R: average up/down
-                        for (nx, ny) in &[(px, py - 1), (px, py + 1)] {
-                            if let Some(v) = get_b(*nx, *ny) {
-                                r_sum += v as u32;
-                                r_cnt += 1;
-                            }
-                        }
-                        // B: average left/right
-                        for (nx, ny) in &[(px - 1, py), (px + 1, py)] {
-                            if let Some(v) = get_b(*nx, *ny) {
-                                b_sum += v as u32;
-                                b_cnt += 1;
-                            }
-                        }
-                    } else {
-                        // odd row, odd col -> B pixel
-                        b_sum += center;
-                        b_cnt += 1;
-                        // G: average of up/down/left/right
-                        for (nx, ny) in &[(px - 1, py), (px + 1, py), (px, py - 1), (px, py + 1)] {
-                            if let Some(v) = get_b(*nx, *ny) {
-                                g_sum += v as u32;
-                                g_cnt += 1;
-                            }
-                        }
-                        // R: average of diagonals
-                        for (nx, ny) in &[
-                            (px - 1, py - 1),
-                            (px + 1, py - 1),
-                            (px - 1, py + 1),
-                            (px + 1, py + 1),
-                        ] {
-                            if let Some(v) = get_b(*nx, *ny) {
-                                r_sum += v as u32;
-                                r_cnt += 1;
-                            }
-                        }
-                    }
-
-                    let r = if r_cnt > 0 {
-                        (r_sum / r_cnt) as u8
-                    } else {
-                        0u8
-                    };
-                    let g = if g_cnt > 0 {
-                        (g_sum / g_cnt) as u8
-                    } else {
-                        0u8
-                    };
-                    let b = if b_cnt > 0 {
-                        (b_sum / b_cnt) as u8
-                    } else {
-                        0u8
-                    };
-
-                    let base = (y * width + x) * 4;
-                    out[base] = r;
-                    out[base + 1] = g;
-                    out[base + 2] = b;
-                    out[base + 3] = 0xffu8;
-                }
-            }
-
-            out
-        }
-
         match (in_format, out_format) {
             (GVSPPixelFormat::BAYER_RG_8, rustine::gfx::Format::R8G8B8A8_UNORM) => {
-                demosaic_bayer_rg8(in_buf, in_width, in_height)
+                crate::demosaic_bayer_rg8(in_buf, in_width, in_height)
             }
             (_, rustine::gfx::Format::R8G8B8A8_UNORM) => {
                 // Unknown/unsupported input format: return black image of requested size
@@ -484,99 +364,6 @@ impl GigEClient {
             _ => todo!(),
         }
     }
-
-    /*
-    protected unsafe static void Bayer_Simple(byte* bayer, byte* rgba, int sx, int sy, PixelFormat format)
-        {
-            int bayerStep = sx;
-            int rgbStep = 4 * sx;
-            int width = sx;
-            int height = sy;
-            int blue = format == PixelFormat.Bayer_8_BGGR || format == PixelFormat.Bayer_8_GBRG ? -1 : 1;
-            bool start_with_green = format == PixelFormat.Bayer_8_GBRG || format == PixelFormat.Bayer_8_GRBG;
-            int i, imax, iinc;
-
-            /* add black border */
-            imax = sx * sy * 4;
-            for (i = sx * (sy - 1) * 4; i < imax; i++)
-            {
-                rgba[i] = 0;
-            }
-            iinc = (sx - 1) * 4;
-            for (i = (sx - 1) * 4; i < imax; i += iinc)
-            {
-                rgba[i++] = 0;
-                rgba[i++] = 0;
-                rgba[i++] = 0;
-                rgba[i++] = 0;
-            }
-
-            rgba += 1;
-            width -= 1;
-            height -= 1;
-
-            for (; height-- > 0; bayer += bayerStep, rgba += rgbStep)
-            {
-                byte* bayerEnd = bayer + width;
-
-                if (start_with_green)
-                {
-                    rgba[-blue] = bayer[1];
-                    rgba[0] = (byte)((bayer[0] + bayer[bayerStep + 1] + 1) >> 1);
-                    rgba[blue] = bayer[bayerStep];
-                    rgba[2] = 0xff;
-                    bayer++;
-                    rgba += 4;
-                }
-
-                if (blue > 0)
-                {
-                    for (; bayer <= bayerEnd - 2; bayer += 2, rgba += 8)
-                    {
-                        rgba[-1] = bayer[0];
-                        rgba[0] = (byte)((bayer[1] + bayer[bayerStep] + 1) >> 1);
-                        rgba[1] = bayer[bayerStep + 1];
-                        rgba[2] = 0xff;
-
-                        rgba[3] = bayer[2];
-                        rgba[4] = (byte)((bayer[1] + bayer[bayerStep + 2] + 1) >> 1);
-                        rgba[5] = bayer[bayerStep + 1];
-                        rgba[6] = 0xff;
-                    }
-                }
-                else
-                {
-                    for (; bayer <= bayerEnd - 2; bayer += 2, rgba += 8)
-                    {
-                        rgba[2] = 0xff;
-                        rgba[1] = bayer[0];
-                        rgba[0] = (byte)((bayer[1] + bayer[bayerStep] + 1) >> 1);
-                        rgba[-1] = bayer[bayerStep + 1];
-
-                        rgba[6] = 0xff;
-                        rgba[5] = bayer[2];
-                        rgba[4] = (byte)((bayer[1] + bayer[bayerStep + 2] + 1) >> 1);
-                        rgba[3] = bayer[bayerStep + 1];
-                    }
-                }
-
-                if (bayer < bayerEnd)
-                {
-                    rgba[-blue] = bayer[0];
-                    rgba[0] = (byte)((bayer[1] + bayer[bayerStep] + 1) >> 1);
-                    rgba[blue] = bayer[bayerStep + 1];
-                    rgba[2] = 0xff;
-                    bayer++;
-                    rgba += 4;
-                }
-
-                bayer -= width;
-                rgba -= width * 4;
-
-                blue = -blue;
-                start_with_green = !start_with_green;
-            }
-        } */
 
     fn read_register(connection: &Connection, address: u32) -> std::io::Result<u32> {
         let request_packet_data = address.to_be_bytes();
