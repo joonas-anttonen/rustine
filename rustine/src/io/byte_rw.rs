@@ -127,18 +127,25 @@ impl<'a> ByteSliceWriter<'a> {
         Self(slice, 0)
     }
 
-    pub fn write_u8(&mut self, val: u8) {
+    pub fn position(&self) -> usize {
+        self.1
+    }
+
+    pub fn write_u8(&mut self, val: u8) -> std::io::Result<()> {
         self.0[self.1] = val;
         self.1 += 1;
+        Ok(())
     }
 
-    pub fn write_u16_le(&mut self, val: u16) {
-        self.write_u8((val & 0x00FF) as u8);
-        self.write_u8(((val & 0xFF00) >> 8) as u8);
+    pub fn write_u16_le(&mut self, val: u16) -> std::io::Result<()> {
+        self.write_u8((val & 0x00FF) as u8)?;
+        self.write_u8(((val & 0xFF00) >> 8) as u8)?;
+        Ok(())
     }
 
-    pub fn write_u16_be(&mut self, val: u16) {
-        self.write_u8(((val & 0xFF00) >> 8) as u8);
-        self.write_u8((val & 0x00FF) as u8);
+    pub fn write_u16_be(&mut self, val: u16) -> std::io::Result<()> {
+        self.write_u8(((val & 0xFF00) >> 8) as u8)?;
+        self.write_u8((val & 0x00FF) as u8)?;
+        Ok(())
     }
 }

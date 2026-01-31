@@ -1,11 +1,24 @@
 #![allow(dead_code)]
 
+mod client;
+pub use client::*;
+
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::sync::atomic;
 use std::time::Duration;
 
 use rustine::io::{ByteSliceReader, ByteSliceWriter};
 
 use crate::network::{HardwareAddress, IPAdapter};
+
+pub static REQUEST_ID: atomic::AtomicU16 = atomic::AtomicU16::new(1);
+
+pub const GVCP_PORT: u16 = 3956;
+pub const GVCP_CAPABILITIES_REGISTER: u32 = 0x00000934;
+pub const GVCP_CONTROL_ACCESS_REGISTER: u32 = 0x00000a00;
+
+const GVCP_BROADCAST_ADDR: SocketAddrV4 =
+    SocketAddrV4::new(Ipv4Addr::new(255, 255, 255, 255), GVCP_PORT);
 
 /*
 public static class Constants
@@ -350,7 +363,7 @@ impl GigEStatus {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct GigECapabilities(u32);
 impl GigECapabilities {
     pub const NONE: GigECapabilities = GigECapabilities(0);
@@ -380,6 +393,20 @@ impl GigECapabilities {
 
     pub fn has(&self, capability: GigECapabilities) -> bool {
         (self.0 & capability.0) != 0
+    }
+
+    pub fn from_u32(u: u32) -> Self {
+        GigECapabilities(u)
+    }
+}
+
+impl std::fmt::Debug for GigECapabilities {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GigECapabilities")
+            .field("WRITE_MEMORY", &(self.has(GigECapabilities::WRITE_MEMORY)))
+            .field("PACKET_RESEND", &(self.has(GigECapabilities::PACKET_RESEND)))
+            .field("PENDING_ACK", &(self.has(GigECapabilities::PENDING_ACK)))
+            .finish()
     }
 }
 
@@ -432,6 +459,7 @@ impl GigECommand {
 }
 
 #[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum GigEPacketType {
     ACK,
@@ -473,14 +501,13 @@ impl<'a> GigEPacket<'a> {
         flags: GigEPacketFlags,
         command: GigECommand,
         id: u16,
-        size: u16,
         data: &'a [u8],
     ) -> Self {
         Self {
             t,
             flags,
             command,
-            size,
+            size: data.len() as u16,
             id,
             data,
         }
@@ -512,19 +539,21 @@ impl<'a> GigEPacket<'a> {
         })
     }
 
-    pub fn to_slice(&self, dst: &mut [u8]) {
+    pub fn to_slice(&self, dst: &mut [u8]) -> std::io::Result<usize> {
         let mut writer = ByteSliceWriter::new(dst);
 
-        writer.write_u8(self.t.to_u8());
-        writer.write_u8(self.flags.0);
-        writer.write_u16_be(self.command.to_u16());
-        writer.write_u16_be(self.size);
-        writer.write_u16_be(self.id);
+        writer.write_u8(self.t.to_u8())?;
+        writer.write_u8(self.flags.0)?;
+        writer.write_u16_be(self.command.to_u16())?;
+        writer.write_u16_be(self.size)?;
+        writer.write_u16_be(self.id)?;
 
         let data_len = self.data.len();
         for i in 0..data_len {
-            writer.write_u8(self.data[i]);
+            writer.write_u8(self.data[i])?;
         }
+
+        Ok(writer.position())
     }
 }
 
@@ -633,10 +662,6 @@ impl GigEDevice {
     }
 }
 
-const GVCP_PORT: u16 = 3956;
-const GVCP_BROADCAST_ADDR: SocketAddrV4 =
-    SocketAddrV4::new(Ipv4Addr::new(255, 255, 255, 255), GVCP_PORT);
-
 pub fn discover(a: &IPAdapter) -> std::io::Result<Vec<std::io::Result<GigEDevice>>> {
     let mut discovered_devices: Vec<std::io::Result<GigEDevice>> = Vec::new();
 
@@ -653,19 +678,16 @@ pub fn discover(a: &IPAdapter) -> std::io::Result<Vec<std::io::Result<GigEDevice
                 return Err(std::io::Error::new(e.kind(), "UdpSocket::local_addr"));
             }
 
-            let request_id = 2;
-
             let discovery_packet = GigEPacket::new(
                 GigEPacketType::CMD,
                 GigEPacketFlags::ACK_REQUIRED | GigEPacketFlags::ALLOW_BROADCAST_ACK,
                 GigECommand::DISCOVERY_CMD,
-                request_id,
-                0,
+                REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
                 &[],
             );
 
             let mut buf = [0u8; 1500];
-            discovery_packet.to_slice(&mut buf);
+            discovery_packet.to_slice(&mut buf)?;
 
             if let Err(e) = socket.send_to(&buf[..8], GVCP_BROADCAST_ADDR) {
                 return Err(std::io::Error::new(e.kind(), "UdpSocket::send_to"));
