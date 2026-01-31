@@ -487,6 +487,7 @@ name = "rustine-cc"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "rustine",
 ]
 
 [[package]]

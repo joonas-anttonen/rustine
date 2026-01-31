@@ -12,7 +12,7 @@ pub struct IPAdapter {
     pub address_mask: Ipv4Addr,
     pub mtu: u32,
     pub name: String,
-    pub hwaddr: Option<HardwareAddress>,
+    pub hwaddr: HardwareAddress,
 }
 
 impl IPAdapter {
@@ -73,8 +73,8 @@ impl IPAdapter {
 
                     // read hardware (MAC) address if present
                     let hwaddr = fs::read_to_string(format!("{}/address", base))
-                        .ok()
-                        .and_then(|s| HardwareAddress::from_str(&s));
+                        .and_then(|s| HardwareAddress::from_str(&s))
+                        .unwrap_or_default();
 
                     result.push(IPAdapter {
                         address,
@@ -109,26 +109,32 @@ impl HardwareAddress {
         HardwareAddress { addr: [0xff; 6] }
     }
 
-    pub fn from_slice(slice: &[u8]) -> Option<HardwareAddress> {
+    pub fn from_slice(slice: &[u8]) -> std::io::Result<HardwareAddress> {
         if slice.len() < HardwareAddress::LENGTH_IN_BYTES {
-            return None;
+            return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
         }
         let mut a = [0u8; 6];
         a.copy_from_slice(&slice[0..6]);
-        Some(HardwareAddress { addr: a })
+        Ok(HardwareAddress { addr: a })
     }
 
-    pub fn from_str(s: &str) -> Option<HardwareAddress> {
+    pub fn from_str(s: &str) -> std::io::Result<HardwareAddress> {
         let s = s.trim();
         let parts: Vec<&str> = s.split(|c| c == ':' || c == '-').collect();
         if parts.len() != HardwareAddress::LENGTH_IN_BYTES {
-            return None;
+            return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
         }
         let mut a = [0u8; 6];
         for i in 0..6 {
-            a[i] = u8::from_str_radix(parts[i], 16).ok()?;
+            a[i] = u8::from_str_radix(parts[i], 16).map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
         }
-        Some(HardwareAddress { addr: a })
+        Ok(HardwareAddress { addr: a })
+    }
+}
+
+impl Default for HardwareAddress {
+    fn default() -> Self {
+        HardwareAddress::new()
     }
 }
 
