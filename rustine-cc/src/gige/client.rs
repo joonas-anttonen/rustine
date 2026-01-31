@@ -6,8 +6,9 @@ use std::{
 };
 
 use crate::gige::{
-    GVCP_CAPABILITIES_REGISTER, GVCP_CONTROL_ACCESS_REGISTER, GVCP_PORT, GigECapabilities,
-    GigECommand, GigEDevice, GigEPacket, GigEPacketFlags, GigEPacketType, REQUEST_ID,
+    GVCP_CAPABILITIES_REGISTER, GVCP_CONTROL_ACCESS_REGISTER, GVCP_HEARTBEAT_TIMEOUT_REGISTER,
+    GVCP_PORT, GigECapabilities, GigECommand, GigEDevice, GigEPacket, GigEPacketFlags,
+    GigEPacketType, REQUEST_ID,
 };
 
 use rustine::{io::ByteSliceReader, log};
@@ -50,7 +51,22 @@ impl GigEClient {
     }
 
     pub fn run(client: Arc<Mutex<GigEClient>>) {
+        {
+            let (device_model, device_serial) = {
+                let client = client.lock().unwrap();
+                (client.device.model.clone(), client.device.serial.clone())
+            };
+            log::set_current_thread_name(format!("gige::{}_{}", device_model, device_serial));
+        }
+
         //loop {
+
+        // Use hardcoded register addresses for acquisition control for now.
+        const HACK_ACQUISITION_START_REGISTER_ADDRESS: u32 = 0x10300004;
+        const HACK_ACQUISITION_STOP_REGISTER_ADDRESS: u32 = 0x10300008;
+        const HACK_GEV_SCDA: u32 = 0x0D18;
+        const HACK_GEV_SCPHOST_PORT: u32 = 0x0D00;
+        const GVSP_RECV_PORT: u16 = 31896;
 
         let (adapter_address, device_address) = {
             let client = client.lock().unwrap();
@@ -65,24 +81,60 @@ impl GigEClient {
             .connect(send_address)
             .expect("Failed to connect socket");
 
-        let connection = Connection {
+        let control_connection = Connection {
             socket,
             send_address,
             recv_address,
         };
 
-        let capabilities = Self::read_register(&connection, GVCP_CAPABILITIES_REGISTER)
+        let capabilities = Self::read_register(&control_connection, GVCP_CAPABILITIES_REGISTER)
             .expect("Failed to read capabilities");
+        let timeout = Self::read_register(&control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)
+            .expect("Failed to read heartbeat timeout");
 
-        log::info!(
-            "Capabilities: {:?}",
-            GigECapabilities::from_u32(capabilities)
-        );
+        log::info!("{:#?}", GigECapabilities::from_u32(capabilities));
+        log::info!("Timeout: {}", timeout);
 
-        Self::write_register(&connection, GVCP_CONTROL_ACCESS_REGISTER, 1)
+        Self::write_register(&control_connection, GVCP_CONTROL_ACCESS_REGISTER, 1)
             .expect("Failed to write control access register");
 
-        Self::write_register(&connection, GVCP_CONTROL_ACCESS_REGISTER, 0)
+        Self::write_register(&control_connection, HACK_GEV_SCDA, adapter_address.into())
+            .expect("Failed to write GEV_SCDA register");
+
+        // Careful: HACK_GEV_SCPHOST_PORT register is a big endian struct register with the port in the upper 16 bits
+        Self::write_register(
+            &control_connection,
+            HACK_GEV_SCPHOST_PORT,
+            GVSP_RECV_PORT.into(),
+        )
+        .expect("Failed to write GEV_SCPHOST_PORT register");
+
+        let stream_recv_address = SocketAddrV4::new(adapter_address, GVSP_RECV_PORT);
+        let stream_socket =
+            UdpSocket::bind(stream_recv_address).expect("Failed to bind stream socket");
+        let _stream_connection = Connection {
+            socket: stream_socket,
+            send_address: SocketAddrV4::new(device_address, GVCP_PORT),
+            recv_address: stream_recv_address,
+        };
+
+        Self::write_register(
+            &control_connection,
+            HACK_ACQUISITION_START_REGISTER_ADDRESS,
+            1,
+        )
+        .expect("Failed to write acquisition start register");
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        Self::write_register(
+            &control_connection,
+            HACK_ACQUISITION_STOP_REGISTER_ADDRESS,
+            1,
+        )
+        .expect("Failed to write acquisition stop register");
+
+        Self::write_register(&control_connection, GVCP_CONTROL_ACCESS_REGISTER, 0)
             .expect("Failed to write control access register");
 
         //}
@@ -141,7 +193,7 @@ impl GigEClient {
             .send_to(&buf[..send_len], connection.send_address)?;
         connection
             .socket
-            .set_read_timeout(Some(std::time::Duration::from_millis(10)))?;
+            .set_read_timeout(Some(std::time::Duration::from_millis(100)))?;
 
         loop {
             if let Ok(recv_len) = connection.socket.recv(buf) {

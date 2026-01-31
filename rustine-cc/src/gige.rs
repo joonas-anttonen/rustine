@@ -16,6 +16,7 @@ pub static REQUEST_ID: atomic::AtomicU16 = atomic::AtomicU16::new(1);
 pub const GVCP_PORT: u16 = 3956;
 pub const GVCP_CAPABILITIES_REGISTER: u32 = 0x00000934;
 pub const GVCP_CONTROL_ACCESS_REGISTER: u32 = 0x00000a00;
+pub const GVCP_HEARTBEAT_TIMEOUT_REGISTER: u32 = 0x00000938;
 
 const GVCP_BROADCAST_ADDR: SocketAddrV4 =
     SocketAddrV4::new(Ipv4Addr::new(255, 255, 255, 255), GVCP_PORT);
