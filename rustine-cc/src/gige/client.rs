@@ -11,7 +11,7 @@ use crate::gige::{
     GigEPacketType, REQUEST_ID,
 };
 
-use rustine::{io::ByteSliceReader, log};
+use rustine::{Mailbox, io::ByteSliceReader, log};
 
 pub enum ClientCommand {
     NOP,
@@ -50,7 +50,10 @@ impl GigEClient {
         Arc::clone(&self.command_queue)
     }
 
-    pub fn run(client: Arc<Mutex<GigEClient>>) {
+    pub fn run(
+        client: Arc<Mutex<GigEClient>>,
+        _image_mailbox: Arc<Mailbox<(u32, rustine::io::Image)>>,
+    ) {
         {
             let (device_model, device_serial) = {
                 let client = client.lock().unwrap();

@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 
 use std::sync::{Arc, Mutex, atomic};
-use std::thread;
 
-use rustine::log;
+use rustine::{Version, log};
 
 mod network;
 use network::IPAdapter;
@@ -47,14 +46,95 @@ fn main() {
         }
     }
 
-    thread::scope(|scope| {
-        for device in discovered_devices {
-            let a_client = Arc::new(Mutex::new(GigEClient::new(device)));
+    {
+        let gfx_builder = rustine::gfx::Gfx::builder(rustine::Platform::Wayland)
+            .app_name("rustine-cc")
+            .app_version(Version::new(0, 1, 0))
+            .debugging(true)
+            .device_selector(rustine::gfx::DeviceSelector::Optimal);
+        let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
 
-            let a_client_clone = Arc::clone(&a_client);
+        let application = Box::new(MyApplication::new());
+
+        let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
+            .window_title("rustine-cc")
+            .window_size(1280, 720)
+            .window_type(rustine::gui::WindowType::Normal);
+        let gui = gui_builder.build(Arc::clone(&gfx), application);
+
+        let mode = rustine::RunMode::Continuous;
+        std::thread::scope(|scope| {
+            for device in discovered_devices {
+                let a_client = Arc::new(Mutex::new(GigEClient::new(device)));
+
+                let a_client_clone = Arc::clone(&a_client);
+                let a_client_image_mailbox = gui.image_mailbox();
+                scope.spawn(|| {
+                    GigEClient::run(a_client_clone, a_client_image_mailbox);
+                });
+            }
+
             scope.spawn(|| {
-                GigEClient::run(a_client_clone);
+                rustine::gfx::run(Arc::clone(&gfx), &SHUTDOWN_FLAG, mode);
             });
+
+            rustine::gui::run(&gui, &SHUTDOWN_FLAG, mode);
+
+            SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
+            gfx.lock().unwrap().wake_up();
+        });
+    }
+}
+
+struct MyApplicationState {
+    camera_stream_image: Arc<rustine::gfx::Image>,
+}
+
+pub struct MyApplication {
+    state: std::cell::RefCell<MyApplicationState>,
+}
+
+impl Drop for MyApplication {
+    fn drop(&mut self) {}
+}
+
+impl MyApplication {
+    fn new() -> Self {
+        MyApplication {
+            state: std::cell::RefCell::new(MyApplicationState {
+                camera_stream_image: Arc::new(rustine::gfx::Image::default()),
+            }),
         }
-    });
+    }
+}
+
+impl rustine::gui::Application for MyApplication {
+    fn startup(&self, gui: &rustine::gui::Gui) {
+        let mut state = self.state.borrow_mut();
+
+        state.camera_stream_image = Arc::new(gui.create_dynamic_image());
+    }
+
+    fn on_key(&self, _gui: &rustine::gui::Gui, _key: rustine::gui::KeyEvent) {}
+
+    fn on_char(&self, _gui: &rustine::gui::Gui, _char: char) {}
+
+    fn render(&self, _gui: &rustine::gui::Gui, frame: &mut rustine::gfx::RenderFrame) {
+        let state = self.state.borrow();
+
+        let window_w = frame.size.x as f32;
+        let window_h = frame.size.y as f32;
+
+        frame.push_image(
+            &state.camera_stream_image,
+            rustine::gfx::Rectangle {
+                x: 0.0,
+                y: 0.0,
+                w: window_w,
+                h: window_h,
+            },
+            rustine::gfx::Fit::FIT_KEEP_ASPECT,
+            0xFFFFFFFF,
+        );
+    }
 }
