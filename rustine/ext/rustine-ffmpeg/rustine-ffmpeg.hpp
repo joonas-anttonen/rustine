@@ -21,6 +21,8 @@ typedef enum {
 typedef struct rffmpeg_decoder rffmpeg_decoder;
 /// Opaque encoder handle
 typedef struct rffmpeg_encoder rffmpeg_encoder;
+/// Opaque JPEG encoder handle
+typedef struct rffmpeg_jpeg_encoder rffmpeg_jpeg_encoder;
 
 /// Create a video decoder from in-memory data (e.g., MP4 file).
 /// Returns metadata via out parameters when successful.
@@ -67,6 +69,36 @@ rffmpeg_status rffmpegEncoderFinish(rffmpeg_encoder* encoder);
 
 /// Destroy the encoder and free resources.
 void rffmpegEncoderDestroy(rffmpeg_encoder* encoder);
+
+/// Create a JPEG encoder for in-memory frames.
+rffmpeg_status rffmpegJpegEncoderCreate(uint32_t width,
+	uint32_t height,
+	int quality,
+	rffmpeg_jpeg_encoder** out_encoder);
+
+/// Encode a single RGBA frame to a JPEG buffer.
+/// The returned buffer must be freed with `rffmpegJpegFreeBuffer`.
+rffmpeg_status rffmpegJpegEncode(rffmpeg_jpeg_encoder* encoder,
+	const uint8_t* rgba_in,
+	size_t rgba_size,
+	uint8_t** out_buf,
+	size_t* out_size);
+
+/// Free a JPEG buffer allocated by `rffmpegJpegEncode`.
+void rffmpegJpegFreeBuffer(uint8_t* buffer);
+
+/// Destroy the JPEG encoder and free resources.
+void rffmpegJpegEncoderDestroy(rffmpeg_jpeg_encoder* encoder);
+
+/// Demosaic a Bayer RGGB8 image to RGBA using swscale.
+/// Input buffer should be width * height bytes.
+/// Output buffer must be at least width * height * 4 bytes.
+rffmpeg_status rffmpegDemosaicBayerRG8(const uint8_t* bayer_in,
+	size_t bayer_size,
+	uint32_t width,
+	uint32_t height,
+	uint8_t* rgba_out,
+	size_t rgba_capacity);
 
 #ifdef __cplusplus
 }

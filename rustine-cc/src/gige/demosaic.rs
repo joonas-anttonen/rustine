@@ -137,3 +137,107 @@ pub fn minimal_demosaic_bayer_rg8(in_buf: &mut [u8], width: usize, height: usize
 
     out
 }
+
+/// Demosaic using FFmpeg's swscale (requires rustine::io::ffmpeg feature)
+pub fn ffmpeg_demosaic_bayer_rg8(in_buf: &[u8], width: usize, height: usize) -> Vec<u8> {
+    rustine::io::ffmpeg::demosaic_bayer_rg8(in_buf, width as u32, height as u32)
+        .expect("FFmpeg demosaic failed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compare_demosaic_implementations() {
+        // Create a simple test pattern: alternating RGGB Bayer pattern
+        let width = 256;
+        let height = 256;
+        let mut bayer_data = vec![0u8; width * height];
+
+        // Fill with a gradient pattern
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                bayer_data[idx] = ((x + y) % 256) as u8;
+            }
+        }
+
+        // Test our implementation
+        let mut bayer_copy1 = bayer_data.clone();
+        let start = std::time::Instant::now();
+        let result_custom = demosaic_bayer_rg8(&mut bayer_copy1, width, height);
+        let duration_custom = start.elapsed();
+        println!("Custom demosaic: {:?}", duration_custom);
+
+        // Test minimal implementation
+        let mut bayer_copy2 = bayer_data.clone();
+        let start = std::time::Instant::now();
+        let result_minimal = minimal_demosaic_bayer_rg8(&mut bayer_copy2, width, height);
+        let duration_minimal = start.elapsed();
+        println!("Minimal demosaic: {:?}", duration_minimal);
+
+        // Test FFmpeg implementation
+        let start = std::time::Instant::now();
+        let result_ffmpeg = ffmpeg_demosaic_bayer_rg8(&bayer_data, width, height);
+        let duration_ffmpeg = start.elapsed();
+        println!("FFmpeg demosaic: {:?}", duration_ffmpeg);
+
+        // Verify output sizes are correct
+        assert_eq!(result_custom.len(), width * height * 4);
+        assert_eq!(result_minimal.len(), width * height * 4);
+        assert_eq!(result_ffmpeg.len(), width * height * 4);
+
+        println!("\nPerformance comparison (256x256):");
+        println!("  Custom:  {:?}", duration_custom);
+        println!("  Minimal: {:?}", duration_minimal);
+        println!("  FFmpeg:  {:?}", duration_ffmpeg);
+    }
+}
+
+    #[test]
+    fn compare_demosaic_1920x1080() {
+        // Test with HD resolution
+        let width = 1920;
+        let height = 1080;
+        let mut bayer_data = vec![0u8; width * height];
+
+        // Fill with a gradient pattern
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                bayer_data[idx] = ((x + y) % 256) as u8;
+            }
+        }
+
+        // Test our implementation
+        let mut bayer_copy1 = bayer_data.clone();
+        let start = std::time::Instant::now();
+        let result_custom = demosaic_bayer_rg8(&mut bayer_copy1, width, height);
+        let duration_custom = start.elapsed();
+
+        // Test minimal implementation
+        let mut bayer_copy2 = bayer_data.clone();
+        let start = std::time::Instant::now();
+        let result_minimal = minimal_demosaic_bayer_rg8(&mut bayer_copy2, width, height);
+        let duration_minimal = start.elapsed();
+
+        // Test FFmpeg implementation
+        let start = std::time::Instant::now();
+        let result_ffmpeg = ffmpeg_demosaic_bayer_rg8(&bayer_data, width, height);
+        let duration_ffmpeg = start.elapsed();
+
+        // Verify output sizes are correct
+        assert_eq!(result_custom.len(), width * height * 4);
+        assert_eq!(result_minimal.len(), width * height * 4);
+        assert_eq!(result_ffmpeg.len(), width * height * 4);
+
+        println!("\nPerformance comparison (1920x1080):");
+        println!("  Custom:  {:?}", duration_custom);
+        println!("  Minimal: {:?}", duration_minimal);
+        println!("  FFmpeg:  {:?}", duration_ffmpeg);
+        println!("  FFmpeg speedup vs Minimal: {:.2}x", 
+            duration_minimal.as_secs_f64() / duration_ffmpeg.as_secs_f64());
+        println!("  FFmpeg speedup vs Custom:  {:.2}x", 
+            duration_custom.as_secs_f64() / duration_ffmpeg.as_secs_f64());
+    }

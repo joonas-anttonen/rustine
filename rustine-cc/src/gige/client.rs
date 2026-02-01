@@ -13,6 +13,8 @@ use crate::gige::{
     GigECommand, GigEDevice, GigEPacket, GigEPacketFlags, GigEPacketType, REQUEST_ID,
 };
 
+use crate::mjpeg::FrameCache;
+
 use rustine::{Mailbox, io::ByteSliceReader, log};
 
 pub enum ClientCommand {
@@ -59,6 +61,7 @@ impl GigEClient {
         client: Arc<Mutex<GigEClient>>,
         image: Arc<rustine::gfx::Image>,
         image_mailbox: Arc<Mailbox<(u32, rustine::io::Image)>>,
+        stream_cache: Option<Arc<FrameCache>>,
     ) {
         {
             let (device_model, device_serial) = {
@@ -185,6 +188,7 @@ impl GigEClient {
         Self::run_acquisition(
             image,
             image_mailbox,
+            stream_cache,
             &control_connection,
             timeout,
             stream_connection,
@@ -210,7 +214,12 @@ impl GigEClient {
         in_format: GVSPPixelFormat,
     ) -> Vec<u8> {
         match in_format {
-            GVSPPixelFormat::BAYER_RG_8 => crate::demosaic_bayer_rg8(in_buf, in_width, in_height),
+            GVSPPixelFormat::BAYER_RG_8 => {
+                //
+                //crate::demosaic_bayer_rg8(in_buf, in_width, in_height)
+                rustine::io::ffmpeg::demosaic_bayer_rg8(in_buf, in_width as u32, in_height as u32)
+                    .expect("FFmpeg demosaic failed")
+            }
             _ => {
                 // Unknown/unsupported input format: return black image of requested size
                 vec![0u8; in_width * in_height * 4]
@@ -310,6 +319,7 @@ impl GigEClient {
     fn run_acquisition(
         image: Arc<rustine::gfx::Image>,
         image_mailbox: Arc<Mailbox<(u32, rustine::io::Image)>>,
+        stream_cache: Option<Arc<FrameCache>>,
         control_connection: &Connection,
         timeout: u32,
         stream_connection: Connection,
@@ -445,10 +455,13 @@ impl GigEClient {
                                     ), // TODO: Giga allocation!
                                 };
 
-                                image_mailbox.push((image.id(), io_image));
-
                                 let demosaic_duration = demosaic_start.elapsed();
                                 demosaic_times.push(demosaic_duration.as_secs_f64());
+
+                                if let Some(cache) = stream_cache.as_ref() {
+                                    cache.update(io_image.clone());
+                                }
+                                image_mailbox.push((image.id(), io_image));
                             }
 
                             current_frame_id = None;

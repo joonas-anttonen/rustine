@@ -6,6 +6,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
 #include <libavutil/avutil.h>
 #include <libswscale/swscale.h>
 }
@@ -160,6 +161,15 @@ struct rffmpeg_encoder {
     bool file_opened = false;
 };
 
+struct rffmpeg_jpeg_encoder {
+    AVCodecContext* codec_ctx = nullptr;
+    SwsContext* sws_ctx = nullptr;
+    AVFrame* frame = nullptr;
+    AVPacket* packet = nullptr;
+    uint32_t width = 0;
+    uint32_t height = 0;
+};
+
 static void rffmpeg_free_encoder_internal(rffmpeg_encoder* enc) {
     if (!enc) {
         return;
@@ -197,6 +207,29 @@ static void rffmpeg_free_encoder_internal(rffmpeg_encoder* enc) {
     }
 }
 
+static void rffmpeg_free_jpeg_encoder_internal(rffmpeg_jpeg_encoder* enc) {
+    if (!enc) {
+        return;
+    }
+
+    if (enc->frame) {
+        av_frame_free(&enc->frame);
+    }
+
+    if (enc->packet) {
+        av_packet_free(&enc->packet);
+    }
+
+    if (enc->sws_ctx) {
+        sws_freeContext(enc->sws_ctx);
+        enc->sws_ctx = nullptr;
+    }
+
+    if (enc->codec_ctx) {
+        avcodec_free_context(&enc->codec_ctx);
+    }
+}
+
 extern "C" rffmpeg_status rffmpegEncoderCreate(uint32_t width, uint32_t height, rffmpeg_encoder** out_encoder) {
     if (!out_encoder || width == 0 || height == 0) {
         return RFFMPEG_STATUS_INVALID_ARGUMENT;
@@ -230,8 +263,8 @@ extern "C" rffmpeg_status rffmpegEncoderCreate(uint32_t width, uint32_t height, 
     enc->codec_ctx->time_base = AVRational{1, 25};
     enc->codec_ctx->framerate = AVRational{25, 1};
 
-    // Prefer YUVJ420P for MJPEG if available, fall back to codec default
-    enc->codec_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
+    // Use YUV420P for MJPEG (deprecated YUVJ420P replaced with YUV420P + JPEG color range)
+    enc->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
     if (codec->pix_fmts) {
         bool supported = false;
         for (const AVPixelFormat* p = codec->pix_fmts; *p != AV_PIX_FMT_NONE; ++p) {
@@ -244,6 +277,10 @@ extern "C" rffmpeg_status rffmpegEncoderCreate(uint32_t width, uint32_t height, 
             enc->codec_ctx->pix_fmt = codec->pix_fmts[0];
         }
     }
+
+    // Set color range and compliance BEFORE opening codec
+    enc->codec_ctx->color_range = AVCOL_RANGE_JPEG;
+    enc->codec_ctx->strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL;
 
     if (avcodec_open2(enc->codec_ctx, codec, nullptr) < 0) {
         rffmpeg_free_encoder_internal(enc);
@@ -263,6 +300,7 @@ extern "C" rffmpeg_status rffmpegEncoderCreate(uint32_t width, uint32_t height, 
     enc->frame->format = enc->codec_ctx->pix_fmt;
     enc->frame->width = enc->codec_ctx->width;
     enc->frame->height = enc->codec_ctx->height;
+    enc->frame->color_range = AVCOL_RANGE_JPEG;
 
     int alloc_ret = av_image_alloc(enc->frame->data,
         enc->frame->linesize,
@@ -352,14 +390,8 @@ extern "C" rffmpeg_status rffmpegEncoderCreateToPath(const char* path,
     enc->codec_ctx->framerate = AVRational{static_cast<int>(fps), 1};
     enc->codec_ctx->bit_rate = bitrate > 0 ? bitrate : 400000;
 
-    // set pixel format preference
-    AVPixelFormat target_pix_fmt = AV_PIX_FMT_YUV420P;
-    if (codec->id == AV_CODEC_ID_MJPEG) {
-        // allow YUVJ420P for MJPEG if available
-        target_pix_fmt = AV_PIX_FMT_YUVJ420P;
-    }
-
-    enc->codec_ctx->pix_fmt = target_pix_fmt;
+    // set pixel format preference (use YUV420P for all codecs)
+    enc->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
     if (codec->pix_fmts) {
         bool ok = false;
         for (const AVPixelFormat* p = codec->pix_fmts; *p != AV_PIX_FMT_NONE; ++p) {
@@ -413,6 +445,9 @@ extern "C" rffmpeg_status rffmpegEncoderCreateToPath(const char* path,
     enc->frame->format = enc->codec_ctx->pix_fmt;
     enc->frame->width = enc->codec_ctx->width;
     enc->frame->height = enc->codec_ctx->height;
+    if (codec->id == AV_CODEC_ID_MJPEG) {
+        enc->frame->color_range = AVCOL_RANGE_JPEG;
+    }
 
     int alloc_ret = av_image_alloc(enc->frame->data,
         enc->frame->linesize,
@@ -549,6 +584,184 @@ extern "C" void rffmpegEncoderDestroy(rffmpeg_encoder* encoder) {
     if (!encoder) return;
 
     rffmpeg_free_encoder_internal(encoder);
+    delete encoder;
+}
+
+extern "C" rffmpeg_status rffmpegJpegEncoderCreate(uint32_t width,
+    uint32_t height,
+    int quality,
+    rffmpeg_jpeg_encoder** out_encoder) {
+    if (!out_encoder || width == 0 || height == 0) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    rffmpeg_jpeg_encoder* enc = new (std::nothrow) rffmpeg_jpeg_encoder();
+    if (!enc) {
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    memset(enc, 0, sizeof(rffmpeg_jpeg_encoder));
+    enc->width = width;
+    enc->height = height;
+
+    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    if (!codec) {
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->codec_ctx = avcodec_alloc_context3(codec);
+    if (!enc->codec_ctx) {
+        rffmpeg_free_jpeg_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->codec_ctx->width = width;
+    enc->codec_ctx->height = height;
+    enc->codec_ctx->time_base = AVRational{1, 30};
+    enc->codec_ctx->framerate = AVRational{30, 1};
+
+    enc->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    if (codec->pix_fmts) {
+        bool supported = false;
+        for (const AVPixelFormat* p = codec->pix_fmts; *p != AV_PIX_FMT_NONE; ++p) {
+            if (*p == enc->codec_ctx->pix_fmt) {
+                supported = true;
+                break;
+            }
+        }
+        if (!supported) {
+            enc->codec_ctx->pix_fmt = codec->pix_fmts[0];
+        }
+    }
+
+    int qscale = 31;
+    if (quality > 0) {
+        int clamped = quality < 1 ? 1 : (quality > 100 ? 100 : quality);
+        qscale = 31 - (clamped - 1) * 29 / 99;
+        if (qscale < 2) qscale = 2;
+        if (qscale > 31) qscale = 31;
+    }
+    enc->codec_ctx->flags |= AV_CODEC_FLAG_QSCALE;
+    enc->codec_ctx->global_quality = FF_QP2LAMBDA * qscale;
+    av_opt_set_int(enc->codec_ctx->priv_data, "quality", qscale, 0);
+
+    // Set color range and compliance BEFORE opening codec
+    enc->codec_ctx->color_range = AVCOL_RANGE_JPEG;
+    enc->codec_ctx->strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL;
+
+    if (avcodec_open2(enc->codec_ctx, codec, nullptr) < 0) {
+        rffmpeg_free_jpeg_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    enc->frame = av_frame_alloc();
+    enc->packet = av_packet_alloc();
+    if (!enc->frame || !enc->packet) {
+        rffmpeg_free_jpeg_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->frame->format = enc->codec_ctx->pix_fmt;
+    enc->frame->width = enc->codec_ctx->width;
+    enc->frame->height = enc->codec_ctx->height;
+    enc->frame->color_range = AVCOL_RANGE_JPEG;
+
+    if (av_frame_get_buffer(enc->frame, 32) < 0) {
+        rffmpeg_free_jpeg_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    enc->sws_ctx = sws_getContext(enc->width,
+        enc->height,
+        AV_PIX_FMT_RGBA,
+        enc->width,
+        enc->height,
+        enc->codec_ctx->pix_fmt,
+        SWS_BILINEAR,
+        nullptr,
+        nullptr,
+        nullptr);
+
+    if (!enc->sws_ctx) {
+        rffmpeg_free_jpeg_encoder_internal(enc);
+        delete enc;
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    *out_encoder = enc;
+    return RFFMPEG_STATUS_OK;
+}
+
+extern "C" rffmpeg_status rffmpegJpegEncode(rffmpeg_jpeg_encoder* encoder,
+    const uint8_t* rgba_in,
+    size_t rgba_size,
+    uint8_t** out_buf,
+    size_t* out_size) {
+    if (!encoder || !rgba_in || !out_buf || !out_size) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    size_t required = static_cast<size_t>(encoder->width) * encoder->height * 4;
+    if (rgba_size < required) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (av_frame_make_writable(encoder->frame) < 0) {
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    const uint8_t* src_slices[1] = { rgba_in };
+    int src_stride[1] = { static_cast<int>(encoder->width * 4) };
+
+    sws_scale(encoder->sws_ctx,
+        src_slices,
+        src_stride,
+        0,
+        encoder->height,
+        encoder->frame->data,
+        encoder->frame->linesize);
+
+    int ret = avcodec_send_frame(encoder->codec_ctx, encoder->frame);
+    if (ret < 0) {
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    ret = avcodec_receive_packet(encoder->codec_ctx, encoder->packet);
+    if (ret < 0) {
+        return RFFMPEG_STATUS_ENCODE_FAILED;
+    }
+
+    uint8_t* buffer = static_cast<uint8_t*>(av_malloc(encoder->packet->size));
+    if (!buffer) {
+        av_packet_unref(encoder->packet);
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    memcpy(buffer, encoder->packet->data, encoder->packet->size);
+    *out_buf = buffer;
+    *out_size = static_cast<size_t>(encoder->packet->size);
+
+    av_packet_unref(encoder->packet);
+    return RFFMPEG_STATUS_OK;
+}
+
+extern "C" void rffmpegJpegFreeBuffer(uint8_t* buffer) {
+    if (buffer) {
+        av_free(buffer);
+    }
+}
+
+extern "C" void rffmpegJpegEncoderDestroy(rffmpeg_jpeg_encoder* encoder) {
+    if (!encoder) {
+        return;
+    }
+
+    rffmpeg_free_jpeg_encoder_internal(encoder);
     delete encoder;
 }
 
@@ -969,4 +1182,52 @@ extern "C" void rffmpegDecoderDestroy(rffmpeg_decoder* decoder) {
 
     rffmpeg_free_decoder_internal(decoder);
     delete decoder;
+}
+
+extern "C" rffmpeg_status rffmpegDemosaicBayerRG8(const uint8_t* bayer_in,
+    size_t bayer_size,
+    uint32_t width,
+    uint32_t height,
+    uint8_t* rgba_out,
+    size_t rgba_capacity) {
+    
+    if (!bayer_in || !rgba_out) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    size_t expected_in_size = width * height;
+    size_t expected_out_size = width * height * 4;
+
+    if (bayer_size < expected_in_size || rgba_capacity < expected_out_size) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    // Create SwsContext to convert from Bayer RGGB8 to RGBA
+    SwsContext* sws_ctx = sws_getContext(
+        width, height, AV_PIX_FMT_BAYER_RGGB8,
+        width, height, AV_PIX_FMT_RGBA,
+        SWS_BILINEAR, nullptr, nullptr, nullptr);
+
+    if (!sws_ctx) {
+        return RFFMPEG_STATUS_ALLOCATION_FAILED;
+    }
+
+    // Setup source and destination plane pointers and strides
+    const uint8_t* src_data[4] = { bayer_in, nullptr, nullptr, nullptr };
+    int src_linesize[4] = { static_cast<int>(width), 0, 0, 0 };
+
+    uint8_t* dst_data[4] = { rgba_out, nullptr, nullptr, nullptr };
+    int dst_linesize[4] = { static_cast<int>(width * 4), 0, 0, 0 };
+
+    // Perform the conversion
+    int result = sws_scale(sws_ctx, src_data, src_linesize, 0, height,
+                          dst_data, dst_linesize);
+
+    sws_freeContext(sws_ctx);
+
+    if (result != static_cast<int>(height)) {
+        return RFFMPEG_STATUS_DECODE_FAILED;
+    }
+
+    return RFFMPEG_STATUS_OK;
 }

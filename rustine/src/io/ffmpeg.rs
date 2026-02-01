@@ -217,6 +217,11 @@ mod ffi {
         _private: [u8; 0],
     }
 
+    #[repr(C)]
+    pub struct RffmpegJpegEncoder {
+        _private: [u8; 0],
+    }
+
     unsafe extern "C" {
         /// Create a decoder from in-memory video data.
         /// Returns metadata via out parameters when successful.
@@ -268,6 +273,32 @@ mod ffi {
         ) -> RffmpegStatus;
         pub fn rffmpegEncoderFinish(encoder: *mut RffmpegEncoder) -> RffmpegStatus;
         pub fn rffmpegEncoderDestroy(encoder: *mut RffmpegEncoder);
+
+        pub fn rffmpegJpegEncoderCreate(
+            width: u32,
+            height: u32,
+            quality: i32,
+            out_encoder: *mut *mut RffmpegJpegEncoder,
+        ) -> RffmpegStatus;
+        pub fn rffmpegJpegEncode(
+            encoder: *mut RffmpegJpegEncoder,
+            rgba_in: *const u8,
+            rgba_size: usize,
+            out_buf: *mut *mut u8,
+            out_size: *mut usize,
+        ) -> RffmpegStatus;
+        pub fn rffmpegJpegFreeBuffer(buffer: *mut u8);
+        pub fn rffmpegJpegEncoderDestroy(encoder: *mut RffmpegJpegEncoder);
+
+        /// Demosaic a Bayer RGGB8 image to RGBA using swscale.
+        pub fn rffmpegDemosaicBayerRG8(
+            bayer_in: *const u8,
+            bayer_size: usize,
+            width: u32,
+            height: u32,
+            rgba_out: *mut u8,
+            rgba_capacity: usize,
+        ) -> RffmpegStatus;
     }
 }
 
@@ -278,6 +309,13 @@ pub struct VideoEncoder {
     width: u32,
     height: u32,
     fps: f64,
+}
+
+/// A safe wrapper around an in-memory JPEG encoder.
+pub struct JpegEncoder {
+    encoder: *mut ffi::RffmpegJpegEncoder,
+    width: u32,
+    height: u32,
 }
 
 impl Drop for VideoEncoder {
@@ -361,5 +399,123 @@ impl VideoEncoder {
             ffi::RffmpegStatus::InvalidArgument => Err("Invalid encoder".to_string()),
             _ => Err("Failed to finish encoding".to_string()),
         }
+    }
+}
+
+impl Drop for JpegEncoder {
+    fn drop(&mut self) {
+        if !self.encoder.is_null() {
+            unsafe {
+                ffi::rffmpegJpegEncoderDestroy(self.encoder);
+            }
+        }
+    }
+}
+
+impl JpegEncoder {
+    pub fn new(width: u32, height: u32, quality: i32) -> Result<Self, String> {
+        let mut encoder: *mut ffi::RffmpegJpegEncoder = std::ptr::null_mut();
+        let status = unsafe { ffi::rffmpegJpegEncoderCreate(width, height, quality, &mut encoder) };
+
+        match status {
+            ffi::RffmpegStatus::Ok => Ok(JpegEncoder {
+                encoder,
+                width,
+                height,
+            }),
+            ffi::RffmpegStatus::InvalidArgument => Err("Invalid arguments provided".to_string()),
+            ffi::RffmpegStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
+            ffi::RffmpegStatus::DecodeFailed => Err("Decoder failure during encode".to_string()),
+            ffi::RffmpegStatus::EncodeFailed => Err("Failed to initialize encoder".to_string()),
+            ffi::RffmpegStatus::EndOfStream => Err("Unexpected end of stream".to_string()),
+        }
+    }
+
+    pub fn encode_rgba(&mut self, rgba_in: &[u8]) -> Result<Vec<u8>, String> {
+        let required_size = (self.width as usize) * (self.height as usize) * 4;
+        if rgba_in.len() < required_size {
+            return Err(format!(
+                "Input buffer too small: {} bytes, need {}",
+                rgba_in.len(),
+                required_size
+            ));
+        }
+
+        let mut out_buf: *mut u8 = std::ptr::null_mut();
+        let mut out_size: usize = 0;
+        let status = unsafe {
+            ffi::rffmpegJpegEncode(
+                self.encoder,
+                rgba_in.as_ptr(),
+                rgba_in.len(),
+                &mut out_buf,
+                &mut out_size,
+            )
+        };
+
+        match status {
+            ffi::RffmpegStatus::Ok => {
+                if out_buf.is_null() || out_size == 0 {
+                    return Err("Empty JPEG buffer".to_string());
+                }
+                let bytes = unsafe { std::slice::from_raw_parts(out_buf, out_size) }.to_vec();
+                unsafe { ffi::rffmpegJpegFreeBuffer(out_buf) };
+                Ok(bytes)
+            }
+            ffi::RffmpegStatus::InvalidArgument => Err("Invalid arguments".to_string()),
+            ffi::RffmpegStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
+            ffi::RffmpegStatus::DecodeFailed => Err("Decoder failure during encode".to_string()),
+            ffi::RffmpegStatus::EncodeFailed => Err("Failed to encode frame".to_string()),
+            ffi::RffmpegStatus::EndOfStream => Err("End of stream".to_string()),
+        }
+    }
+}
+
+/// Demosaic a Bayer RGGB8 image to RGBA using FFmpeg's swscale.
+///
+/// # Arguments
+/// * `bayer_in` - Input Bayer RGGB8 image data (width * height bytes)
+/// * `width` - Image width in pixels
+/// * `height` - Image height in pixels
+///
+/// # Returns
+/// * `Ok(Vec<u8>)` - RGBA image data (width * height * 4 bytes)
+/// * `Err(String)` - Error description
+///
+/// # Example
+/// ```ignore
+/// let bayer_data = vec![0u8; 1920 * 1080];
+/// let rgba = demosaic_bayer_rg8(&bayer_data, 1920, 1080)?;
+/// ```
+pub fn demosaic_bayer_rg8(bayer_in: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let expected_size = (width as usize) * (height as usize);
+    if bayer_in.len() < expected_size {
+        return Err(format!(
+            "Input buffer too small: {} bytes, need {}",
+            bayer_in.len(),
+            expected_size
+        ));
+    }
+
+    let mut rgba_out = vec![0u8; expected_size * 4];
+
+    let status = unsafe {
+        ffi::rffmpegDemosaicBayerRG8(
+            bayer_in.as_ptr(),
+            bayer_in.len(),
+            width,
+            height,
+            rgba_out.as_mut_ptr(),
+            rgba_out.len(),
+        )
+    };
+
+    match status {
+        ffi::RffmpegStatus::Ok => Ok(rgba_out),
+        ffi::RffmpegStatus::InvalidArgument => Err("Invalid arguments provided".to_string()),
+        ffi::RffmpegStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
+        ffi::RffmpegStatus::DecodeFailed => Err("Failed to demosaic image".to_string()),
+        ffi::RffmpegStatus::EncodeFailed => Err("Failed to encode frame".to_string()),
+        ffi::RffmpegStatus::EndOfStream => Err("Unexpected end of stream".to_string()),
     }
 }

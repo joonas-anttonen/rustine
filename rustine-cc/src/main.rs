@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::{Arc, Mutex, atomic};
 
 use rustine::{Version, log};
@@ -9,6 +10,8 @@ use network::IPAdapter;
 
 mod gige;
 use gige::*;
+
+mod mjpeg;
 
 static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 
@@ -63,6 +66,10 @@ fn main() {
             .window_type(rustine::gui::WindowType::Normal);
         let gui = gui_builder.build(Arc::clone(&gfx), application);
 
+        let stream_cache = mjpeg::FrameCache::new();
+        let stream_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8090);
+        let _mjpeg_thread = mjpeg::start_server(Arc::clone(&stream_cache), stream_addr);
+
         let mode = rustine::RunMode::Continuous;
         std::thread::scope(|scope| {
             for device in discovered_devices {
@@ -71,8 +78,14 @@ fn main() {
                 let a_client = Arc::clone(&a_client);
                 let a_client_image = Arc::clone(&a_client_image);
                 let a_client_image_mailbox = gui.image_mailbox();
+                let a_stream_cache = Some(Arc::clone(&stream_cache));
                 scope.spawn(|| {
-                    GigEClient::run(a_client, a_client_image, a_client_image_mailbox);
+                    GigEClient::run(
+                        a_client,
+                        a_client_image,
+                        a_client_image_mailbox,
+                        a_stream_cache,
+                    );
                 });
             }
 
