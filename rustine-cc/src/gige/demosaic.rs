@@ -77,3 +77,63 @@ pub fn demosaic_bayer_rg8(in_buf: &mut [u8], width: usize, height: usize) -> Vec
 
     out
 }
+
+pub fn minimal_demosaic_bayer_rg8(in_buf: &mut [u8], width: usize, height: usize) -> Vec<u8> {
+    // Zero out first and last row
+    for x in 0..width {
+        in_buf[x] = 0;
+        in_buf[(height - 1) * width + x] = 0;
+    }
+    // Zero out first and last column
+    for y in 0..height {
+        in_buf[y * width] = 0;
+        in_buf[y * width + (width - 1)] = 0;
+    }
+
+    let mut out = vec![0u8; width * height * 4];
+
+    for y in 1..(height - 1) {
+        for x in 1..(width - 1) {
+            let is_row_even = (y % 2) == 0;
+            let is_col_even = (x % 2) == 0;
+
+            let idx = y * width + x;
+
+            let center = in_buf[idx];
+
+            let (r, g, b) = if is_row_even && is_col_even {
+                // R pixel
+                let r = center;
+                let g = in_buf[y * width + (x + 1)];
+                let b = in_buf[(y + 1) * width + (x + 1)];
+                (r, g, b)
+            } else if is_row_even && !is_col_even {
+                // G on R row
+                let g = center;
+                let r = in_buf[y * width + (x - 1)];
+                let b = in_buf[(y - 1) * width + x];
+                (r, g, b)
+            } else if !is_row_even && is_col_even {
+                // G on B row
+                let g = center;
+                let r = in_buf[(y - 1) * width + x];
+                let b = in_buf[y * width + (x - 1)];
+                (r, g, b)
+            } else {
+                // B pixel
+                let b = center;
+                let g = in_buf[y * width + (x - 1)];
+                let r = in_buf[(y - 1) * width + (x - 1)];
+                (r, g, b)
+            };
+
+            let base = idx * 4;
+            out[base + 0] = r;
+            out[base + 1] = g;
+            out[base + 2] = b;
+            out[base + 3] = 0xffu8;
+        }
+    }
+
+    out
+}
