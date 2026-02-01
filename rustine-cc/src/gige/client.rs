@@ -1,27 +1,15 @@
 #![allow(dead_code)]
 
-use libc;
+use std::net::{SocketAddrV4, UdpSocket};
 use std::os::unix::io::AsRawFd;
-use std::{
-    net::{SocketAddrV4, UdpSocket},
-    sync::{Arc, Mutex, atomic},
-};
+use std::sync::{Arc, Mutex, atomic};
 
-use crate::gige::{
-    GVCP_CAPABILITIES_REGISTER, GVCP_CONTROL_ACCESS_REGISTER, GVCP_HEARTBEAT_TIMEOUT_REGISTER,
-    GVCP_PORT, GVSPFormat, GVSPPacketStatus, GVSPPayloadType, GVSPPixelFormat, GigECapabilities,
-    GigECommand, GigEDevice, GigEPacket, GigEPacketFlags, GigEPacketType, REQUEST_ID,
-};
+use libc;
 
-use crate::mjpeg::FrameCache;
+use crate::gige::*;
+use crate::mjpeg::*;
 
 use rustine::{Mailbox, io::ByteSliceReader, log};
-
-pub enum ClientCommand {
-    NOP,
-    STARTUP,
-    SHUTDOWN,
-}
 
 struct Connection {
     pub socket: UdpSocket,
@@ -31,8 +19,6 @@ struct Connection {
 
 pub struct GigEClient {
     device: GigEDevice,
-    command_queue: Arc<rustine::Mailbox<ClientCommand>>,
-    stream_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Drop for GigEClient {
@@ -46,15 +32,7 @@ impl GigEClient {
     const CMD_RECV_TIMEOUT_MS: u64 = 100;
 
     pub fn new(device: GigEDevice) -> Self {
-        GigEClient {
-            device,
-            command_queue: rustine::Mailbox::new(Arc::new(rustine::AutoResetEvent::new())),
-            stream_thread: None,
-        }
-    }
-
-    pub fn queue(&self) -> Arc<rustine::Mailbox<ClientCommand>> {
-        Arc::clone(&self.command_queue)
+        GigEClient { device }
     }
 
     pub fn run(
@@ -62,6 +40,7 @@ impl GigEClient {
         image: Arc<rustine::gfx::Image>,
         image_mailbox: Arc<Mailbox<(u32, rustine::io::Image)>>,
         stream_cache: Option<Arc<FrameCache>>,
+        exit_flag: &std::sync::atomic::AtomicBool,
     ) {
         {
             let (device_model, device_serial) = {
@@ -192,7 +171,9 @@ impl GigEClient {
             &control_connection,
             timeout,
             stream_connection,
-        );
+            exit_flag,
+        )
+        .expect("run_acquisition: Unexpected error");
 
         Self::write_register(
             &control_connection,
@@ -312,10 +293,6 @@ impl GigEClient {
         Ok(())
     }
 
-    pub fn start_stream(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-
     fn run_acquisition(
         image: Arc<rustine::gfx::Image>,
         image_mailbox: Arc<Mailbox<(u32, rustine::io::Image)>>,
@@ -323,7 +300,8 @@ impl GigEClient {
         control_connection: &Connection,
         timeout: u32,
         stream_connection: Connection,
-    ) {
+        exit_flag: &std::sync::atomic::AtomicBool,
+    ) -> std::io::Result<()> {
         let mut buf = [0u8; 10_000];
 
         let mut frame_buf: Vec<u8> = Vec::new();
@@ -342,12 +320,15 @@ impl GigEClient {
         let mut demosaic_times = rustine::RingBuffer::<f64>::new(100);
 
         loop {
+            if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(());
+            }
+
             if std::time::Instant::now().saturating_duration_since(heartbeat_time)
                 >= std::time::Duration::from_millis(timeout as u64)
             {
                 heartbeat_time = std::time::Instant::now();
-                Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)
-                    .expect("Failed to read heartbeat timeout");
+                Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
 
                 if let Some((min, max, mean)) = demosaic_times.min_max_mean() {
                     log::info!("Demosaic min: {:?}, max: {:?}, mean: {:?}", min, max, mean);
@@ -361,19 +342,21 @@ impl GigEClient {
                 Ok(recv_len) => {
                     let mut packet_reader = ByteSliceReader::new(&buf[..recv_len]);
 
-                    let _packet_status =
-                        GVSPPacketStatus::from_u16(packet_reader.read_u16_be().unwrap());
+                    let _packet_status = GVSPPacketStatus::from_u16(packet_reader.read_u16_be()?);
+                    if _packet_status != GVSPPacketStatus::SUCCESS {
+                        continue;
+                    }
 
-                    let packet_block = packet_reader.read_u16_be().unwrap();
-                    let packet_info = packet_reader.read_u32_be().unwrap();
+                    let packet_block = packet_reader.read_u16_be()?;
+                    let packet_info = packet_reader.read_u32_be()?;
                     let packet_format =
                         GVSPFormat::from_u8(((packet_info & 0x7F000000) >> 24) as u8);
 
                     let (packet_frame_id, packet_id) = {
                         let has_extended_ids = (packet_info & 0x80000000) != 0;
                         if has_extended_ids {
-                            let frame_id = packet_reader.read_u64_be().unwrap();
-                            let packet_id = packet_reader.read_u32_be().unwrap();
+                            let frame_id = packet_reader.read_u64_be()?;
+                            let packet_id = packet_reader.read_u32_be()?;
                             (frame_id, packet_id as usize)
                         } else {
                             let frame_id = packet_block as u64;
@@ -394,17 +377,17 @@ impl GigEClient {
                             current_frame_start_time = std::time::Instant::now();
                             data_per_packet = None;
 
-                            let _flags = packet_reader.read_u16_be().unwrap();
+                            let _flags = packet_reader.read_u16_be()?;
                             let _payload_type =
-                                GVSPPayloadType::from_u16(packet_reader.read_u16_be().unwrap());
-                            let _timestamp_high = packet_reader.read_u32_be().unwrap();
-                            let _timestamp_low = packet_reader.read_u32_be().unwrap();
+                                GVSPPayloadType::from_u16(packet_reader.read_u16_be()?);
+                            let _timestamp_high = packet_reader.read_u32_be()?;
+                            let _timestamp_low = packet_reader.read_u32_be()?;
                             frame_pixel_format =
-                                GVSPPixelFormat::from_u32(packet_reader.read_u32_be().unwrap());
-                            frame_width = packet_reader.read_u32_be().unwrap();
-                            frame_height = packet_reader.read_u32_be().unwrap();
-                            let _x_offset = packet_reader.read_u32_be().unwrap();
-                            let _y_offset = packet_reader.read_u32_be().unwrap();
+                                GVSPPixelFormat::from_u32(packet_reader.read_u32_be()?);
+                            frame_width = packet_reader.read_u32_be()?;
+                            frame_height = packet_reader.read_u32_be()?;
+                            let _x_offset = packet_reader.read_u32_be()?;
+                            let _y_offset = packet_reader.read_u32_be()?;
 
                             let frame_buf_size = (frame_width
                                 * frame_height
@@ -479,27 +462,28 @@ impl GigEClient {
                             }
                             current_packet_id = packet_id;
 
-                            let payload_data_slice = packet_reader.read_to_end().unwrap();
+                            let payload_data_slice = packet_reader.read_to_end()?;
 
                             if data_per_packet.is_none() {
                                 data_per_packet = Some(payload_data_slice.len());
                             }
 
-                            let write_head = (packet_id - 1) * data_per_packet.unwrap();
+                            let write_head = (packet_id - 1) * data_per_packet.unwrap_or(0);
                             frame_buf[write_head..write_head + payload_data_slice.len()]
                                 .copy_from_slice(payload_data_slice);
                         }
                         _ => {
-                            log::error!("Unknown packet format: {:?}", packet_format);
-                            break;
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "Unknown packet",
+                            ));
                         }
                     }
 
                     continue;
                 }
                 Err(e) => {
-                    log::error!("Failed to receive stream data: {:?}", e);
-                    break;
+                    return Err(e);
                 }
             }
         }

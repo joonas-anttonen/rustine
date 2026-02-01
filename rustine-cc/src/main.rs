@@ -85,6 +85,7 @@ fn main() {
                         a_client_image,
                         a_client_image_mailbox,
                         a_stream_cache,
+                        &SHUTDOWN_FLAG,
                     );
                 });
             }

@@ -72,6 +72,7 @@ pub enum GVSPPacketStatus {
     SUCCESS = 0x0000,
     RESEND = 0x0100,
     PACKET_UNAVAILABLE = 0x800c,
+    UNKNOWN(u16),
 }
 
 impl GVSPPacketStatus {
@@ -80,12 +81,17 @@ impl GVSPPacketStatus {
             0x0000 => GVSPPacketStatus::SUCCESS,
             0x0100 => GVSPPacketStatus::RESEND,
             0x800c => GVSPPacketStatus::PACKET_UNAVAILABLE,
-            _ => panic!("Unknown GVSPPacketStatus: {:#06x}", u),
+            _ => GVSPPacketStatus::UNKNOWN(u),
         }
     }
 
     pub fn to_u16(&self) -> u16 {
-        *self as u16
+        match self {
+            GVSPPacketStatus::SUCCESS => 0x0000,
+            GVSPPacketStatus::RESEND => 0x0100,
+            GVSPPacketStatus::PACKET_UNAVAILABLE => 0x800c,
+            GVSPPacketStatus::UNKNOWN(u) => *u,
+        }
     }
 }
 
@@ -405,7 +411,10 @@ impl std::fmt::Debug for GigECapabilities {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GigECapabilities")
             .field("WRITE_MEMORY", &(self.has(GigECapabilities::WRITE_MEMORY)))
-            .field("PACKET_RESEND", &(self.has(GigECapabilities::PACKET_RESEND)))
+            .field(
+                "PACKET_RESEND",
+                &(self.has(GigECapabilities::PACKET_RESEND)),
+            )
             .field("PENDING_ACK", &(self.has(GigECapabilities::PENDING_ACK)))
             .finish()
     }
