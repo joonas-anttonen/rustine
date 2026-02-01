@@ -80,13 +80,16 @@ fn main() {
                 let a_client_image_mailbox = gui.image_mailbox();
                 let a_stream_cache = Some(Arc::clone(&stream_cache));
                 scope.spawn(|| {
-                    GigEClient::run(
+                    let run_result = GigEClient::run(
                         a_client,
                         a_client_image,
                         a_client_image_mailbox,
                         a_stream_cache,
                         &SHUTDOWN_FLAG,
                     );
+                    if let Err(e) = run_result {
+                        log::error!("GigEClient::run error: {}", e);
+                    }
                 });
             }
 
@@ -148,7 +151,7 @@ impl rustine::gui::Application for MyApplication {
                 w: window_w,
                 h: window_h,
             },
-            rustine::gfx::Fit::FIT_KEEP_ASPECT,
+            rustine::gfx::Fit::FILL_KEEP_ASPECT,
             0xFFFFFFFF,
         );
     }
