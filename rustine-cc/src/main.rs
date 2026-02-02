@@ -11,6 +11,8 @@ use network::IPAdapter;
 mod gige;
 use gige::*;
 
+mod genicam;
+
 mod mjpeg;
 
 static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
@@ -18,6 +20,18 @@ static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 fn main() {
     log::set_current_thread_name("main");
     log::add_listener(log::ConsoleListener::new(true));
+
+    // TESTING XML
+    {
+        let xml_content = std::fs::read_to_string(
+            "/home/jant/projects/rustine/rustine-cc/src/genicam/Lucid Vision Labs_TRI023S-C_222901005.xml",
+        ).unwrap();
+        let gen_features = genicam::fun_name(&xml_content).unwrap();
+        log::info!("Features: {}", gen_features.len());
+        for feat in &gen_features {
+            log::info!("Feature: {:#?}", feat);
+        }
+    }
 
     let mut discovered_devices: Vec<GigEDevice> = Vec::new();
 

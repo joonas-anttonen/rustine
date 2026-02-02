@@ -118,6 +118,43 @@ impl GigEClient {
         }
     }
 
+    fn read_memory(connection: &Connection, address: u32, length: u32) -> std::io::Result<Vec<u8>> {
+        const MAXIMUM_READ_LENGTH: u32 = 512;
+        const READ_ALIGN: u32 = std::mem::size_of::<u32>() as u32;
+
+        let mut io_buffer = [0u8; 1500];
+
+        let mut read_buffer = Vec::with_capacity(length as usize);
+        let read_count = (length + MAXIMUM_READ_LENGTH - 1) / MAXIMUM_READ_LENGTH;
+
+        for ir in 0..read_count {
+            let read_head = ir * MAXIMUM_READ_LENGTH;
+            let read_size = (length - read_head).min(MAXIMUM_READ_LENGTH);
+            let read_size_aligned = (read_size + READ_ALIGN - 1) / READ_ALIGN * READ_ALIGN;
+            let read_offset = address + read_head;
+
+            let mut request_packet_data = [0u8; 8];
+            request_packet_data[..4].copy_from_slice(&read_offset.to_be_bytes());
+            request_packet_data[4..].copy_from_slice(&read_size_aligned.to_be_bytes());
+            let request_packet = GigEPacket::new(
+                GigEPacketType::CMD,
+                GigEPacketFlags::ACK_REQUIRED,
+                GigECommand::READ_MEMORY_CMD,
+                REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
+                &request_packet_data,
+            );
+
+            let response_len =
+                Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
+            let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
+            let mut response_data_reader = ByteSliceReader::new(response_packet.data);
+            response_data_reader.read_u32_be()?;
+            read_buffer.extend_from_slice(response_data_reader.read_to_end()?);
+        }
+
+        Ok(read_buffer)
+    }
+
     fn read_register(connection: &Connection, address: u32) -> std::io::Result<u32> {
         let request_packet_data = address.to_be_bytes();
         let request_packet = GigEPacket::new(
@@ -220,10 +257,31 @@ impl GigEClient {
         const GEV_SCPS_PACKET_SIZE: u32 = 0x0D04;
         const GVSP_RECV_PORT: u16 = 49154;
 
+        const GVCP_XML_URL_SIZE: u32 = 512;
+        const GVCP_XML_0_URL_ADDRESS: u32 = 0x00000200;
+
+        Self::write_register(control_connection, GVCP_CONTROL_ACCESS_REGISTER, 1)?;
+
+        {
+            let xml_url = Self::read_memory(
+                control_connection,
+                GVCP_XML_0_URL_ADDRESS,
+                GVCP_XML_URL_SIZE,
+            )?;
+
+            // Trim trailing null bytes
+            let xml_url = if let Some(pos) = xml_url.iter().position(|&b| b == 0) {
+                &xml_url[..pos]
+            } else {
+                &xml_url
+            };
+
+            log::debug!("XML URL: {:?}", str::from_utf8(&xml_url));
+        }
+
         let heartbeat_timeout =
             Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
         let control_timeout = std::time::Duration::from_millis(heartbeat_timeout as u64 / 2);
-        Self::write_register(control_connection, GVCP_CONTROL_ACCESS_REGISTER, 1)?;
         {
             Self::write_register(control_connection, GEV_SCDA, adapter.address.into())?;
             Self::write_register(
