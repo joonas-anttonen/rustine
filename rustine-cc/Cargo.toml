@@ -3,6 +3,14 @@ name = "rustine-cc"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "rustine_cc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rustine-cc"
+path = "src/main.rs"
+
 [dependencies]
 rustine = { path = "../rustine" }
 libc = "0.2"

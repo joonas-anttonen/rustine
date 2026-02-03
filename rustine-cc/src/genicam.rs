@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 use rustine::log;
 
+mod expression;
+
 #[derive(Debug)]
 pub(crate) struct GenIInfo {
     pub name: String,
