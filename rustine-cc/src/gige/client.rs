@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::net::{SocketAddrV4, UdpSocket};
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex, atomic};
@@ -198,6 +199,19 @@ impl GigEClient {
                     std::io::ErrorKind::NotFound,
                     "AcquisitionStop command not found",
                 ))?;
+
+        let acquisition_frame_rate =
+            genicam
+                .get_feature_by_name("AcquisitionFrameRate")
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "AcquisitionFrameRate feature not found",
+                ))?;
+
+        let acquisition_frame_rate_value =
+            Self::read_number(control_connection, acquisition_frame_rate)?;
+
+        log::warning!("Acquisition FPS: {:?}", acquisition_frame_rate_value);
 
         let heartbeat_timeout =
             Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
@@ -490,29 +504,99 @@ impl GigEClient {
             genicam::GenIType::IntReg(reg) => reg.address,
             _ => {
                 log::error!("{:#?}", command.value);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Unsupported command value type",
-                ));
+                return Self::unsupported("Unsupported command value");
             }
         };
         let value = match &*command.cmd_value {
             &genicam::GenIType::ConstantInteger(int) => int as u32,
             _ => {
                 log::error!("{:#?}", command.cmd_value);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Unsupported command value type",
-                ));
+                return Self::unsupported("Unsupported command value type");
             }
         };
 
         Self::write_register(connection, address, value)
     }
 
-    /*fn resolve_u32(connection: &Connection, value: &genicam::GenType) -> std::io::Result<u32> {
+    fn read_number(
+        connection: &Connection,
+        number_type: &genicam::GenIType,
+    ) -> std::io::Result<f64> {
+        match &number_type {
+            genicam::GenIType::Float(f) => Self::read_float(connection, f),
+            genicam::GenIType::Integer(i) => Self::read_integer(connection, i),
+            genicam::GenIType::IntReg(r) => Self::read_int_reg(connection, r),
+            _ => Self::unsupported(format!("Unsupported number type: {:#?}", number_type)),
+        }
+    }
 
-    }*/
+    fn unsupported<T>(msg: impl Into<String>) -> std::io::Result<T> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            msg.into(),
+        ))
+    }
+
+    fn read_int_reg(
+        connection: &Connection,
+        int_reg_type: &genicam::GenIIntReg,
+    ) -> std::io::Result<f64> {
+        if int_reg_type.length != 4 {
+            return Self::unsupported("Unsupported IntReg length");
+        }
+        if int_reg_type.big_endian == false {
+            return Self::unsupported("Unsupported IntReg endianess");
+        }
+
+        let address = int_reg_type.address;
+
+        let raw_value = Self::read_register(connection, address)?;
+        Ok(raw_value as f64)
+    }
+
+    fn read_float(
+        connection: &Connection,
+        float_type: &genicam::GenIFloat,
+    ) -> std::io::Result<f64> {
+        if let Some(fv) = &float_type.value {
+            return match &**fv {
+                genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
+                _ => Self::unsupported("Unsupported float type value"),
+            };
+        }
+        Self::unsupported("No value in float type")
+    }
+
+    fn read_integer(
+        connection: &Connection,
+        integer_type: &genicam::GenIInteger,
+    ) -> std::io::Result<f64> {
+        if let Some(iv) = &integer_type.value {
+            return match &**iv {
+                genicam::GenIType::IntReg(ireg) => Self::read_int_reg(connection, ireg),
+                genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
+                _ => Self::unsupported("Unsupported integer type value"),
+            };
+        }
+        Self::unsupported("No value in integer type")
+    }
+
+    fn read_converter(
+        connection: &Connection,
+        converter_type: &genicam::GenIConverter,
+    ) -> std::io::Result<f64> {
+        let mut resolved_variables = HashMap::<String, f64>::new();
+
+        for (name, variable) in &converter_type.variables {
+            let value = Self::read_number(connection, variable)?;
+            resolved_variables.insert(name.clone(), value);
+        }
+
+        let value = Self::read_number(connection, &converter_type.value)?;
+        resolved_variables.insert("TO".to_string(), value);
+
+        genicam::evaluate(&converter_type.expression_from, &resolved_variables)
+    }
 
     fn read_memory(connection: &Connection, address: u32, length: u32) -> std::io::Result<Vec<u8>> {
         const MAXIMUM_READ_LENGTH: u32 = 512;

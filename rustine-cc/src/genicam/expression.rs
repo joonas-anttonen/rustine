@@ -209,6 +209,7 @@ fn eval(op: &Op) -> f64 {
     }
 }
 
+/// Evaluates a GenICam expression.
 pub fn evaluate(expression: &str, variables: &HashMap<String, f64>) -> std::io::Result<f64> {
     let tokens = tokenize(expression)?;
     let op = parse(tokens, variables)?;

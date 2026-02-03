@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use rustine::log;
 
 mod expression;
+pub use expression::evaluate;
 
 #[derive(Debug)]
 pub(crate) struct GenIInfo {
@@ -31,6 +32,33 @@ pub(crate) struct GenIBoolean {
 }
 
 #[derive(Debug)]
+pub(crate) struct GenIInteger {
+    pub info: Option<GenIInfo>,
+    pub value: Option<Box<GenIType>>,
+    pub min: Option<Box<GenIType>>,
+    pub max: Option<Box<GenIType>>,
+    pub increment: Option<Box<GenIType>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct GenIFloat {
+    pub info: Option<GenIInfo>,
+    pub value: Option<Box<GenIType>>,
+    pub min: Option<Box<GenIType>>,
+    pub max: Option<Box<GenIType>>,
+    pub increment: Option<Box<GenIType>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct GenIConverter {
+    pub info: Option<GenIInfo>,
+    pub value: Box<GenIType>,
+    pub expression_to: String,
+    pub expression_from: String,
+    pub variables: HashMap<String, Box<GenIType>>,
+}
+
+#[derive(Debug)]
 pub(crate) struct GenICommand {
     pub info: Option<GenIInfo>,
     pub value: Box<GenIType>,
@@ -41,10 +69,10 @@ pub(crate) struct GenICommand {
 pub(crate) enum GenIType {
     Command(GenICommand),
     Boolean(GenIBoolean),
-    Integer,
+    Integer(GenIInteger),
     ConstantInteger(u32),
-    Float,
-    ConstantFloat,
+    Float(GenIFloat),
+    ConstantFloat(f64),
     String,
     ConstantString,
     Enumeration,
@@ -53,7 +81,7 @@ pub(crate) enum GenIType {
     FloatReg,
     StringReg,
     StructReg,
-    Converter,
+    Converter(GenIConverter),
     IntConverter,
     SwissKnife,
     IntSwissKnife,
@@ -100,6 +128,15 @@ impl GenICam {
             }
         }
     }
+
+    /// Attempts to get a feature by its name.
+    ///
+    /// [`None`] if the feature is not found.
+    pub fn get_feature_by_name(&self, name: &str) -> Option<&GenIType> {
+        self.features_map
+            .get(name)
+            .and_then(|&index| self.features.get(index))
+    }
 }
 
 fn node_text_to_u32(node: &roxmltree::Node, radix: u32) -> std::io::Result<u32> {
@@ -136,8 +173,63 @@ fn extract_info(node: &roxmltree::Node) -> Option<GenIInfo> {
     })
 }
 
-fn node_to_type(node: &roxmltree::Node) -> std::io::Result<Box<GenIType>> {
+fn node_to_type(
+    node: &roxmltree::Node,
+    name_to_node: &HashMap<String, roxmltree::Node>,
+) -> std::io::Result<Box<GenIType>> {
     match node.tag_name().name() {
+        "Integer" => {
+            let mut value = None;
+            for cmd_element in node.children() {
+                match cmd_element.tag_name().name() {
+                    "pValue" => {
+                        if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
+                            match node_to_type(&n, &name_to_node) {
+                                Ok(t) => value = Some(t),
+                                Err(e) => {
+                                    log::warning!("Failed to parse pValue: {}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Box::new(GenIType::Integer(GenIInteger {
+                info: extract_info(node),
+                value,
+                min: None,
+                max: None,
+                increment: None,
+            })))
+        }
+        "Float" => {
+            let mut value = None;
+            for cmd_element in node.children() {
+                match cmd_element.tag_name().name() {
+                    "pValue" => {
+                        if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
+                            match node_to_type(&n, &name_to_node) {
+                                Ok(t) => value = Some(t),
+                                Err(e) => {
+                                    log::warning!("Failed to parse pValue: {}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Box::new(GenIType::Float(GenIFloat {
+                info: extract_info(node),
+                value,
+                min: None,
+                max: None,
+                increment: None,
+            })))
+        }
         "IntReg" => {
             let mut address: u32 = 0;
             let mut length: u32 = 0;
@@ -161,7 +253,65 @@ fn node_to_type(node: &roxmltree::Node) -> std::io::Result<Box<GenIType>> {
                 big_endian,
             })))
         }
-        _ => Err(std::io::Error::from(std::io::ErrorKind::Unsupported)),
+        "Converter" => {
+            let mut formula_to = None;
+            let mut formula_from = None;
+            let mut value = None;
+            let mut variables = HashMap::new();
+
+            for child in node.children() {
+                match child.tag_name().name() {
+                    "FormulaTo" => {
+                        formula_to = child.text().and_then(|s| Some(s.to_string()));
+                    }
+                    "FormulaFrom" => {
+                        formula_from = child.text().and_then(|s| Some(s.to_string()));
+                    }
+                    "pValue" => {
+                        if let Some(n) = child.text().and_then(|t| name_to_node.get(t)) {
+                            match node_to_type(&n, name_to_node) {
+                                Ok(t) => value = Some(t),
+                                Err(e) => {
+                                    log::warning!("Failed to parse pValue: {}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    "pVariable" => {
+                        if let Some(n) = child.text().and_then(|t| name_to_node.get(t)) {
+                            match node_to_type(&n, name_to_node) {
+                                Ok(t) => variables.insert(child.text().unwrap().to_string(), t),
+                                Err(e) => {
+                                    log::warning!("Failed to parse pVariable: {}", e);
+                                    continue;
+                                }
+                            };
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if value.is_none() || formula_to.is_none() || formula_from.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Converter node missing required fields",
+                ));
+            }
+
+            Ok(Box::new(GenIType::Converter(GenIConverter {
+                info: extract_info(node),
+                expression_to: formula_to.unwrap(),
+                expression_from: formula_from.unwrap(),
+                value: value.unwrap(),
+                variables,
+            })))
+        }
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            format!("Unsupported node type {}", node.tag_name().name()),
+        )),
     }
 }
 
@@ -208,6 +358,37 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
         let info_name = info.name.clone();
 
         match node.tag_name().name() {
+            "Float" => {
+                if info_name != "AcquisitionFrameRate" {
+                    continue;
+                }
+
+                let mut value = None;
+                for cmd_element in node.children() {
+                    match cmd_element.tag_name().name() {
+                        "pValue" => {
+                            if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
+                                match node_to_type(&n, &name_to_node) {
+                                    Ok(t) => value = Some(t),
+                                    Err(e) => {
+                                        log::warning!("Failed to parse pValue: {}", e);
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                gen_features.push(GenIType::Float(GenIFloat {
+                    info: Some(info),
+                    value,
+                    min: None,
+                    max: None,
+                    increment: None,
+                }));
+                gen_features_map.insert(info_name, gen_features.len() - 1);
+            }
             "Command" => {
                 let mut cmd_value = None;
                 let mut value = None;
@@ -223,7 +404,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                         },
                         "pValue" => {
                             if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                                match node_to_type(&n) {
+                                match node_to_type(&n, &name_to_node) {
                                     Ok(t) => value = Some(t),
                                     Err(e) => {
                                         log::warning!("Failed to parse pValue: {}", e);
