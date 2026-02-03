@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, atomic};
 
 use libc;
 
+use crate::genicam;
 use crate::gige::*;
 use crate::mjpeg::*;
 
@@ -118,128 +119,6 @@ impl GigEClient {
         }
     }
 
-    fn read_memory(connection: &Connection, address: u32, length: u32) -> std::io::Result<Vec<u8>> {
-        const MAXIMUM_READ_LENGTH: u32 = 512;
-        const READ_ALIGN: u32 = std::mem::size_of::<u32>() as u32;
-
-        let mut io_buffer = [0u8; 1500];
-
-        let mut read_buffer = Vec::with_capacity(length as usize);
-        let read_count = (length + MAXIMUM_READ_LENGTH - 1) / MAXIMUM_READ_LENGTH;
-
-        for ir in 0..read_count {
-            let read_head = ir * MAXIMUM_READ_LENGTH;
-            let read_size = (length - read_head).min(MAXIMUM_READ_LENGTH);
-            let read_size_aligned = (read_size + READ_ALIGN - 1) / READ_ALIGN * READ_ALIGN;
-            let read_offset = address + read_head;
-
-            let mut request_packet_data = [0u8; 8];
-            request_packet_data[..4].copy_from_slice(&read_offset.to_be_bytes());
-            request_packet_data[4..].copy_from_slice(&read_size_aligned.to_be_bytes());
-            let request_packet = GigEPacket::new(
-                GigEPacketType::CMD,
-                GigEPacketFlags::ACK_REQUIRED,
-                GigECommand::READ_MEMORY_CMD,
-                REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
-                &request_packet_data,
-            );
-
-            let response_len =
-                Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
-            let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
-            let mut response_data_reader = ByteSliceReader::new(response_packet.data);
-            response_data_reader.read_u32_be()?;
-            read_buffer.extend_from_slice(response_data_reader.read_to_end()?);
-        }
-
-        Ok(read_buffer)
-    }
-
-    fn read_register(connection: &Connection, address: u32) -> std::io::Result<u32> {
-        let request_packet_data = address.to_be_bytes();
-        let request_packet = GigEPacket::new(
-            GigEPacketType::CMD,
-            GigEPacketFlags::ACK_REQUIRED,
-            GigECommand::READ_REGISTER_CMD,
-            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
-            &request_packet_data,
-        );
-
-        let mut io_buffer = [0u8; 1500];
-
-        let response_len = Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
-        let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
-
-        let mut response_data_reader = ByteSliceReader::new(response_packet.data);
-
-        let register_value = response_data_reader.read_u32_be()?;
-        Ok(register_value)
-    }
-
-    fn write_register(connection: &Connection, address: u32, value: u32) -> std::io::Result<()> {
-        let mut request_packet_data = [0u8; 8];
-        request_packet_data[..4].copy_from_slice(&address.to_be_bytes());
-        request_packet_data[4..].copy_from_slice(&value.to_be_bytes());
-
-        let request_packet = GigEPacket::new(
-            GigEPacketType::CMD,
-            GigEPacketFlags::ACK_REQUIRED,
-            GigECommand::WRITE_REGISTER_CMD,
-            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
-            &request_packet_data,
-        );
-
-        let mut io_buffer = [0u8; 1500];
-        Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
-        Ok(())
-    }
-
-    /// Sends a command packet and waits for an ACK response.
-    ///
-    /// Retry count according to `CMD_MAX_RETRIES`.
-    ///
-    /// Timeout according to `CMD_RECV_TIMEOUT_MS`.
-    fn send_cmd_recv_ack(
-        connection: &Connection,
-        send_packet: &GigEPacket,
-        io_buffer: &mut [u8],
-    ) -> std::io::Result<usize> {
-        let mut retries = 0;
-
-        let send_len = send_packet.to_slice(io_buffer)?;
-
-        connection.socket.send(&io_buffer[..send_len])?;
-        connection
-            .socket
-            .set_read_timeout(Some(std::time::Duration::from_millis(
-                Self::CMD_RECV_TIMEOUT_MS,
-            )))?;
-
-        loop {
-            if let Ok(recv_len) = connection.socket.recv(io_buffer) {
-                let recv_packet = GigEPacket::from_slice(&io_buffer[..recv_len])?;
-
-                let is_ack = recv_packet.t == GigEPacketType::ACK;
-                let is_same_request = send_packet.id == recv_packet.id;
-
-                if is_ack && is_same_request {
-                    return Ok(recv_len);
-                }
-
-                // Oh no, received a packet that is not an ACK
-                // or does not match the request ID, try receiving again
-            }
-
-            retries += 1;
-            if retries >= Self::CMD_MAX_RETRIES {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "send_cmd_recv_ack: No ACK received",
-                ));
-            }
-        }
-    }
-
     fn run_connection(
         image: &Arc<rustine::gfx::Image>,
         image_mailbox: &Arc<Mailbox<(u32, rustine::io::Image)>>,
@@ -262,7 +141,7 @@ impl GigEClient {
 
         Self::write_register(control_connection, GVCP_CONTROL_ACCESS_REGISTER, 1)?;
 
-        {
+        let genicam = {
             let xml_url = Self::read_memory(
                 control_connection,
                 GVCP_XML_0_URL_ADDRESS,
@@ -276,8 +155,49 @@ impl GigEClient {
                 &xml_url
             };
 
-            log::debug!("XML URL: {:?}", str::from_utf8(&xml_url));
-        }
+            let xml_url = match str::from_utf8(&xml_url) {
+                Ok(s) => s,
+                Err(e) => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                }
+            };
+
+            // "Local:xxxx.zip;800f3374;12a5d"
+            // Filename;Address;Size
+            let xml_url_parts: Vec<&str> = xml_url.split(';').collect();
+            //let xml_filename = xml_url_parts.get(0).unwrap_or(&"");
+            let xml_address = xml_url_parts.get(1).unwrap_or(&"");
+            let xml_size = xml_url_parts.get(2).unwrap_or(&"");
+
+            let memory_address = u32::from_str_radix(*xml_address, 16)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            let memory_size = u32::from_str_radix(*xml_size, 16)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+            let xml_archive_bytes =
+                Self::read_memory(&control_connection, memory_address, memory_size)?;
+
+            let mut xml_archive = zip::ZipArchive::new(std::io::Cursor::new(xml_archive_bytes))?;
+            let mut file = xml_archive.by_index(0)?;
+            let mut xml_string = String::new();
+            std::io::Read::read_to_string(&mut file, &mut xml_string)?;
+            genicam::parse(&xml_string)?
+        };
+
+        let acquisition_start_cmd =
+            genicam
+                .get_command_by_name("AcquisitionStart")
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "AcquisitionStart command not found",
+                ))?;
+        let acquisition_stop_cmd =
+            genicam
+                .get_command_by_name("AcquisitionStop")
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "AcquisitionStop command not found",
+                ))?;
 
         let heartbeat_timeout =
             Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
@@ -295,7 +215,7 @@ impl GigEClient {
                 stream_connection.local_address.port().into(),
             )?;
         }
-        Self::write_register(control_connection, ACQUISITION_START_REGISTER_ADDRESS, 1)?;
+        Self::issue_command(control_connection, acquisition_start_cmd)?;
         Self::run_acquisition(
             image,
             image_mailbox,
@@ -305,32 +225,9 @@ impl GigEClient {
             stream_connection,
             exit_flag,
         )?;
-        Self::write_register(control_connection, ACQUISITION_STOP_REGISTER_ADDRESS, 1)?;
+        Self::issue_command(control_connection, acquisition_stop_cmd)?;
         Self::write_register(control_connection, GVCP_CONTROL_ACCESS_REGISTER, 0)?;
         Ok(())
-    }
-
-    fn convert_pixels(
-        in_buf: &mut [u8],
-        in_width: usize,
-        in_height: usize,
-        in_format: GVSPPixelFormat,
-    ) -> std::io::Result<Vec<u8>> {
-        match in_format {
-            GVSPPixelFormat::BAYER_RG_8 => {
-                //crate::demosaic_bayer_rg8(in_buf, in_width, in_height)
-                Ok(rustine::io::ffmpeg::demosaic_bayer_rg8(
-                    in_buf,
-                    in_width as u32,
-                    in_height as u32,
-                )
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?)
-            }
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Unsupported pixel format: {:?}", in_format),
-            )),
-        }
     }
 
     fn run_acquisition(
@@ -550,6 +447,191 @@ impl GigEClient {
                         "Unknown packet",
                     ));
                 }
+            }
+        }
+    }
+
+    fn convert_pixels(
+        in_buf: &mut [u8],
+        in_width: usize,
+        in_height: usize,
+        in_format: GVSPPixelFormat,
+    ) -> std::io::Result<Vec<u8>> {
+        match in_format {
+            GVSPPixelFormat::BAYER_RG_8 => {
+                //crate::demosaic_bayer_rg8(in_buf, in_width, in_height)
+                Ok(rustine::io::ffmpeg::demosaic_bayer_rg8(
+                    in_buf,
+                    in_width as u32,
+                    in_height as u32,
+                )
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?)
+            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Unsupported pixel format: {:?}", in_format),
+            )),
+        }
+    }
+
+    /// Issues a GenICam command by writing to the appropriate register.
+    ///
+    /// Fails if the command register is not a simple integer register.
+    ///
+    /// Fails if the command value is not a constant integer.
+    fn issue_command(
+        connection: &Connection,
+        command: &genicam::GenICommand,
+    ) -> std::io::Result<()> {
+        // We don't except Command to be very complex:
+        // Try to extract u32 address, u32 value
+
+        let address = match &*command.value {
+            genicam::GenIType::IntReg(reg) => reg.address,
+            _ => {
+                log::error!("{:#?}", command.value);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Unsupported command value type",
+                ));
+            }
+        };
+        let value = match &*command.cmd_value {
+            &genicam::GenIType::ConstantInteger(int) => int as u32,
+            _ => {
+                log::error!("{:#?}", command.cmd_value);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Unsupported command value type",
+                ));
+            }
+        };
+
+        Self::write_register(connection, address, value)
+    }
+
+    /*fn resolve_u32(connection: &Connection, value: &genicam::GenType) -> std::io::Result<u32> {
+
+    }*/
+
+    fn read_memory(connection: &Connection, address: u32, length: u32) -> std::io::Result<Vec<u8>> {
+        const MAXIMUM_READ_LENGTH: u32 = 512;
+        const READ_ALIGN: u32 = std::mem::size_of::<u32>() as u32;
+
+        let mut io_buffer = [0u8; 1500];
+
+        let mut read_buffer = Vec::with_capacity(length as usize);
+        let read_count = (length + MAXIMUM_READ_LENGTH - 1) / MAXIMUM_READ_LENGTH;
+
+        for ir in 0..read_count {
+            let read_head = ir * MAXIMUM_READ_LENGTH;
+            let read_size = (length - read_head).min(MAXIMUM_READ_LENGTH);
+            let read_size_aligned = (read_size + READ_ALIGN - 1) / READ_ALIGN * READ_ALIGN;
+            let read_offset = address + read_head;
+
+            let mut request_packet_data = [0u8; 8];
+            request_packet_data[..4].copy_from_slice(&read_offset.to_be_bytes());
+            request_packet_data[4..].copy_from_slice(&read_size_aligned.to_be_bytes());
+            let request_packet = GigEPacket::new(
+                GigEPacketType::CMD,
+                GigEPacketFlags::ACK_REQUIRED,
+                GigECommand::READ_MEMORY_CMD,
+                REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
+                &request_packet_data,
+            );
+
+            let response_len =
+                Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
+            let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
+            let mut response_data_reader = ByteSliceReader::new(response_packet.data);
+            response_data_reader.read_u32_be()?;
+            read_buffer.extend_from_slice(response_data_reader.read_to_end()?);
+        }
+
+        Ok(read_buffer)
+    }
+
+    fn read_register(connection: &Connection, address: u32) -> std::io::Result<u32> {
+        let request_packet_data = address.to_be_bytes();
+        let request_packet = GigEPacket::new(
+            GigEPacketType::CMD,
+            GigEPacketFlags::ACK_REQUIRED,
+            GigECommand::READ_REGISTER_CMD,
+            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
+            &request_packet_data,
+        );
+
+        let mut io_buffer = [0u8; 1500];
+
+        let response_len = Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
+        let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
+
+        let mut response_data_reader = ByteSliceReader::new(response_packet.data);
+
+        let register_value = response_data_reader.read_u32_be()?;
+        Ok(register_value)
+    }
+
+    fn write_register(connection: &Connection, address: u32, value: u32) -> std::io::Result<()> {
+        let mut request_packet_data = [0u8; 8];
+        request_packet_data[..4].copy_from_slice(&address.to_be_bytes());
+        request_packet_data[4..].copy_from_slice(&value.to_be_bytes());
+
+        let request_packet = GigEPacket::new(
+            GigEPacketType::CMD,
+            GigEPacketFlags::ACK_REQUIRED,
+            GigECommand::WRITE_REGISTER_CMD,
+            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
+            &request_packet_data,
+        );
+
+        let mut io_buffer = [0u8; 1500];
+        Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
+        Ok(())
+    }
+
+    /// Sends a command packet and waits for an ACK response.
+    ///
+    /// Retry count according to `CMD_MAX_RETRIES`.
+    ///
+    /// Timeout according to `CMD_RECV_TIMEOUT_MS`.
+    fn send_cmd_recv_ack(
+        connection: &Connection,
+        send_packet: &GigEPacket,
+        io_buffer: &mut [u8],
+    ) -> std::io::Result<usize> {
+        let mut retries = 0;
+
+        let send_len = send_packet.to_slice(io_buffer)?;
+
+        connection.socket.send(&io_buffer[..send_len])?;
+        connection
+            .socket
+            .set_read_timeout(Some(std::time::Duration::from_millis(
+                Self::CMD_RECV_TIMEOUT_MS,
+            )))?;
+
+        loop {
+            if let Ok(recv_len) = connection.socket.recv(io_buffer) {
+                let recv_packet = GigEPacket::from_slice(&io_buffer[..recv_len])?;
+
+                let is_ack = recv_packet.t == GigEPacketType::ACK;
+                let is_same_request = send_packet.id == recv_packet.id;
+
+                if is_ack && is_same_request {
+                    return Ok(recv_len);
+                }
+
+                // Oh no, received a packet that is not an ACK
+                // or does not match the request ID, try receiving again
+            }
+
+            retries += 1;
+            if retries >= Self::CMD_MAX_RETRIES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "send_cmd_recv_ack: No ACK received",
+                ));
             }
         }
     }

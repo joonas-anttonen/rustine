@@ -5,15 +5,15 @@ use std::collections::HashMap;
 use rustine::log;
 
 #[derive(Debug)]
-pub(crate) struct GenInfo {
+pub(crate) struct GenIInfo {
     pub name: String,
     pub description: Option<String>,
     pub unit: Option<String>,
 }
 
 #[derive(Debug)]
-pub(crate) struct GenIntReg {
-    pub info: Option<GenInfo>,
+pub(crate) struct GenIIntReg {
+    pub info: Option<GenIInfo>,
     pub address: u32,
     pub length: u32,
     pub signed: bool,
@@ -21,24 +21,24 @@ pub(crate) struct GenIntReg {
 }
 
 #[derive(Debug)]
-pub(crate) struct GenBoolean {
-    pub info: Option<GenInfo>,
-    pub value: Option<Box<GenType>>,
-    pub true_value: Option<Box<GenType>>,
-    pub false_value: Option<Box<GenType>>,
+pub(crate) struct GenIBoolean {
+    pub info: Option<GenIInfo>,
+    pub value: Option<Box<GenIType>>,
+    pub true_value: Option<Box<GenIType>>,
+    pub false_value: Option<Box<GenIType>>,
 }
 
 #[derive(Debug)]
-pub(crate) struct GenCommand {
-    pub info: Option<GenInfo>,
-    pub value: Box<GenType>,
-    pub cmd_value: Box<GenType>,
+pub(crate) struct GenICommand {
+    pub info: Option<GenIInfo>,
+    pub value: Box<GenIType>,
+    pub cmd_value: Box<GenIType>,
 }
 
 #[derive(Debug)]
-pub(crate) enum GenType {
-    Command(GenCommand),
-    Boolean(GenBoolean),
+pub(crate) enum GenIType {
+    Command(GenICommand),
+    Boolean(GenIBoolean),
     Integer,
     ConstantInteger(u32),
     Float,
@@ -46,7 +46,7 @@ pub(crate) enum GenType {
     String,
     ConstantString,
     Enumeration,
-    IntReg(GenIntReg),
+    IntReg(GenIIntReg),
     MaskedIntReg,
     FloatReg,
     StringReg,
@@ -55,6 +55,49 @@ pub(crate) enum GenType {
     IntConverter,
     SwissKnife,
     IntSwissKnife,
+}
+
+pub(crate) struct GenICam {
+    features: Vec<GenIType>,
+    features_map: HashMap<String, usize>,
+}
+
+impl GenICam {
+    pub(crate) fn new(features: Vec<GenIType>, features_map: HashMap<String, usize>) -> Self {
+        Self {
+            features,
+            features_map,
+        }
+    }
+
+    pub fn dump(&self) {
+        for feature in &self.features {
+            log::info!("Feature: {:#?}", feature);
+        }
+    }
+
+    /// Attempts to get a command by its name.
+    ///
+    /// [`None`] if the command is not found or if the feature is not a command.
+    pub fn get_command_by_name(&self, name: &str) -> Option<&GenICommand> {
+        match self
+            .features_map
+            .get(name)
+            .and_then(|&index| self.features.get(index))
+        {
+            Some(gtype) => match gtype {
+                GenIType::Command(cmd) => Some(cmd),
+                _ => {
+                    log::warning!("Feature is not a command: {}", name);
+                    None
+                }
+            },
+            None => {
+                log::warning!("Command not found: {}", name);
+                None
+            }
+        }
+    }
 }
 
 fn node_text_to_u32(node: &roxmltree::Node, radix: u32) -> std::io::Result<u32> {
@@ -69,7 +112,7 @@ fn node_text_to_u32(node: &roxmltree::Node, radix: u32) -> std::io::Result<u32> 
 }
 
 /// Attempts to extract 'GenInfo' from a given XML node.
-fn extract_info(node: &roxmltree::Node) -> Option<GenInfo> {
+fn extract_info(node: &roxmltree::Node) -> Option<GenIInfo> {
     let name = if let Some(name) = node.attribute("Name") {
         name.to_string()
     } else {
@@ -84,14 +127,14 @@ fn extract_info(node: &roxmltree::Node) -> Option<GenInfo> {
         .children()
         .find(|n| n.has_tag_name("Unit"))
         .and_then(|n| n.text());
-    Some(GenInfo {
+    Some(GenIInfo {
         name,
         description: description.map(|d| d.to_string()),
         unit: unit.map(|u| u.to_string()),
     })
 }
 
-fn node_to_type(node: &roxmltree::Node) -> std::io::Result<Box<GenType>> {
+fn node_to_type(node: &roxmltree::Node) -> std::io::Result<Box<GenIType>> {
     match node.tag_name().name() {
         "IntReg" => {
             let mut address: u32 = 0;
@@ -108,7 +151,7 @@ fn node_to_type(node: &roxmltree::Node) -> std::io::Result<Box<GenType>> {
                     _ => {}
                 }
             }
-            Ok(Box::new(GenType::IntReg(GenIntReg {
+            Ok(Box::new(GenIType::IntReg(GenIIntReg {
                 info: extract_info(node),
                 address,
                 length,
@@ -120,7 +163,7 @@ fn node_to_type(node: &roxmltree::Node) -> std::io::Result<Box<GenType>> {
     }
 }
 
-pub(crate) fn fun_name(xml_content: &str) -> std::io::Result<Vec<GenType>> {
+pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
     let doc = match roxmltree::Document::parse(&xml_content) {
         Ok(doc) => doc,
         Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
@@ -148,7 +191,7 @@ pub(crate) fn fun_name(xml_content: &str) -> std::io::Result<Vec<GenType>> {
         }
     }
 
-    let mut gen_features = Vec::<GenType>::new();
+    let mut gen_features = Vec::<GenIType>::new();
     let mut gen_features_map = HashMap::<String, usize>::new();
     for node in register_description.children() {
         if !node.is_element() {
@@ -192,10 +235,10 @@ pub(crate) fn fun_name(xml_content: &str) -> std::io::Result<Vec<GenType>> {
                 }
 
                 let cmd = match (value, cmd_value) {
-                    (Some(value), Some(cmd_value)) => GenType::Command(GenCommand {
+                    (Some(value), Some(cmd_value)) => GenIType::Command(GenICommand {
                         info: Some(info),
                         value: value,
-                        cmd_value: Box::new(GenType::ConstantInteger(cmd_value)),
+                        cmd_value: Box::new(GenIType::ConstantInteger(cmd_value)),
                     }),
                     _ => {
                         log::warning!("Command {} is incomplete", info_name);
@@ -209,5 +252,5 @@ pub(crate) fn fun_name(xml_content: &str) -> std::io::Result<Vec<GenType>> {
         };
     }
 
-    Ok(gen_features)
+    Ok(GenICam::new(gen_features, gen_features_map))
 }

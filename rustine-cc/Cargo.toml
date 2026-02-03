@@ -7,3 +7,4 @@ edition = "2024"
 rustine = { path = "../rustine" }
 libc = "0.2"
 roxmltree = "0.20"
+zip = "7.2.0"

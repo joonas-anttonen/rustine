@@ -21,50 +21,6 @@ pub const GVCP_HEARTBEAT_TIMEOUT_REGISTER: u32 = 0x00000938;
 const GVCP_BROADCAST_ADDR: SocketAddrV4 =
     SocketAddrV4::new(Ipv4Addr::new(255, 255, 255, 255), GVCP_PORT);
 
-/*
-public static class Constants
-{
-    public const int DiscoveryTimeout = 500 * 2000;
-
-    public static class GVCP
-    {
-        public const int Port = 3956;
-
-        public const uint MaximumDataSize = 512;
-
-        public const uint ControlAccessRegister = 0x00000a00;
-        public const uint ControlAccessOn = 1 << 1;
-        public const uint ControlAccessOff = 0;
-        public const uint ControlAccessExclusive = 1 << 0;
-
-        public const uint StreamSourcePortRegister = 0x00000D1C;
-
-        public const uint CapabilitiesRegister = 0x00000934;
-
-        public const uint HeartbeatTimeoutRegister = 0x00000938;
-
-        public const uint TIMESTAMP_CONTROL_ADDRESS = 0x00000944;
-        public const uint TIMESTAMP_LATCHED_VALUE_HIGH_ADDRESS = 0x0000093c;
-        public const uint TIMESTAMP_LATCHED_VALUE_LOW_ADDRESS = 0x00000940;
-
-        public const uint TIMESTAMP_TICK_FREQUENCY_HIGH_ADDRESS = 0x0000093c;
-        public const uint TIMESTAMP_TICK_FREQUENCY_LOW_ADDRESS = 0x00000940;
-
-        public const uint XmlUrl0Address = 0x00000200;
-        public const uint XmlUrl1Address = 0x00000400;
-        public const uint XmlUrlSize = 512;
-
-        public const uint PersistentIPRegister = 0x0000064c;
-        public const uint PersistentSubnetMaskRegister = 0x0000065c;
-        public const uint PersistentDefaultGatewayRegister = 0x0000066c;
-
-        public const uint PersistentIPConfigurationRegister = 0x00000014;
-
-        public const ushort ForceIPPacketDataSize = 56;
-    }
-}
-*/
-
 #[repr(u16)]
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
