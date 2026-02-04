@@ -715,9 +715,9 @@ impl Gfx {
             self.pending_image_uploads.clear();
 
             if let Some(target_frame) = self.target_frame.as_ref() {
-                cmd.layout_barrier(&target_frame, Layout::TRANSFER_SRC);
+                cmd.layout_barrier(target_frame, Layout::TRANSFER_SRC);
                 cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
-                cmd.blit_to_present(&target_frame, present_image, Filter::Linear);
+                cmd.blit_to_present(target_frame, present_image, Filter::Linear);
                 cmd.present_image_barrier(
                     present_image,
                     Layout::TRANSFER_DST,
@@ -764,12 +764,12 @@ impl Gfx {
             }
 
             // Cache the newest frame for rendering, returning any previous frame to the pool.
-            if let Some(mut current_cached) = self.cached_gui_commands.replace(newest) {
-                if self.render_frame_pool.len() < FRAME_POOL_CAPACITY {
-                    // Avoid stale data in the pool.
-                    current_cached.clear();
-                    self.render_frame_pool.push(current_cached);
-                }
+            if let Some(mut current_cached) = self.cached_gui_commands.replace(newest)
+                && self.render_frame_pool.len() < FRAME_POOL_CAPACITY
+            {
+                // Avoid stale data in the pool.
+                current_cached.clear();
+                self.render_frame_pool.push(current_cached);
             }
         } else if self.pending_image_uploads.is_empty() && !self.target_damaged {
             // No work to do, present the previous frame, if available.

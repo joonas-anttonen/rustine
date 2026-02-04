@@ -193,7 +193,7 @@ impl PresentationProvider for SwapchainProvider {
                 1,
                 &self.acquire_fence,
                 vk::VK_TRUE,
-                std::u64::MAX,
+                u64::MAX,
             );
             vk::vkResetFences(self.device.handle(), 1, &self.acquire_fence);
         }

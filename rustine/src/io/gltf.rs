@@ -170,8 +170,8 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
                 match topology {
                     gfx::Topology::Triangles => {
                         let i0 = indices_accessor
-                            .map(|ia| gltf.read_index(ia, i + 0))
-                            .unwrap_or(Ok(i + 0))?;
+                            .map(|ia| gltf.read_index(ia, i))
+                            .unwrap_or(Ok(i))?;
                         let i1 = indices_accessor
                             .map(|ia| gltf.read_index(ia, i + 1))
                             .unwrap_or(Ok(i + 1))?;
@@ -292,7 +292,7 @@ pub fn parse(gltf: Gltf) -> Result<io::Model, std::io::Error> {
 
             let node = io::Node {
                 name: node.name.clone(),
-                transform: transform,
+                transform,
                 mesh: mesh_index,
                 children: node.children.as_ref().unwrap_or(&Vec::new()).clone(),
             };
@@ -377,7 +377,7 @@ impl Gltf {
                     buffer_data[data_start..data_start + 4]
                         .try_into()
                         .unwrap_or([0; 4]),
-                ) as u32),
+                )),
                 _ => Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "Unsupported component type for index",

@@ -484,6 +484,7 @@ pub struct Matrix4<T> {
 }
 
 impl Matrix4<f32> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         m00: f32,
         m01: f32,
@@ -654,6 +655,7 @@ pub struct Matrix3<T> {
 }
 
 impl Matrix3<f32> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         m00: f32,
         m01: f32,
