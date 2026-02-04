@@ -1,10 +1,11 @@
 #![allow(dead_code)]
 
+use libc::{AF_INET, freeifaddrs, getifaddrs, ifaddrs, sockaddr_in};
 use std::ffi::CStr;
 use std::fs;
 use std::net::Ipv4Addr;
 use std::ptr;
-use libc::{freeifaddrs, getifaddrs, ifaddrs, sockaddr_in, AF_INET};
+use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct IPAdapter {
@@ -28,7 +29,11 @@ impl IPAdapter {
             let mut cur = ifap;
             while !cur.is_null() {
                 let ifa = &*cur;
-                if !ifa.ifa_addr.is_null() && (ifa.ifa_addr as *const libc::sockaddr).as_ref().map_or(false, |s| s.sa_family as i32 == AF_INET) {
+                if !ifa.ifa_addr.is_null()
+                    && (ifa.ifa_addr as *const libc::sockaddr)
+                        .as_ref()
+                        .is_none_or(|s| s.sa_family as i32 == AF_INET)
+                {
                     // interface name
                     let name = CStr::from_ptr(ifa.ifa_name).to_string_lossy().into_owned();
 
@@ -102,6 +107,24 @@ pub struct HardwareAddress {
     addr: [u8; 6],
 }
 
+impl std::str::FromStr for HardwareAddress {
+    type Err = std::io::Error;
+
+    fn from_str(s: &str) -> std::io::Result<HardwareAddress> {
+        let s = s.trim();
+        let parts: Vec<&str> = s.split([':', '-']).collect();
+        if parts.len() != HardwareAddress::LENGTH_IN_BYTES {
+            return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+        }
+        let mut a = [0u8; 6];
+        for i in 0..6 {
+            a[i] = u8::from_str_radix(parts[i], 16)
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
+        }
+        Ok(HardwareAddress { addr: a })
+    }
+}
+
 impl HardwareAddress {
     pub const LENGTH_IN_BYTES: usize = 6;
 
@@ -117,19 +140,6 @@ impl HardwareAddress {
         a.copy_from_slice(&slice[0..6]);
         Ok(HardwareAddress { addr: a })
     }
-
-    pub fn from_str(s: &str) -> std::io::Result<HardwareAddress> {
-        let s = s.trim();
-        let parts: Vec<&str> = s.split(|c| c == ':' || c == '-').collect();
-        if parts.len() != HardwareAddress::LENGTH_IN_BYTES {
-            return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
-        }
-        let mut a = [0u8; 6];
-        for i in 0..6 {
-            a[i] = u8::from_str_radix(parts[i], 16).map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
-        }
-        Ok(HardwareAddress { addr: a })
-    }
 }
 
 impl Default for HardwareAddress {
@@ -143,12 +153,7 @@ impl std::fmt::Display for HardwareAddress {
         write!(
             f,
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            self.addr[0],
-            self.addr[1],
-            self.addr[2],
-            self.addr[3],
-            self.addr[4],
-            self.addr[5]
+            self.addr[0], self.addr[1], self.addr[2], self.addr[3], self.addr[4], self.addr[5]
         )
     }
 }

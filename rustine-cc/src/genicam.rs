@@ -87,6 +87,17 @@ pub(crate) enum GenIType {
     IntSwissKnife,
 }
 
+impl GenIType {
+    /// Returns the unit of measurement associated with this type, if any.
+    pub fn get_unit(&self) -> Option<&str> {
+        match self {
+            Self::Integer(i) => i.info.as_ref().and_then(|info| info.unit.as_deref()),
+            Self::Float(f) => f.info.as_ref().and_then(|info| info.unit.as_deref()),
+            _ => None,
+        }
+    }
+}
+
 pub(crate) struct GenICam {
     features: Vec<GenIType>,
     features_map: HashMap<String, usize>,
@@ -184,7 +195,7 @@ fn node_to_type(
                 match cmd_element.tag_name().name() {
                     "pValue" => {
                         if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                            match node_to_type(&n, &name_to_node) {
+                            match node_to_type(&n, name_to_node) {
                                 Ok(t) => value = Some(t),
                                 Err(e) => {
                                     log::warning!("Failed to parse pValue: {}", e);
@@ -210,7 +221,7 @@ fn node_to_type(
                 match cmd_element.tag_name().name() {
                     "pValue" => {
                         if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                            match node_to_type(&n, &name_to_node) {
+                            match node_to_type(n, name_to_node) {
                                 Ok(t) => value = Some(t),
                                 Err(e) => {
                                     log::warning!("Failed to parse pValue: {}", e);
@@ -262,14 +273,14 @@ fn node_to_type(
             for child in node.children() {
                 match child.tag_name().name() {
                     "FormulaTo" => {
-                        formula_to = child.text().and_then(|s| Some(s.to_string()));
+                        formula_to = child.text().map(|s| s.to_string());
                     }
                     "FormulaFrom" => {
-                        formula_from = child.text().and_then(|s| Some(s.to_string()));
+                        formula_from = child.text().map(|s| s.to_string());
                     }
                     "pValue" => {
                         if let Some(n) = child.text().and_then(|t| name_to_node.get(t)) {
-                            match node_to_type(&n, name_to_node) {
+                            match node_to_type(n, name_to_node) {
                                 Ok(t) => value = Some(t),
                                 Err(e) => {
                                     log::warning!("Failed to parse pValue: {}", e);
@@ -280,7 +291,7 @@ fn node_to_type(
                     }
                     "pVariable" => {
                         if let Some(n) = child.text().and_then(|t| name_to_node.get(t)) {
-                            match node_to_type(&n, name_to_node) {
+                            match node_to_type(n, name_to_node) {
                                 Ok(t) => variables.insert(child.text().unwrap().to_string(), t),
                                 Err(e) => {
                                     log::warning!("Failed to parse pVariable: {}", e);
@@ -316,7 +327,7 @@ fn node_to_type(
 }
 
 pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
-    let doc = match roxmltree::Document::parse(&xml_content) {
+    let doc = match roxmltree::Document::parse(xml_content) {
         Ok(doc) => doc,
         Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
     };
@@ -359,16 +370,12 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
 
         match node.tag_name().name() {
             "Float" => {
-                if info_name != "AcquisitionFrameRate" {
-                    continue;
-                }
-
                 let mut value = None;
                 for cmd_element in node.children() {
                     match cmd_element.tag_name().name() {
                         "pValue" => {
                             if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                                match node_to_type(&n, &name_to_node) {
+                                match node_to_type(n, &name_to_node) {
                                     Ok(t) => value = Some(t),
                                     Err(e) => {
                                         log::warning!("Failed to parse pValue: {}", e);
@@ -404,7 +411,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                         },
                         "pValue" => {
                             if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                                match node_to_type(&n, &name_to_node) {
+                                match node_to_type(n, &name_to_node) {
                                     Ok(t) => value = Some(t),
                                     Err(e) => {
                                         log::warning!("Failed to parse pValue: {}", e);
@@ -420,7 +427,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                 let cmd = match (value, cmd_value) {
                     (Some(value), Some(cmd_value)) => GenIType::Command(GenICommand {
                         info: Some(info),
-                        value: value,
+                        value,
                         cmd_value: Box::new(GenIType::ConstantInteger(cmd_value)),
                     }),
                     _ => {

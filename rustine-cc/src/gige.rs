@@ -22,7 +22,7 @@ const GVCP_BROADCAST_ADDR: SocketAddrV4 =
     SocketAddrV4::new(Ipv4Addr::new(255, 255, 255, 255), GVCP_PORT);
 
 #[repr(u16)]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GVSPPacketStatus {
     SUCCESS = 0x0000,
@@ -41,12 +41,12 @@ impl GVSPPacketStatus {
         }
     }
 
-    pub fn to_u16(&self) -> u16 {
+    pub fn to_u16(self) -> u16 {
         match self {
             GVSPPacketStatus::SUCCESS => 0x0000,
             GVSPPacketStatus::RESEND => 0x0100,
             GVSPPacketStatus::PACKET_UNAVAILABLE => 0x800c,
-            GVSPPacketStatus::UNKNOWN(u) => *u,
+            GVSPPacketStatus::UNKNOWN(u) => u,
         }
     }
 }
@@ -72,7 +72,7 @@ impl GVSPFormat {
         Self(u)
     }
 
-    pub fn to_u8(&self) -> u8 {
+    pub fn to_u8(self) -> u8 {
         self.0
     }
 
@@ -82,7 +82,7 @@ impl GVSPFormat {
 }
 
 #[repr(u16)]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GVSPPayloadType {
     IMAGE = 0x0001,
@@ -114,8 +114,8 @@ impl GVSPPayloadType {
         }
     }
 
-    pub fn to_u16(&self) -> u16 {
-        *self as u16
+    pub fn to_u16(self) -> u16 {
+        self as u16
     }
 }
 
@@ -260,13 +260,13 @@ impl GVSPPixelFormat {
         }
     }
 
-    pub fn to_u32(&self) -> u32 {
-        *self as u32
+    pub fn to_u32(self) -> u32 {
+        self as u32
     }
 }
 
 #[repr(u8)]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GigEStatus {
     /// Indicates a successful operation.
@@ -320,8 +320,8 @@ impl GigEStatus {
         }
     }
 
-    pub fn to_u8(&self) -> u8 {
-        *self as u8
+    pub fn to_u8(self) -> u8 {
+        self as u8
     }
 }
 
@@ -419,14 +419,14 @@ impl GigECommand {
         }
     }
 
-    pub fn to_u16(&self) -> u16 {
-        *self as u16
+    pub fn to_u16(self) -> u16 {
+        self as u16
     }
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 pub enum GigEPacketType {
     ACK,
     CMD,
@@ -442,7 +442,7 @@ impl GigEPacketType {
             _ => panic!("Unknown GigEPacketType: {}", u),
         }
     }
-    pub fn to_u8(&self) -> u8 {
+    pub fn to_u8(self) -> u8 {
         match self {
             GigEPacketType::ACK => 0x00,
             GigEPacketType::CMD => 0x42,

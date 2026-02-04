@@ -5,8 +5,6 @@ use std::net::{SocketAddrV4, UdpSocket};
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex, atomic};
 
-use libc;
-
 use crate::genicam;
 use crate::gige::*;
 use crate::mjpeg::*;
@@ -156,7 +154,7 @@ impl GigEClient {
                 &xml_url
             };
 
-            let xml_url = match str::from_utf8(&xml_url) {
+            let xml_url = match str::from_utf8(xml_url) {
                 Ok(s) => s,
                 Err(e) => {
                     return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
@@ -170,13 +168,13 @@ impl GigEClient {
             let xml_address = xml_url_parts.get(1).unwrap_or(&"");
             let xml_size = xml_url_parts.get(2).unwrap_or(&"");
 
-            let memory_address = u32::from_str_radix(*xml_address, 16)
+            let memory_address = u32::from_str_radix(xml_address, 16)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            let memory_size = u32::from_str_radix(*xml_size, 16)
+            let memory_size = u32::from_str_radix(xml_size, 16)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
             let xml_archive_bytes =
-                Self::read_memory(&control_connection, memory_address, memory_size)?;
+                Self::read_memory(control_connection, memory_address, memory_size)?;
 
             let mut xml_archive = zip::ZipArchive::new(std::io::Cursor::new(xml_archive_bytes))?;
             let mut file = xml_archive.by_index(0)?;
@@ -207,11 +205,24 @@ impl GigEClient {
                     std::io::ErrorKind::NotFound,
                     "AcquisitionFrameRate feature not found",
                 ))?;
+        log::warning!(
+            "Acquisition FPS: {:?} {}",
+            Self::read_number(control_connection, acquisition_frame_rate)?,
+            acquisition_frame_rate.get_unit().unwrap_or("")
+        );
 
-        let acquisition_frame_rate_value =
-            Self::read_number(control_connection, acquisition_frame_rate)?;
-
-        log::warning!("Acquisition FPS: {:?}", acquisition_frame_rate_value);
+        let acquisition_exposure_time =
+            genicam
+                .get_feature_by_name("ExposureTime")
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "ExposureTime feature not found",
+                ))?;
+        log::warning!(
+            "Exposure Time: {:?} {}",
+            Self::read_number(control_connection, acquisition_exposure_time)?,
+            acquisition_exposure_time.get_unit().unwrap_or("")
+        );
 
         let heartbeat_timeout =
             Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
@@ -221,7 +232,7 @@ impl GigEClient {
             Self::write_register(
                 control_connection,
                 GEV_SCPS_PACKET_SIZE,
-                adapter.mtu.min(9000).into(),
+                adapter.mtu.min(9000),
             )?;
             Self::write_register(
                 control_connection,
@@ -287,10 +298,7 @@ impl GigEClient {
                 }
             }
 
-            let recv_len = match stream_connection.socket.recv(&mut buf) {
-                Ok(len) => len,
-                Err(e) => return Err(e),
-            };
+            let recv_len = stream_connection.socket.recv(&mut buf)?;
 
             let mut packet_reader = ByteSliceReader::new(&buf[..recv_len]);
 
@@ -312,7 +320,7 @@ impl GigEClient {
                     (frame_id, packet_id as usize)
                 } else {
                     let frame_id = packet_block as u64;
-                    let packet_id = (packet_info & 0x00ffffff) as u32;
+                    let packet_id = packet_info & 0x00ffffff;
                     (frame_id, packet_id as usize)
                 }
             };
@@ -348,17 +356,17 @@ impl GigEClient {
                         as usize;
 
                     if frame_pixel_format != GVSPPixelFormat::BAYER_RG_8 {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Unsupported pixel format: {:?}", frame_pixel_format),
-                        ));
+                        return Err(std::io::Error::other(format!(
+                            "Unsupported pixel format: {:?}",
+                            frame_pixel_format
+                        )));
                     }
 
                     if payload_type != GVSPPayloadType::IMAGE {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Unsupported payload type: {:?}", payload_type),
-                        ));
+                        return Err(std::io::Error::other(format!(
+                            "Unsupported payload type: {:?}",
+                            payload_type
+                        )));
                     }
 
                     if frame_buf.len() != frame_buf_size {
@@ -456,10 +464,7 @@ impl GigEClient {
                         .copy_from_slice(payload_data_slice);
                 }
                 _ => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Unknown packet",
-                    ));
+                    return Err(std::io::Error::other("Unknown packet"));
                 }
             }
         }
@@ -479,12 +484,9 @@ impl GigEClient {
                     in_width as u32,
                     in_height as u32,
                 )
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?)
+                .map_err(std::io::Error::other)?)
             }
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Unsupported pixel format: {:?}", in_format),
-            )),
+            _ => Self::unsupported(format!("Unsupported pixel format: {:?}", in_format)),
         }
     }
 
@@ -508,7 +510,7 @@ impl GigEClient {
             }
         };
         let value = match &*command.cmd_value {
-            &genicam::GenIType::ConstantInteger(int) => int as u32,
+            &genicam::GenIType::ConstantInteger(int) => int,
             _ => {
                 log::error!("{:#?}", command.cmd_value);
                 return Self::unsupported("Unsupported command value type");
@@ -544,7 +546,7 @@ impl GigEClient {
         if int_reg_type.length != 4 {
             return Self::unsupported("Unsupported IntReg length");
         }
-        if int_reg_type.big_endian == false {
+        if !int_reg_type.big_endian {
             return Self::unsupported("Unsupported IntReg endianess");
         }
 
@@ -605,12 +607,12 @@ impl GigEClient {
         let mut io_buffer = [0u8; 1500];
 
         let mut read_buffer = Vec::with_capacity(length as usize);
-        let read_count = (length + MAXIMUM_READ_LENGTH - 1) / MAXIMUM_READ_LENGTH;
+        let read_count = length.div_ceil(MAXIMUM_READ_LENGTH);
 
         for ir in 0..read_count {
             let read_head = ir * MAXIMUM_READ_LENGTH;
             let read_size = (length - read_head).min(MAXIMUM_READ_LENGTH);
-            let read_size_aligned = (read_size + READ_ALIGN - 1) / READ_ALIGN * READ_ALIGN;
+            let read_size_aligned = read_size.div_ceil(READ_ALIGN) * READ_ALIGN;
             let read_offset = address + read_head;
 
             let mut request_packet_data = [0u8; 8];

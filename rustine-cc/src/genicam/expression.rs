@@ -25,6 +25,7 @@ enum Op {
     Mul(Binary),
     Mod(Binary),
     Pow(Binary),
+    Neg(Unary),
     BitwiseNot(Unary),
     BitwiseOr(Binary),
     BitwiseAnd(Binary),
@@ -51,6 +52,7 @@ enum Token {
     Else,
     Add,
     Sub,
+    Neg,
     Div,
     Mul,
     Mod,
@@ -123,7 +125,7 @@ impl Token {
             Token::Add | Token::Sub => 6,
             Token::Mul | Token::Div | Token::Mod => 7,
             Token::Pow => 8,
-            Token::BitwiseNot => 9,
+            Token::Neg | Token::BitwiseNot => 9,
             _ => 1, // Placeholder for other tokens
         }
     }
@@ -138,6 +140,7 @@ fn eval(op: &Op) -> f64 {
         Op::Div(b) => eval(&b.left) / eval(&b.right),
         Op::Mod(b) => eval(&b.left) % eval(&b.right),
         Op::Pow(b) => eval(&b.left).powf(eval(&b.right)),
+        Op::Neg(u) => -eval(&u.operand),
         Op::BitwiseNot(u) => (!(eval(&u.operand) as i64)) as f64,
         Op::BitwiseAnd(b) => ((eval(&b.left) as i64) & (eval(&b.right) as i64)) as f64,
         Op::BitwiseOr(b) => ((eval(&b.left) as i64) | (eval(&b.right) as i64)) as f64,
@@ -245,10 +248,25 @@ fn parse(tokens: Vec<Token>, variables: &HashMap<String, f64>) -> std::io::Resul
         }
     }
 
+    let mut last_was_operand = false; // Track if we just processed an operand
+
     while let Some(token) = tokens.pop_front() {
+        let token = if token == Token::Sub {
+            // Check if this is a unary minus (negation)
+            // It's unary if we haven't just processed an operand
+            if !last_was_operand {
+                Token::Neg
+            } else {
+                Token::Sub
+            }
+        } else {
+            token
+        };
+
         match token {
             Token::Number(n) => {
                 operands.push(Op::Constant(n));
+                last_was_operand = true;
             }
             Token::Identifier(i) => {
                 if let Some(&value) = variables.get(&i) {
@@ -259,9 +277,11 @@ fn parse(tokens: Vec<Token>, variables: &HashMap<String, f64>) -> std::io::Resul
                         format!("Undefined variable: {}", i),
                     ));
                 }
+                last_was_operand = true;
             }
             Token::LeftBracket => {
                 operators.push(Token::LeftBracket);
+                last_was_operand = false;
             }
             Token::RightBracket => {
                 let mut found_left = false;
@@ -276,9 +296,11 @@ fn parse(tokens: Vec<Token>, variables: &HashMap<String, f64>) -> std::io::Resul
                 if !found_left {
                     return Err(invalid_expression());
                 }
+                last_was_operand = true;
             }
             Token::Then => {
                 operators.push(Token::Then);
+                last_was_operand = false;
             }
             Token::Else => {
                 // Pop operators until we find Then
@@ -302,6 +324,7 @@ fn parse(tokens: Vec<Token>, variables: &HashMap<String, f64>) -> std::io::Resul
                 operands.push(condition);
                 operands.push(true_branch);
                 operators.push(Token::Else);
+                last_was_operand = false;
             }
             _ => {
                 // This is an operator
@@ -309,7 +332,10 @@ fn parse(tokens: Vec<Token>, variables: &HashMap<String, f64>) -> std::io::Resul
 
                 // Pop operators with higher or equal precedence (for left-associative)
                 while let Some(stack_op) = operators.last() {
-                    if stack_op.is_special() && *stack_op != Token::BitwiseNot {
+                    if stack_op.is_special()
+                        && *stack_op != Token::BitwiseNot
+                        && *stack_op != Token::Neg
+                    {
                         break;
                     }
 
@@ -336,6 +362,7 @@ fn parse(tokens: Vec<Token>, variables: &HashMap<String, f64>) -> std::io::Resul
                 }
 
                 operators.push(current_op);
+                last_was_operand = false;
             }
         }
     }
@@ -412,6 +439,12 @@ fn make_op(operator: Token, operands: &mut Vec<Op>) -> std::io::Result<Op> {
             Ok(Op::Pow(Binary {
                 left: Box::new(left),
                 right: Box::new(right),
+            }))
+        }
+        Token::Neg => {
+            let operand = pop_operand(operands)?;
+            Ok(Op::Neg(Unary {
+                operand: Box::new(operand),
             }))
         }
         Token::BitwiseNot => {
@@ -532,7 +565,7 @@ fn tokenize(expression: &str) -> std::io::Result<Vec<Token>> {
         }
     }
     fn is_part_base16(c: char) -> bool {
-        c.is_digit(16)
+        c.is_ascii_hexdigit()
     }
     fn is_part_base10(c: char, first: bool) -> bool {
         match c {
@@ -541,7 +574,7 @@ fn tokenize(expression: &str) -> std::io::Result<Vec<Token>> {
             '+' => !first,
             'e' => !first,
             'E' => !first,
-            _ => c.is_digit(10),
+            _ => c.is_ascii_digit(),
         }
     }
 
@@ -623,12 +656,12 @@ fn tokenize(expression: &str) -> std::io::Result<Vec<Token>> {
             }
             '*' => {
                 // Exponentation if next is also '*'
-                if let Some(nc) = chars.front() {
-                    if *nc == '*' {
-                        chars.pop_front();
-                        tokens.push(Token::Pow);
-                        continue;
-                    }
+                if let Some(nc) = chars.front()
+                    && *nc == '*'
+                {
+                    chars.pop_front();
+                    tokens.push(Token::Pow);
+                    continue;
                 }
 
                 tokens.push(Token::Mul);
@@ -644,24 +677,24 @@ fn tokenize(expression: &str) -> std::io::Result<Vec<Token>> {
             }
             '|' => {
                 // Logical OR if next is also '|'
-                if let Some(nc) = chars.front() {
-                    if *nc == '|' {
-                        chars.pop_front();
-                        tokens.push(Token::LogicalOr);
-                        continue;
-                    }
+                if let Some(nc) = chars.front()
+                    && *nc == '|'
+                {
+                    chars.pop_front();
+                    tokens.push(Token::LogicalOr);
+                    continue;
                 }
 
                 tokens.push(Token::BitwiseOr);
             }
             '&' => {
                 // Logical AND if next is also '&'
-                if let Some(nc) = chars.front() {
-                    if *nc == '&' {
-                        chars.pop_front();
-                        tokens.push(Token::LogicalAnd);
-                        continue;
-                    }
+                if let Some(nc) = chars.front()
+                    && *nc == '&'
+                {
+                    chars.pop_front();
+                    tokens.push(Token::LogicalAnd);
+                    continue;
                 }
 
                 tokens.push(Token::BitwiseAnd);
@@ -1127,6 +1160,22 @@ mod tests {
         assert_eq!(result1, expected);
         assert_eq!(result2, expected);
         assert_eq!(result3, expected);
+    }
+
+    #[test]
+    fn test_parse_negation() {
+        let tokens = tokenize("-5").expect("tokenize failed");
+        let vars = HashMap::new();
+        let op = parse(tokens, &vars).expect("parse failed");
+        assert_eq!(eval(&op), -5.0);
+    }
+
+    #[test]
+    fn test_parse_sub_with_negative_number() {
+        let tokens = tokenize("5 - -3").expect("tokenize failed");
+        let vars = HashMap::new();
+        let op = parse(tokens, &vars).expect("parse failed");
+        assert_eq!(eval(&op), 8.0);
     }
 
     #[test]
