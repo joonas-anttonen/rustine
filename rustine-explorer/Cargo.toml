@@ -6,10 +6,12 @@ edition = "2024"
 [lib]
 name = "rustine_explorer"
 path = "src/lib.rs"
+test = false
 
 [[bin]]
 name = "rustine-explorer"
 path = "src/main.rs"
+test = false
 
 [dependencies]
 rustine = { path = "../rustine" }

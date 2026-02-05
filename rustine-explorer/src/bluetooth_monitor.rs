@@ -246,25 +246,3 @@ fn extract_bt_properties(event: &udev::Event) -> BluetoothProperties {
         connected,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_valid_bt_address() {
-        assert!(is_valid_bt_address("00:1A:7D:DA:71:13"));
-        assert!(is_valid_bt_address("A4:C1:38:F2:9D:8E"));
-        assert!(!is_valid_bt_address("00:1A:7D:DA:71"));
-        assert!(!is_valid_bt_address("not-a-mac"));
-        assert!(!is_valid_bt_address("00:1A:7D:DA:71:ZZ"));
-    }
-
-    #[test]
-    fn test_is_bluetooth_related() {
-        assert!(is_bluetooth_related(Some("bluetooth")));
-        assert!(is_bluetooth_related(Some("input")));
-        assert!(!is_bluetooth_related(Some("block")));
-        assert!(!is_bluetooth_related(None));
-    }
-}

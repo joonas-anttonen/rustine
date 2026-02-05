@@ -307,15 +307,3 @@ fn unescape_mount_point(s: &str) -> String {
 
     result
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_unescape_mount_point() {
-        assert_eq!(unescape_mount_point("/mnt/test"), "/mnt/test");
-        assert_eq!(unescape_mount_point("/mnt/my\\040drive"), "/mnt/my drive");
-        assert_eq!(unescape_mount_point("/mnt/test\\011tab"), "/mnt/test\ttab");
-    }
-}

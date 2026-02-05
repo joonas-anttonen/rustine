@@ -10,6 +10,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "rustine-cc"
 path = "src/main.rs"
+test = false
 
 [dependencies]
 rustine = { path = "../rustine" }

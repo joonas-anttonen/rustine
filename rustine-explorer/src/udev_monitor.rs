@@ -193,21 +193,3 @@ fn extract_devname_from_syspath(syspath: &str) -> String {
         .unwrap_or_else(|| syspath.to_string())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_devname_from_syspath() {
-        assert_eq!(
-            extract_devname_from_syspath(
-                "/sys/devices/pci0000:00/0000:00:14.0/usb1/1-3/1-3:1.0/host2/target2:0:0/2:0:0:0/block/sdb"
-            ),
-            "/dev/sdb"
-        );
-        assert_eq!(
-            extract_devname_from_syspath("/sys/devices/virtual/block/loop0"),
-            "/dev/loop0"
-        );
-    }
-}

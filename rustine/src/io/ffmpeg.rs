@@ -482,11 +482,6 @@ impl JpegEncoder {
 /// * `Ok(Vec<u8>)` - RGBA image data (width * height * 4 bytes)
 /// * `Err(String)` - Error description
 ///
-/// # Example
-/// ```ignore
-/// let bayer_data = vec![0u8; 1920 * 1080];
-/// let rgba = demosaic_bayer_rg8(&bayer_data, 1920, 1080)?;
-/// ```
 pub fn demosaic_bayer_rg8(bayer_in: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     let expected_size = (width as usize) * (height as usize);
     if bayer_in.len() < expected_size {

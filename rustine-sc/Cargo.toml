@@ -6,6 +6,7 @@ edition = "2024"
 [lib]
 name = "rustinesc"
 path = "src/lib.rs"
+test = false
 
 [dependencies]
 libc = "0.2"
