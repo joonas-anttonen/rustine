@@ -127,13 +127,9 @@ impl GigEClient {
         control_connection: &Connection,
         stream_connection: &Connection,
     ) -> std::io::Result<()> {
-        // Use hardcoded register addresses for acquisition control for now.
-        const ACQUISITION_START_REGISTER_ADDRESS: u32 = 0x10300004;
-        const ACQUISITION_STOP_REGISTER_ADDRESS: u32 = 0x10300008;
-        const GEV_SCDA: u32 = 0x0D18;
-        const GEV_SCPHOST_PORT: u32 = 0x0D00;
-        const GEV_SCPS_PACKET_SIZE: u32 = 0x0D04;
-        const GVSP_RECV_PORT: u16 = 49154;
+        const STREAM_CHANNEL_DESTINATION_ADDRESS: u32 = 0x0D18;
+        const STREAM_CHANNEL_PORT_HOST: u32 = 0x0D00;
+        const STREAM_CHANNEL_PACKET_SIZE: u32 = 0x0D04;
 
         const GVCP_XML_URL_SIZE: u32 = 512;
         const GVCP_XML_0_URL_ADDRESS: u32 = 0x00000200;
@@ -281,15 +277,19 @@ impl GigEClient {
             Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
         let control_timeout = std::time::Duration::from_millis(heartbeat_timeout as u64 / 2);
         {
-            Self::write_register(control_connection, GEV_SCDA, adapter.address.into())?;
             Self::write_register(
                 control_connection,
-                GEV_SCPS_PACKET_SIZE,
+                STREAM_CHANNEL_DESTINATION_ADDRESS,
+                adapter.address.into(),
+            )?;
+            Self::write_register(
+                control_connection,
+                STREAM_CHANNEL_PACKET_SIZE,
                 adapter.mtu.min(9000),
             )?;
             Self::write_register(
                 control_connection,
-                GEV_SCPHOST_PORT,
+                STREAM_CHANNEL_PORT_HOST,
                 stream_connection.local_address.port().into(),
             )?;
         }
@@ -309,6 +309,7 @@ impl GigEClient {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_acquisition(
         image: &Arc<rustine::gfx::Image>,
         image_mailbox: &Arc<Mailbox<(u32, rustine::io::Image)>>,
@@ -567,25 +568,15 @@ impl GigEClient {
         connection: &Connection,
         command: &genicam::GenICommand,
     ) -> std::io::Result<()> {
-        // We don't except Command to be very complex:
-        // Try to extract u32 address, u32 value
-
         let address = match &*command.value {
             genicam::GenIType::IntReg(reg) => reg.address,
             _ => {
                 log::error!("{:#?}", command.value);
-                return Self::unsupported("Unsupported command value");
-            }
-        };
-        let value = match &*command.cmd_value {
-            &genicam::GenIType::ConstantInteger(int) => int,
-            _ => {
-                log::error!("{:#?}", command.cmd_value);
-                return Self::unsupported("Unsupported command value type");
+                return Self::unsupported("Unsupported command pValue");
             }
         };
 
-        Self::write_register(connection, address, value)
+        Self::write_register(connection, address, command.cmd_value)
     }
 
     fn read_number(

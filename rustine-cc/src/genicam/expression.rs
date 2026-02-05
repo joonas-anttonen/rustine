@@ -33,7 +33,7 @@ enum Op {
     BitwiseShr(Binary),
     LogicalOr(Binary),
     LogicalAnd(Binary),
-    Condition(Condition),
+    Branch(Condition),
     Eq(Binary),
     Ne(Binary),
     Gt(Binary),
@@ -64,7 +64,6 @@ enum Token {
     BitwiseShr,
     LogicalOr,
     LogicalAnd,
-    Condition,
     Eq,
     Ne,
     Gt,
@@ -83,7 +82,6 @@ impl Token {
                 | Token::RightBracket
                 | Token::Then
                 | Token::Else
-                | Token::Condition
                 | Token::Number(_)
                 | Token::Identifier(_)
         )
@@ -202,7 +200,7 @@ fn eval(op: &Op) -> f64 {
                 0.0
             }
         }
-        Op::Condition(c) => {
+        Op::Branch(c) => {
             if eval(&c.condition) != 0.0 {
                 eval(&c.true_branch)
             } else {
@@ -238,7 +236,7 @@ fn parse(tokens: Vec<Token>, variables: &HashMap<String, f64>) -> std::io::Resul
                 let false_branch = pop_operand(operands)?;
                 let true_branch = pop_operand(operands)?;
                 let condition = pop_operand(operands)?;
-                Ok(Op::Condition(Condition {
+                Ok(Op::Branch(Condition {
                     condition: Box::new(condition),
                     true_branch: Box::new(true_branch),
                     false_branch: Box::new(false_branch),
@@ -648,12 +646,17 @@ fn tokenize(expression: &str) -> std::io::Result<Vec<Token>> {
 
         match current {
             ' ' => continue,
-            '+' => {
-                tokens.push(Token::Add);
-            }
-            '-' => {
-                tokens.push(Token::Sub);
-            }
+            '~' => tokens.push(Token::BitwiseNot),
+            '(' => tokens.push(Token::LeftBracket),
+            ')' => tokens.push(Token::RightBracket),
+            '+' => tokens.push(Token::Add),
+            '-' => tokens.push(Token::Sub),
+            '/' => tokens.push(Token::Div),
+            '^' => tokens.push(Token::Pow),
+            '%' => tokens.push(Token::Mod),
+            '=' => tokens.push(Token::Eq),
+            '?' => tokens.push(Token::Then),
+            ':' => tokens.push(Token::Else),
             '*' => {
                 // Exponentation if next is also '*'
                 if let Some(nc) = chars.front()
@@ -665,15 +668,6 @@ fn tokenize(expression: &str) -> std::io::Result<Vec<Token>> {
                 }
 
                 tokens.push(Token::Mul);
-            }
-            '/' => {
-                tokens.push(Token::Div);
-            }
-            '^' => {
-                tokens.push(Token::Pow);
-            }
-            '%' => {
-                tokens.push(Token::Mod);
             }
             '|' => {
                 // Logical OR if next is also '|'
@@ -698,15 +692,6 @@ fn tokenize(expression: &str) -> std::io::Result<Vec<Token>> {
                 }
 
                 tokens.push(Token::BitwiseAnd);
-            }
-            '~' => {
-                tokens.push(Token::BitwiseNot);
-            }
-            '(' => {
-                tokens.push(Token::LeftBracket);
-            }
-            ')' => {
-                tokens.push(Token::RightBracket);
             }
             '<' => {
                 if let Some(nc) = chars.front() {
@@ -749,15 +734,6 @@ fn tokenize(expression: &str) -> std::io::Result<Vec<Token>> {
                 }
                 tokens.push(Token::Gt);
             }
-            '=' => {
-                tokens.push(Token::Eq);
-            }
-            '?' => {
-                tokens.push(Token::Then);
-            }
-            ':' => {
-                tokens.push(Token::Else);
-            }
             _ => {
                 // Handle other characters or return an error
             }
@@ -782,7 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hexadecimal_numbers() {
+    fn hexadecimal_numbers() {
         let result = tokenize("0xffff").expect("tokenize failed");
         let numbers = extract_numbers(&result);
         assert_eq!(numbers, vec![65535.0]);
@@ -797,7 +773,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decimal_integers() {
+    fn decimal_integers() {
         let result = tokenize("1239834").expect("tokenize failed");
         let numbers = extract_numbers(&result);
         assert_eq!(numbers, vec![1239834.0]);
@@ -812,7 +788,7 @@ mod tests {
     }
 
     #[test]
-    fn test_floating_point_numbers() {
+    fn floating_point_numbers() {
         let result = tokenize("1.234").expect("tokenize failed");
         let numbers = extract_numbers(&result);
         assert_eq!(numbers, vec![1.234]);
@@ -827,7 +803,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scientific_notation_positive_exponent() {
+    fn scientific_notation_positive_exponent() {
         let result = tokenize("1e10").expect("tokenize failed");
         let numbers = extract_numbers(&result);
         assert_eq!(numbers, vec![1e10]);
@@ -846,7 +822,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scientific_notation_negative_exponent() {
+    fn scientific_notation_negative_exponent() {
         let result = tokenize("1e-10").expect("tokenize failed");
         let numbers = extract_numbers(&result);
         assert_eq!(numbers, vec![1e-10]);
@@ -861,7 +837,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_numbers() {
+    fn multiple_numbers() {
         let result = tokenize("1.234 0xffff 42 1e-10").expect("tokenize failed");
         let numbers = extract_numbers(&result);
         assert_eq!(numbers, vec![1.234, 65535.0, 42.0, 1e-10]);
@@ -875,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    fn test_arithmetic_operators() {
+    fn arithmetic_operators() {
         let result = tokenize("1 + 2").expect("tokenize failed");
         assert_eq!(
             result,
@@ -908,7 +884,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exponentiation_operators() {
+    fn exponentiation_operators() {
         let result = tokenize("2 ** 3").expect("tokenize failed");
         assert_eq!(
             result,
@@ -923,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bitwise_operators() {
+    fn bitwise_operators() {
         let result = tokenize("a & b").expect("tokenize failed");
         assert_eq!(
             result,
@@ -972,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn test_logical_operators() {
+    fn logical_operators() {
         let result = tokenize("a && b").expect("tokenize failed");
         assert_eq!(
             result,
@@ -995,7 +971,7 @@ mod tests {
     }
 
     #[test]
-    fn test_comparison_operators() {
+    fn comparison_operators() {
         let result = tokenize("a = b").expect("tokenize failed");
         assert_eq!(
             result,
@@ -1058,7 +1034,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parentheses() {
+    fn parentheses() {
         let result = tokenize("(a + b)").expect("tokenize failed");
         assert_eq!(
             result,
@@ -1073,7 +1049,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ternary_conditional() {
+    fn ternary_conditional() {
         let result = tokenize("a ? b : c").expect("tokenize failed");
         assert_eq!(
             result,
@@ -1088,7 +1064,7 @@ mod tests {
     }
 
     #[test]
-    fn test_identifiers() {
+    fn identifiers() {
         let result = tokenize("variable_name").expect("tokenize failed");
         assert_eq!(
             result,
@@ -1103,7 +1079,7 @@ mod tests {
     }
 
     #[test]
-    fn test_complex_expression() {
+    fn complex_expression() {
         let result = tokenize("(a + b) * c - d / 2.5 % 3").expect("tokenize failed");
         assert_eq!(
             result,
@@ -1126,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mixed_operators_and_identifiers() {
+    fn mixed_operators_and_identifiers() {
         let result = tokenize("x * 2 + y >> 1 & ~z").expect("tokenize failed");
         assert_eq!(
             result,
@@ -1146,7 +1122,7 @@ mod tests {
     }
 
     #[test]
-    fn test_whitespace_handling() {
+    fn whitespace_handling() {
         let result1 = tokenize("a+b").expect("tokenize failed");
         let result2 = tokenize("a + b").expect("tokenize failed");
         let result3 = tokenize("a   +   b").expect("tokenize failed");
@@ -1163,7 +1139,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_negation() {
+    fn parse_negation() {
         let tokens = tokenize("-5").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1171,7 +1147,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_sub_with_negative_number() {
+    fn parse_sub_with_negative_number() {
         let tokens = tokenize("5 - -3").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1179,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_simple_constant() {
+    fn parse_simple_constant() {
         let tokens = tokenize("42").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1187,7 +1163,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_simple_addition() {
+    fn parse_simple_addition() {
         let tokens = tokenize("1 + 2").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1195,7 +1171,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_simple_subtraction() {
+    fn parse_simple_subtraction() {
         let tokens = tokenize("5 - 3").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1203,7 +1179,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_simple_multiplication() {
+    fn parse_simple_multiplication() {
         let tokens = tokenize("4 * 2").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1211,7 +1187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_simple_division() {
+    fn parse_simple_division() {
         let tokens = tokenize("10 / 2").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1219,7 +1195,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_precedence_mul_over_add() {
+    fn parse_precedence_mul_over_add() {
         let tokens = tokenize("1 + 2 * 3").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1227,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_precedence_div_over_sub() {
+    fn parse_precedence_div_over_sub() {
         let tokens = tokenize("10 - 6 / 2").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1235,7 +1211,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_left_associativity() {
+    fn parse_left_associativity() {
         let tokens = tokenize("10 - 3 - 2").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1243,7 +1219,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_parentheses() {
+    fn parse_parentheses() {
         let tokens = tokenize("(1 + 2) * 3").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1251,7 +1227,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_nested_parentheses() {
+    fn parse_nested_parentheses() {
         let tokens = tokenize("((1 + 2) * 3) + 4").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1259,7 +1235,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_power_operator() {
+    fn parse_power_operator() {
         let tokens = tokenize("2 ** 3").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1267,7 +1243,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_modulo_operator() {
+    fn parse_modulo_operator() {
         let tokens = tokenize("10 % 3").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1275,7 +1251,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_bitwise_and() {
+    fn parse_bitwise_and() {
         let tokens = tokenize("12 & 10").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1283,7 +1259,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_bitwise_or() {
+    fn parse_bitwise_or() {
         let tokens = tokenize("12 | 10").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1291,7 +1267,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_bitwise_shift_left() {
+    fn parse_bitwise_shift_left() {
         let tokens = tokenize("5 << 2").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1299,7 +1275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_bitwise_shift_right() {
+    fn parse_bitwise_shift_right() {
         let tokens = tokenize("20 >> 2").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1307,7 +1283,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_bitwise_not() {
+    fn parse_bitwise_not() {
         let tokens = tokenize("~5").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1315,7 +1291,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_logical_and() {
+    fn parse_logical_and() {
         let tokens = tokenize("1 && 1").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1327,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_logical_or() {
+    fn parse_logical_or() {
         let tokens = tokenize("0 || 1").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1339,7 +1315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_comparison_equal() {
+    fn parse_comparison_equal() {
         let tokens = tokenize("5 = 5").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1351,7 +1327,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_comparison_not_equal() {
+    fn parse_comparison_not_equal() {
         let tokens = tokenize("5 <> 3").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1363,7 +1339,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_comparison_greater_than() {
+    fn parse_comparison_greater_than() {
         let tokens = tokenize("5 > 3").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1375,7 +1351,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_comparison_less_than() {
+    fn parse_comparison_less_than() {
         let tokens = tokenize("3 < 5").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1387,7 +1363,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_comparison_greater_equal() {
+    fn parse_comparison_greater_equal() {
         let tokens = tokenize("5 >= 5").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1403,7 +1379,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_comparison_less_equal() {
+    fn parse_comparison_less_equal() {
         let tokens = tokenize("3 <= 5").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1419,7 +1395,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ternary_condition_true() {
+    fn parse_ternary_condition_true() {
         let tokens = tokenize("1 ? 42 : 99").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1427,7 +1403,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ternary_condition_false() {
+    fn parse_ternary_condition_false() {
         let tokens = tokenize("0 ? 42 : 99").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1435,7 +1411,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_variable_substitution() {
+    fn parse_variable_substitution() {
         let tokens = tokenize("x + y").expect("tokenize failed");
         let mut vars = HashMap::new();
         vars.insert("x".to_string(), 10.0);
@@ -1445,7 +1421,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_undefined_variable() {
+    fn parse_undefined_variable() {
         let tokens = tokenize("x + y").expect("tokenize failed");
         let vars = HashMap::new();
         let result = parse(tokens, &vars);
@@ -1453,7 +1429,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_complex_expression() {
+    fn parse_complex_expression() {
         let tokens = tokenize("(1 + 2) * 3 - 4 / 2").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1461,7 +1437,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_mixed_operators() {
+    fn parse_mixed_operators() {
         let tokens = tokenize("10 + 5 * 2 - 8 / 4").expect("tokenize failed");
         let vars = HashMap::new();
         let op = parse(tokens, &vars).expect("parse failed");
@@ -1469,7 +1445,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_missing_operand() {
+    fn parse_invalid_missing_operand() {
         let tokens = tokenize("1 +").expect("tokenize failed");
         let vars = HashMap::new();
         let result = parse(tokens, &vars);
@@ -1477,7 +1453,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_unmatched_left_paren() {
+    fn parse_invalid_unmatched_left_paren() {
         let tokens = tokenize("(1 + 2").expect("tokenize failed");
         let vars = HashMap::new();
         let result = parse(tokens, &vars);
@@ -1485,7 +1461,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_unmatched_right_paren() {
+    fn parse_invalid_unmatched_right_paren() {
         let tokens = tokenize("1 + 2)").expect("tokenize failed");
         let vars = HashMap::new();
         let result = parse(tokens, &vars);
@@ -1493,7 +1469,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_empty_expression() {
+    fn parse_invalid_empty_expression() {
         let tokens = tokenize("").expect("tokenize failed");
         let vars = HashMap::new();
         let result = parse(tokens, &vars);
@@ -1501,7 +1477,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_ternary_missing_else() {
+    fn parse_invalid_ternary_missing_else() {
         let tokens = tokenize("1 ? 2").expect("tokenize failed");
         let vars = HashMap::new();
         let result = parse(tokens, &vars);
@@ -1509,7 +1485,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_invalid_ternary_missing_then() {
+    fn parse_invalid_ternary_missing_then() {
         let tokens = tokenize("1 : 2").expect("tokenize failed");
         let vars = HashMap::new();
         let result = parse(tokens, &vars);
