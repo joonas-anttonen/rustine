@@ -569,7 +569,16 @@ impl GigEClient {
         command: &genicam::GenICommand,
     ) -> std::io::Result<()> {
         let address = match &*command.value {
-            genicam::GenIType::IntReg(reg) => reg.address,
+            genicam::GenIType::IntReg(reg) => match *reg.address {
+                genicam::GenIType::ConstantInteger(addr) => addr,
+                _ => {
+                    log::error!(
+                        "Unsupported address type in command value: {:#?}",
+                        reg.address
+                    );
+                    return Self::unsupported("Unsupported command address type");
+                }
+            },
             _ => {
                 log::error!("{:#?}", command.value);
                 return Self::unsupported("Unsupported command pValue");
@@ -621,8 +630,18 @@ impl GigEClient {
         if !int_reg_type.big_endian {
             return Self::unsupported("Unsupported IntReg endianess");
         }
+        let address = match *int_reg_type.address {
+            genicam::GenIType::ConstantInteger(addr) => addr,
+            _ => {
+                log::error!(
+                    "Unsupported address type in IntReg: {:#?}",
+                    int_reg_type.address
+                );
+                return Self::unsupported("Unsupported IntReg address type");
+            }
+        };
 
-        let raw_value = Self::read_register(connection, int_reg_type.address)?;
+        let raw_value = Self::read_register(connection, address)?;
         Ok(raw_value as f64)
     }
 
@@ -637,8 +656,18 @@ impl GigEClient {
         if !int_reg_type.big_endian {
             return Self::unsupported("Unsupported IntReg endianess");
         }
+        let address = match *int_reg_type.address {
+            genicam::GenIType::ConstantInteger(addr) => addr,
+            _ => {
+                log::error!(
+                    "Unsupported address type in IntReg: {:#?}",
+                    int_reg_type.address
+                );
+                return Self::unsupported("Unsupported IntReg address type");
+            }
+        };
 
-        Self::write_register(connection, int_reg_type.address, value as u32)
+        Self::write_register(connection, address, value as u32)
     }
 
     fn read_enumeration<'a>(

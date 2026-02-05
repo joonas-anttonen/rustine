@@ -16,10 +16,20 @@ pub(crate) struct GenIInfo {
 #[derive(Debug)]
 pub(crate) struct GenIIntReg {
     pub info: Option<GenIInfo>,
-    pub address: u32,
+    pub address: Box<GenIType>,
     pub length: u32,
     pub signed: bool,
     pub big_endian: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct GenIStructReg {
+    pub info: Option<GenIInfo>,
+    pub address: u32,
+    pub length: u32,
+    pub big_endian: bool,
+    /// Either a single bit or a range of bits to read.
+    pub value_range: (u32, u32),
 }
 
 #[derive(Debug)]
@@ -99,7 +109,7 @@ pub(crate) enum GenIType {
     MaskedIntReg,
     FloatReg,
     StringReg,
-    StructReg,
+    StructReg(GenIStructReg),
     Converter(GenIConverter),
     IntConverter,
     SwissKnife,
@@ -192,9 +202,10 @@ impl GenICam {
     }
 }
 
-fn node_text_to_u32(node: &roxmltree::Node, radix: u32) -> std::io::Result<u32> {
+fn node_text_to_u32(node: &roxmltree::Node) -> std::io::Result<u32> {
     match node.text() {
         Some(text) => {
+            let radix = if text.starts_with("0x") { 16 } else { 10 };
             let text = text.trim_start_matches("0x");
             u32::from_str_radix(text, radix)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
@@ -221,16 +232,112 @@ fn extract_info(node: &roxmltree::Node) -> Option<GenIInfo> {
     })
 }
 
+fn get_struct_entry(entry_name: &str, node: &roxmltree::Node) -> std::io::Result<GenIType> {
+    let entry = node
+        .children()
+        .find(|c| c.attribute("Name").is_some_and(|n| n == entry_name));
+    if entry.is_none() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("StructEntry {} not found", entry_name),
+        ));
+    }
+    let entry = entry.unwrap();
+
+    /*
+    <StructReg Comment="N273">
+        <pAddress>N277</pAddress>
+        <Length>4</Length>
+        <Endianess>BigEndian</Endianess>
+        <StructEntry Name="N274">
+            <Bit>0</Bit>
+        </StructEntry>
+        <StructEntry Name="N275">
+            <Bit>1</Bit>
+        </StructEntry>
+        <StructEntry Name="N276">
+            <LSB>31</LSB>
+            <MSB>16</MSB>
+        </StructEntry>
+    </StructReg>
+     */
+
+    let mut value_range = None;
+
+    for entry_child in entry.children() {
+        match entry_child.tag_name().name() {
+            "Bit" => {
+                let bit = node_text_to_u32(&entry_child)?;
+                value_range = Some((bit, bit));
+            }
+            "LSB" => {
+                let lsb = node_text_to_u32(&entry_child)?;
+                if let Some((_, some_msb)) = value_range {
+                    value_range = Some((lsb, some_msb));
+                } else {
+                    value_range = Some((lsb, lsb));
+                }
+            }
+            "MSB" => {
+                let msb = node_text_to_u32(&entry_child)?;
+                if let Some((some_lsb, _)) = value_range {
+                    value_range = Some((some_lsb, msb));
+                } else {
+                    value_range = Some((msb, msb));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut address: u32 = 0;
+    let mut length: u32 = 0;
+    let mut big_endian: bool = true;
+
+    for child in node.children() {
+        match child.tag_name().name() {
+            "Address" => address = node_text_to_u32(&child)?,
+            "Length" => length = node_text_to_u32(&child)?,
+            "Endianess" => big_endian = child.text().unwrap_or("BigEndian") == "BigEndian",
+            _ => {}
+        }
+    }
+
+    if value_range.is_none() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} missing required fields", entry_name),
+        ));
+    }
+
+    Ok(GenIType::StructReg(GenIStructReg {
+        info: extract_info(node),
+        address,
+        length,
+        big_endian,
+        value_range: value_range.unwrap(),
+    }))
+}
+
 fn get_required_value(
     node: &roxmltree::Node,
     name_to_node: &HashMap<String, roxmltree::Node>,
 ) -> std::io::Result<GenIType> {
     if let Some(n) = node.text().and_then(|t| name_to_node.get(t)) {
-        node_to_type(n, name_to_node)
+        // Handle cursed special case of StructReg
+        if n.tag_name().name() == "StructReg" {
+            get_struct_entry(node.text().unwrap_or(""), n)
+        } else {
+            node_to_type(n, name_to_node)
+        }
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Missing required value for {}", node.tag_name().name()),
+            format!(
+                "Missing required value for {} {}",
+                node.tag_name().name(),
+                node.attribute("Name").unwrap_or("")
+            ),
         ))
     }
 }
@@ -246,7 +353,7 @@ fn node_to_type(
 
             for child in node.children() {
                 match child.tag_name().name() {
-                    "CommandValue" => cmd_value = Some(node_text_to_u32(&child, 10)?),
+                    "CommandValue" => cmd_value = Some(node_text_to_u32(&child)?),
                     "pValue" => value = Some(get_required_value(&child, name_to_node)?),
                     _ => {}
                 }
@@ -270,7 +377,7 @@ fn node_to_type(
             for child in node.children() {
                 match child.tag_name().name() {
                     "Unit" => unit = child.text().map(|s| s.to_string()),
-                    "Value" => value = Some(get_required_value(&child, name_to_node)?),
+                    "Value" => value = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
                     "pValue" => value = Some(get_required_value(&child, name_to_node)?),
                     _ => {}
                 }
@@ -326,22 +433,25 @@ fn node_to_type(
             }))
         }
         "IntReg" => {
-            let mut address: u32 = 0;
+            let mut address = None;
             let mut length: u32 = 0;
             let mut signed: bool = false;
             let mut big_endian: bool = true;
 
             for child in node.children() {
                 match child.tag_name().name() {
-                    "Address" => address = node_text_to_u32(&child, 16)?,
-                    "Length" => length = node_text_to_u32(&child, 10)?,
+                    "pAddress" => address = Some(get_required_value(&node, name_to_node)?),
+                    "Address" => {
+                        address = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?))
+                    }
+                    "Length" => length = node_text_to_u32(&child)?,
                     "Sign" => signed = child.text().unwrap_or("Unsigned") == "Signed",
                     "Endianess" => big_endian = child.text().unwrap_or("BigEndian") == "BigEndian",
                     _ => {}
                 }
             }
 
-            if address == 0 || length == 0 {
+            if address.is_none() || length == 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
@@ -353,7 +463,7 @@ fn node_to_type(
 
             Ok(GenIType::IntReg(GenIIntReg {
                 info: extract_info(node),
-                address,
+                address: Box::new(address.unwrap()),
                 length,
                 signed,
                 big_endian,
@@ -402,16 +512,17 @@ fn node_to_type(
 
             for child in node.children() {
                 match child.tag_name().name() {
-                    "Value" => value = Some(get_required_value(&child, name_to_node)?),
+                    "Value" => value = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
                     "pValue" => {
                         value = match get_required_value(&child, name_to_node) {
                             Ok(v) => Some(v),
-                            Err(_) => {
+                            Err(e) => {
                                 return Err(std::io::Error::new(
                                     std::io::ErrorKind::InvalidData,
                                     format!(
-                                        "{} missing required fields",
-                                        node.attribute("Name").unwrap_or("")
+                                        "{} missing required fields: {}",
+                                        node.attribute("Name").unwrap_or(""),
+                                        e
                                     ),
                                 ));
                             }
@@ -426,7 +537,7 @@ fn node_to_type(
                                 "EnumEntry missing required fields",
                             ));
                         }
-                        let value = node_text_to_u32(&value_child.unwrap(), 10)?;
+                        let value = node_text_to_u32(&value_child.unwrap())?;
                         names_to_values.insert(name.unwrap().to_string(), value);
                         values_to_names.insert(value, name.unwrap().to_string());
                     }
@@ -477,8 +588,8 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
     }
     let register_description = maybe_register_description.unwrap();
 
-    // Pre-pass: Map names to nodes, we will need efficient lookups later.
-    // XML structure is a flat list of nodes that reference each other by name in no particular order.
+    // Pre-pass: Map top-level names to nodes, we will need efficient lookups later.
+    // XML structure is a (mostly) flat list of nodes that reference each other by name in no particular order.
     let mut name_to_node = HashMap::<String, roxmltree::Node>::new();
     {
         for node in register_description.children() {
@@ -486,13 +597,23 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                 let name = if let Some(name) = node.attribute("Name") {
                     name.to_string()
                 } else {
+                    // Special case:
+                    // <StructReg Comment="XXX">
+                    //     <StructEntry Name="YYY" />
+                    // Map all entry names to the parent StructReg node.
+                    if node.tag_name().name() == "StructReg" {
+                        for child_node in node.children() {
+                            if child_node.tag_name().name() == "StructEntry"
+                                && let Some(entry_name) = child_node.attribute("Name")
+                            {
+                                name_to_node.insert(entry_name.to_string(), node);
+                            }
+                        }
+                    }
+
                     continue;
                 };
                 name_to_node.insert(name, node);
-
-                // Special case: StructReg
-                // Comment attribute is the name of the struct,
-                // individual fields have Name attributes
             }
         }
     }
