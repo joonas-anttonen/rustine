@@ -624,7 +624,9 @@ impl GigEClient {
         connection: &Connection,
         int_reg_type: &genicam::GenIIntReg,
     ) -> std::io::Result<f64> {
-        if int_reg_type.length != 4 {
+        if let genicam::GenIType::ConstantInteger(length) = *int_reg_type.length
+            && length != 4
+        {
             return Self::unsupported("Unsupported IntReg length");
         }
         if !int_reg_type.big_endian {
@@ -650,7 +652,9 @@ impl GigEClient {
         int_reg_type: &genicam::GenIIntReg,
         value: f64,
     ) -> std::io::Result<()> {
-        if int_reg_type.length != 4 {
+        if let genicam::GenIType::ConstantInteger(length) = *int_reg_type.length
+            && length != 4
+        {
             return Self::unsupported("Unsupported IntReg length");
         }
         if !int_reg_type.big_endian {

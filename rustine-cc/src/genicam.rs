@@ -17,7 +17,7 @@ pub(crate) struct GenIInfo {
 pub(crate) struct GenIIntReg {
     pub info: Option<GenIInfo>,
     pub address: Box<GenIType>,
-    pub length: u32,
+    pub length: Box<GenIType>,
     pub signed: bool,
     pub big_endian: bool,
 }
@@ -70,6 +70,13 @@ pub(crate) struct GenIConverter {
 }
 
 #[derive(Debug)]
+pub(crate) struct GenISwissKnife {
+    pub info: Option<GenIInfo>,
+    pub formula: String,
+    pub variables: HashMap<String, Box<GenIType>>,
+}
+
+#[derive(Debug)]
 pub(crate) struct GenICommand {
     pub info: Option<GenIInfo>,
     pub value: Box<GenIType>,
@@ -112,8 +119,7 @@ pub(crate) enum GenIType {
     StructReg(GenIStructReg),
     Converter(GenIConverter),
     IntConverter,
-    SwissKnife,
-    IntSwissKnife,
+    SwissKnife(GenISwissKnife),
 }
 
 impl GenIType {
@@ -128,33 +134,19 @@ impl GenIType {
 }
 
 pub(crate) struct GenICam {
-    features: Vec<GenIType>,
-    features_map: HashMap<String, usize>,
+    features_map: HashMap<String, GenIType>,
 }
 
 impl GenICam {
-    pub(crate) fn new(features: Vec<GenIType>, features_map: HashMap<String, usize>) -> Self {
-        Self {
-            features,
-            features_map,
-        }
-    }
-
-    pub fn dump(&self) {
-        for feature in &self.features {
-            log::info!("Feature: {:#?}", feature);
-        }
+    pub(crate) fn new(features_map: HashMap<String, GenIType>) -> Self {
+        Self { features_map }
     }
 
     /// Attempts to get a command by its name.
     ///
     /// [`None`] if the command is not found or if the feature is not a command.
     pub fn get_command_by_name(&self, name: &str) -> Option<&GenICommand> {
-        match self
-            .features_map
-            .get(name)
-            .and_then(|&index| self.features.get(index))
-        {
+        match self.features_map.get(name) {
             Some(gtype) => match gtype {
                 GenIType::Command(cmd) => Some(cmd),
                 _ => {
@@ -173,11 +165,7 @@ impl GenICam {
     ///
     /// [`None`] if the enumeration is not found or if the feature is not an enumeration.
     pub fn get_enumeration_by_name(&self, name: &str) -> Option<&GenIEnumeration> {
-        match self
-            .features_map
-            .get(name)
-            .and_then(|&index| self.features.get(index))
-        {
+        match self.features_map.get(name) {
             Some(gtype) => match gtype {
                 GenIType::Enumeration(enumeration) => Some(enumeration),
                 _ => {
@@ -196,9 +184,7 @@ impl GenICam {
     ///
     /// [`None`] if the feature is not found.
     pub fn get_feature_by_name(&self, name: &str) -> Option<&GenIType> {
-        self.features_map
-            .get(name)
-            .and_then(|&index| self.features.get(index))
+        self.features_map.get(name)
     }
 }
 
@@ -434,24 +420,25 @@ fn node_to_type(
         }
         "IntReg" => {
             let mut address = None;
-            let mut length: u32 = 0;
+            let mut length = None;
             let mut signed: bool = false;
             let mut big_endian: bool = true;
 
             for child in node.children() {
                 match child.tag_name().name() {
-                    "pAddress" => address = Some(get_required_value(&node, name_to_node)?),
+                    "pAddress" => address = Some(get_required_value(&child, name_to_node)?),
                     "Address" => {
                         address = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?))
                     }
-                    "Length" => length = node_text_to_u32(&child)?,
+                    "pLength" => length = Some(get_required_value(&child, name_to_node)?),
+                    "Length" => length =  Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
                     "Sign" => signed = child.text().unwrap_or("Unsigned") == "Signed",
                     "Endianess" => big_endian = child.text().unwrap_or("BigEndian") == "BigEndian",
                     _ => {}
                 }
             }
 
-            if address.is_none() || length == 0 {
+            if address.is_none() || length.is_none() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
@@ -464,9 +451,39 @@ fn node_to_type(
             Ok(GenIType::IntReg(GenIIntReg {
                 info: extract_info(node),
                 address: Box::new(address.unwrap()),
-                length,
+                length: Box::new(length.unwrap()),
                 signed,
                 big_endian,
+            }))
+        }
+        "SwissKnife" | "IntSwissKnife" => {
+            let mut variables = HashMap::new();
+            let mut formula = None;
+
+            for child in node.children() {
+                match child.tag_name().name() {
+                    "Formula" => formula = child.text().map(|s| s.to_string()),
+                    "pVariable" => {
+                        variables.insert(
+                            child.text().unwrap().to_string(),
+                            Box::new(get_required_value(&child, name_to_node)?),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            if formula.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{} missing required fields", node.tag_name().name()),
+                ));
+            }
+
+            Ok(GenIType::SwissKnife(GenISwissKnife {
+                info: extract_info(node),
+                formula: formula.unwrap(),
+                variables,
             }))
         }
         "Converter" => {
@@ -564,7 +581,11 @@ fn node_to_type(
         }
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
-            format!("Unsupported node type {}", node.tag_name().name()),
+            format!(
+                "Unsupported node type {} {}",
+                node.tag_name().name(),
+                node.attribute("Name").unwrap_or("")
+            ),
         )),
     }
 }
@@ -577,50 +598,11 @@ fn node_to_type(
 /// Unsupported node types or other invalid data will not cause an error.
 ///
 pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
-    let doc = match roxmltree::Document::parse(xml_content) {
-        Ok(doc) => doc,
-        Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
-    };
+    let gen_doc = parse_xml(xml_content)?;
+    let (gen_node, name_to_node) = preprocess_xml(&gen_doc)?;
 
-    let maybe_register_description = doc.root().first_child();
-    if maybe_register_description.is_none() {
-        return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
-    }
-    let register_description = maybe_register_description.unwrap();
-
-    // Pre-pass: Map top-level names to nodes, we will need efficient lookups later.
-    // XML structure is a (mostly) flat list of nodes that reference each other by name in no particular order.
-    let mut name_to_node = HashMap::<String, roxmltree::Node>::new();
-    {
-        for node in register_description.children() {
-            if node.is_element() {
-                let name = if let Some(name) = node.attribute("Name") {
-                    name.to_string()
-                } else {
-                    // Special case:
-                    // <StructReg Comment="XXX">
-                    //     <StructEntry Name="YYY" />
-                    // Map all entry names to the parent StructReg node.
-                    if node.tag_name().name() == "StructReg" {
-                        for child_node in node.children() {
-                            if child_node.tag_name().name() == "StructEntry"
-                                && let Some(entry_name) = child_node.attribute("Name")
-                            {
-                                name_to_node.insert(entry_name.to_string(), node);
-                            }
-                        }
-                    }
-
-                    continue;
-                };
-                name_to_node.insert(name, node);
-            }
-        }
-    }
-
-    let mut gen_features = Vec::<GenIType>::new();
-    let mut gen_features_map = HashMap::<String, usize>::new();
-    for node in register_description.children() {
+    let mut gen_features_map = HashMap::<String, GenIType>::new();
+    for node in gen_node.children() {
         if !node.is_element() {
             continue;
         }
@@ -645,8 +627,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                         continue;
                     }
                 };
-                gen_features.push(integer);
-                gen_features_map.insert(info_name, gen_features.len() - 1);
+                gen_features_map.insert(info_name, integer);
             }
             "Float" => {
                 let float = match node_to_type(&node, &name_to_node) {
@@ -660,8 +641,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                         continue;
                     }
                 };
-                gen_features.push(float);
-                gen_features_map.insert(info_name, gen_features.len() - 1);
+                gen_features_map.insert(info_name, float);
             }
             "Enumeration" => {
                 let enumeration = match node_to_type(&node, &name_to_node) {
@@ -675,8 +655,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                         continue;
                     }
                 };
-                gen_features.push(enumeration);
-                gen_features_map.insert(info_name, gen_features.len() - 1);
+                gen_features_map.insert(info_name, enumeration);
             }
             "Command" => {
                 let cmd = match node_to_type(&node, &name_to_node) {
@@ -690,12 +669,98 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                         continue;
                     }
                 };
-                gen_features.push(cmd);
-                gen_features_map.insert(info_name, gen_features.len() - 1);
+                gen_features_map.insert(info_name, cmd);
             }
             _ => {}
         };
     }
 
-    Ok(GenICam::new(gen_features, gen_features_map))
+    Ok(GenICam::new(gen_features_map))
+}
+
+fn preprocess_xml<'a>(
+    doc: &'a roxmltree::Document<'a>,
+) -> std::io::Result<(
+    roxmltree::Node<'a, 'a>,
+    HashMap<String, roxmltree::Node<'a, 'a>>,
+)> {
+    let maybe_register_description = doc.root().first_child();
+    if maybe_register_description.is_none() {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
+    }
+    let genicam_node = maybe_register_description.unwrap();
+    if genicam_node.tag_name().name() != "RegisterDescription" {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
+    }
+    let mut name_to_node = HashMap::<String, roxmltree::Node>::new();
+    {
+        for node in genicam_node.children() {
+            if node.is_element() {
+                let name = if let Some(name) = node.attribute("Name") {
+                    name.to_string()
+                } else {
+                    // Special case:
+                    // <StructReg Comment="XXX">
+                    //     <StructEntry Name="YYY" />
+                    // Map all entry names to the parent StructReg node.
+                    if node.tag_name().name() == "StructReg" {
+                        for child_node in node.children() {
+                            if child_node.tag_name().name() == "StructEntry"
+                                && let Some(entry_name) = child_node.attribute("Name")
+                            {
+                                name_to_node.insert(entry_name.to_string(), node);
+                            }
+                        }
+                    }
+
+                    continue;
+                };
+                name_to_node.insert(name, node);
+            }
+        }
+    }
+    Ok((genicam_node, name_to_node))
+}
+
+fn parse_xml(xml_content: &str) -> std::io::Result<roxmltree::Document<'_>> {
+    roxmltree::Document::parse(xml_content)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn intreg_paddress_into_intswissknife() {
+        let xml = r#"
+        <RegisterDescription>
+            <IntReg Name="N1">
+                <pAddress>N2</pAddress>
+                <Length>4</Length>
+                <Sign>Unsigned</Sign>
+                <Endianess>BigEndian</Endianess>
+            </IntReg>
+            <IntSwissKnife Name="N2">
+                <pVariable Name="V1">N3</pVariable>
+                <Formula>1000000000 / V1</Formula>
+            </IntSwissKnife>
+            <IntReg Name="N3">
+                <Address>0x0</Address>
+                <Length>4</Length>
+                <Sign>Unsigned</Sign>
+                <Endianess>BigEndian</Endianess>
+            </IntReg>
+        </RegisterDescription>
+        "#;
+
+        let gen_doc = parse_xml(xml).unwrap();
+        let (gen_node, name_to_node) = preprocess_xml(&gen_doc).unwrap();
+
+        let parse_result = node_to_type(&gen_node.first_element_child().unwrap(), &name_to_node);
+        if let Err(e) = &parse_result {
+            eprintln!("{:?}", e);
+        }
+        assert!(parse_result.is_ok());
+    }
 }
