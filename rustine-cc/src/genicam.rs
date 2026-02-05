@@ -34,7 +34,7 @@ pub(crate) struct GenIBoolean {
 #[derive(Debug)]
 pub(crate) struct GenIInteger {
     pub info: Option<GenIInfo>,
-    pub value: Option<Box<GenIType>>,
+    pub value: Box<GenIType>,
     pub min: Option<Box<GenIType>>,
     pub max: Option<Box<GenIType>>,
     pub increment: Option<Box<GenIType>>,
@@ -43,7 +43,7 @@ pub(crate) struct GenIInteger {
 #[derive(Debug)]
 pub(crate) struct GenIFloat {
     pub info: Option<GenIInfo>,
-    pub value: Option<Box<GenIType>>,
+    pub value: Box<GenIType>,
     pub min: Option<Box<GenIType>>,
     pub max: Option<Box<GenIType>>,
     pub increment: Option<Box<GenIType>>,
@@ -56,6 +56,26 @@ pub(crate) struct GenIConverter {
     pub expression_to: String,
     pub expression_from: String,
     pub variables: HashMap<String, Box<GenIType>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct GenIEnumeration {
+    pub info: Option<GenIInfo>,
+    pub value: Box<GenIType>,
+    pub names_to_values: HashMap<String, u32>,
+    pub values_to_names: HashMap<u32, String>,
+}
+
+impl GenIEnumeration {
+    //pub fn get_name
+
+    pub fn name_to_value(&self, name: &str) -> Option<u32> {
+        self.names_to_values.get(name).copied()
+    }
+
+    pub fn value_to_name(&self, value: u32) -> Option<&str> {
+        self.values_to_names.get(&value).map(|s| s.as_str())
+    }
 }
 
 #[derive(Debug)]
@@ -75,7 +95,7 @@ pub(crate) enum GenIType {
     ConstantFloat(f64),
     String,
     ConstantString,
-    Enumeration,
+    Enumeration(GenIEnumeration),
     IntReg(GenIIntReg),
     MaskedIntReg,
     FloatReg,
@@ -140,6 +160,29 @@ impl GenICam {
         }
     }
 
+    /// Attempts to get an enumeration by its name.
+    ///
+    /// [`None`] if the enumeration is not found or if the feature is not an enumeration.
+    pub fn get_enumeration_by_name(&self, name: &str) -> Option<&GenIEnumeration> {
+        match self
+            .features_map
+            .get(name)
+            .and_then(|&index| self.features.get(index))
+        {
+            Some(gtype) => match gtype {
+                GenIType::Enumeration(enumeration) => Some(enumeration),
+                _ => {
+                    log::warning!("Feature is not an enumeration: {}", name);
+                    None
+                }
+            },
+            None => {
+                log::warning!("Enumeration not found: {}", name);
+                None
+            }
+        }
+    }
+
     /// Attempts to get a feature by its name.
     ///
     /// [`None`] if the feature is not found.
@@ -184,62 +227,100 @@ fn extract_info(node: &roxmltree::Node) -> Option<GenIInfo> {
     })
 }
 
+fn get_required_value(
+    node: &roxmltree::Node,
+    name_to_node: &HashMap<String, roxmltree::Node>,
+) -> std::io::Result<GenIType> {
+    if let Some(n) = node.text().and_then(|t| name_to_node.get(t)) {
+        node_to_type(&n, name_to_node)
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Missing required value for {}", node.tag_name().name()),
+        ))
+    }
+}
+
 fn node_to_type(
     node: &roxmltree::Node,
     name_to_node: &HashMap<String, roxmltree::Node>,
-) -> std::io::Result<Box<GenIType>> {
+) -> std::io::Result<GenIType> {
     match node.tag_name().name() {
-        "Integer" => {
+        "Command" => {
+            let mut cmd_value = None;
             let mut value = None;
-            for cmd_element in node.children() {
-                match cmd_element.tag_name().name() {
+
+            for child in node.children() {
+                match child.tag_name().name() {
+                    "CommandValue" => {
+                        cmd_value = Some(node_text_to_u32(&child, 10)?);
+                    }
                     "pValue" => {
-                        if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                            match node_to_type(&n, name_to_node) {
-                                Ok(t) => value = Some(t),
-                                Err(e) => {
-                                    log::warning!("Failed to parse pValue: {}", e);
-                                    continue;
-                                }
-                            }
-                        }
+                        value = Some(get_required_value(&child, &name_to_node)?);
                     }
                     _ => {}
                 }
             }
-            Ok(Box::new(GenIType::Integer(GenIInteger {
+
+            match (value, cmd_value) {
+                (Some(value), Some(cmd_value)) => Ok(GenIType::Command(GenICommand {
+                    info: extract_info(node),
+                    value: Box::new(value),
+                    cmd_value: Box::new(GenIType::ConstantInteger(cmd_value)),
+                })),
+                _ => Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Converter node missing required fields",
+                )),
+            }
+        }
+        "Integer" => {
+            let mut value = None;
+            for child in node.children() {
+                match child.tag_name().name() {
+                    "pValue" => {
+                        value = Some(get_required_value(&child, name_to_node)?);
+                    }
+                    _ => {}
+                }
+            }
+
+            if value.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "{} missing required fields",
+                        node.attribute("Name").unwrap_or("")
+                    ),
+                ));
+            }
+
+            Ok(GenIType::Integer(GenIInteger {
                 info: extract_info(node),
-                value,
+                value: Box::new(value.unwrap()),
                 min: None,
                 max: None,
                 increment: None,
-            })))
+            }))
         }
         "Float" => {
             let mut value = None;
-            for cmd_element in node.children() {
-                match cmd_element.tag_name().name() {
+            for child in node.children() {
+                match child.tag_name().name() {
                     "pValue" => {
-                        if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                            match node_to_type(n, name_to_node) {
-                                Ok(t) => value = Some(t),
-                                Err(e) => {
-                                    log::warning!("Failed to parse pValue: {}", e);
-                                    continue;
-                                }
-                            }
-                        }
+                        value = Some(get_required_value(&child, name_to_node)?);
                     }
                     _ => {}
                 }
             }
-            Ok(Box::new(GenIType::Float(GenIFloat {
+
+            Ok(GenIType::Float(GenIFloat {
                 info: extract_info(node),
-                value,
+                value: Box::new(value.unwrap()),
                 min: None,
                 max: None,
                 increment: None,
-            })))
+            }))
         }
         "IntReg" => {
             let mut address: u32 = 0;
@@ -256,13 +337,13 @@ fn node_to_type(
                     _ => {}
                 }
             }
-            Ok(Box::new(GenIType::IntReg(GenIIntReg {
+            Ok(GenIType::IntReg(GenIIntReg {
                 info: extract_info(node),
                 address,
                 length,
                 signed,
                 big_endian,
-            })))
+            }))
         }
         "Converter" => {
             let mut formula_to = None;
@@ -279,26 +360,13 @@ fn node_to_type(
                         formula_from = child.text().map(|s| s.to_string());
                     }
                     "pValue" => {
-                        if let Some(n) = child.text().and_then(|t| name_to_node.get(t)) {
-                            match node_to_type(n, name_to_node) {
-                                Ok(t) => value = Some(t),
-                                Err(e) => {
-                                    log::warning!("Failed to parse pValue: {}", e);
-                                    continue;
-                                }
-                            }
-                        }
+                        value = Some(get_required_value(&child, name_to_node)?);
                     }
                     "pVariable" => {
-                        if let Some(n) = child.text().and_then(|t| name_to_node.get(t)) {
-                            match node_to_type(n, name_to_node) {
-                                Ok(t) => variables.insert(child.text().unwrap().to_string(), t),
-                                Err(e) => {
-                                    log::warning!("Failed to parse pVariable: {}", e);
-                                    continue;
-                                }
-                            };
-                        }
+                        variables.insert(
+                            child.text().unwrap().to_string(),
+                            Box::new(get_required_value(&child, name_to_node)?),
+                        );
                     }
                     _ => {}
                 }
@@ -311,13 +379,71 @@ fn node_to_type(
                 ));
             }
 
-            Ok(Box::new(GenIType::Converter(GenIConverter {
+            Ok(GenIType::Converter(GenIConverter {
                 info: extract_info(node),
                 expression_to: formula_to.unwrap(),
                 expression_from: formula_from.unwrap(),
-                value: value.unwrap(),
+                value: Box::new(value.unwrap()),
                 variables,
-            })))
+            }))
+        }
+        "Enumeration" => {
+            let mut value = None;
+            let mut names_to_values = HashMap::new();
+            let mut values_to_names = HashMap::new();
+
+            for child in node.children() {
+                match child.tag_name().name() {
+                    "Value" => {
+                        value = Some(get_required_value(&child, name_to_node)?);
+                    }
+                    "pValue" => {
+                        value = match get_required_value(&child, name_to_node) {
+                            Ok(v) => Some(v),
+                            Err(_) => {
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    format!(
+                                        "{} missing required fields",
+                                        node.attribute("Name").unwrap_or("")
+                                    ),
+                                ));
+                            }
+                        };
+                    }
+                    "EnumEntry" => {
+                        let name = child.attribute("Name");
+                        let value_child = child.children().find(|c| c.tag_name().name() == "Value");
+                        if value_child.is_none() || name.is_none() {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "EnumEntry missing required fields",
+                            ));
+                        }
+                        let value = node_text_to_u32(&value_child.unwrap(), 10)?;
+                        names_to_values.insert(name.unwrap().to_string(), value);
+                        values_to_names.insert(value, name.unwrap().to_string());
+                    }
+                    _ => {}
+                }
+            }
+
+            if value.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "{} missing required fields",
+                        node.attribute("Name").unwrap_or("")
+                    ),
+                ));
+            }
+
+            Ok(GenIType::Enumeration(GenIEnumeration {
+                info: extract_info(node),
+                value: Box::new(value.unwrap()),
+                names_to_values,
+                values_to_names,
+            }))
         }
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
@@ -350,6 +476,10 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                     continue;
                 };
                 name_to_node.insert(name, node);
+
+                // Special case: StructReg
+                // Comment attribute is the name of the struct,
+                // individual fields have Name attributes
             }
         }
     }
@@ -369,69 +499,44 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
         let info_name = info.name.clone();
 
         match node.tag_name().name() {
-            "Float" => {
-                let mut value = None;
-                for cmd_element in node.children() {
-                    match cmd_element.tag_name().name() {
-                        "pValue" => {
-                            if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                                match node_to_type(n, &name_to_node) {
-                                    Ok(t) => value = Some(t),
-                                    Err(e) => {
-                                        log::warning!("Failed to parse pValue: {}", e);
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
+            "Integer" => {
+                let integer = match node_to_type(&node, &name_to_node) {
+                    Ok(feature) => feature,
+                    Err(e) => {
+                        log::warning!("Failed to parse Integer: {}", e);
+                        continue;
                     }
-                }
-                gen_features.push(GenIType::Float(GenIFloat {
-                    info: Some(info),
-                    value,
-                    min: None,
-                    max: None,
-                    increment: None,
-                }));
+                };
+                gen_features.push(integer);
+                gen_features_map.insert(info_name, gen_features.len() - 1);
+            }
+            "Float" => {
+                let float = match node_to_type(&node, &name_to_node) {
+                    Ok(feature) => feature,
+                    Err(e) => {
+                        log::warning!("Failed to parse Float: {}", e);
+                        continue;
+                    }
+                };
+                gen_features.push(float);
+                gen_features_map.insert(info_name, gen_features.len() - 1);
+            }
+            "Enumeration" => {
+                let enumeration = match node_to_type(&node, &name_to_node) {
+                    Ok(enumeration) => enumeration,
+                    Err(e) => {
+                        log::warning!("Failed to parse Enumeration: {}", e);
+                        continue;
+                    }
+                };
+                gen_features.push(enumeration);
                 gen_features_map.insert(info_name, gen_features.len() - 1);
             }
             "Command" => {
-                let mut cmd_value = None;
-                let mut value = None;
-
-                for cmd_element in node.children() {
-                    match cmd_element.tag_name().name() {
-                        "CommandValue" => match node_text_to_u32(&cmd_element, 10) {
-                            Ok(val) => cmd_value = Some(val),
-                            Err(e) => {
-                                log::warning!("Failed to parse CommandValue: {}", e);
-                                continue;
-                            }
-                        },
-                        "pValue" => {
-                            if let Some(n) = cmd_element.text().and_then(|t| name_to_node.get(t)) {
-                                match node_to_type(n, &name_to_node) {
-                                    Ok(t) => value = Some(t),
-                                    Err(e) => {
-                                        log::warning!("Failed to parse pValue: {}", e);
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                let cmd = match (value, cmd_value) {
-                    (Some(value), Some(cmd_value)) => GenIType::Command(GenICommand {
-                        info: Some(info),
-                        value,
-                        cmd_value: Box::new(GenIType::ConstantInteger(cmd_value)),
-                    }),
-                    _ => {
-                        log::warning!("Command {} is incomplete", info_name);
+                let cmd = match node_to_type(&node, &name_to_node) {
+                    Ok(cmd) => cmd,
+                    Err(e) => {
+                        log::warning!("Failed to parse Command: {}", e);
                         continue;
                     }
                 };

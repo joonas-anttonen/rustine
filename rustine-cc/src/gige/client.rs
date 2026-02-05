@@ -198,7 +198,7 @@ impl GigEClient {
                     "AcquisitionStop command not found",
                 ))?;
 
-        let acquisition_frame_rate =
+        let frame_rate =
             genicam
                 .get_feature_by_name("AcquisitionFrameRate")
                 .ok_or(std::io::Error::new(
@@ -207,11 +207,11 @@ impl GigEClient {
                 ))?;
         log::warning!(
             "Acquisition FPS: {:?} {}",
-            Self::read_number(control_connection, acquisition_frame_rate)?,
-            acquisition_frame_rate.get_unit().unwrap_or("")
+            Self::read_number(control_connection, frame_rate)?,
+            frame_rate.get_unit().unwrap_or("")
         );
 
-        let acquisition_exposure_time =
+        let exposure_time =
             genicam
                 .get_feature_by_name("ExposureTime")
                 .ok_or(std::io::Error::new(
@@ -220,8 +220,61 @@ impl GigEClient {
                 ))?;
         log::warning!(
             "Exposure Time: {:?} {}",
-            Self::read_number(control_connection, acquisition_exposure_time)?,
-            acquisition_exposure_time.get_unit().unwrap_or("")
+            Self::read_number(control_connection, exposure_time)?,
+            exposure_time.get_unit().unwrap_or("")
+        );
+
+        let exposure_auto =
+            genicam
+                .get_enumeration_by_name("ExposureAuto")
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "ExposureAuto enumeration not found",
+                ))?;
+        let exposure_auto_limit = genicam
+            .get_enumeration_by_name("ExposureAutoLimitAuto")
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "ExposureAutoLimitAuto enumeration not found",
+            ))?;
+        let exposure_target_brightness =
+            genicam
+                .get_feature_by_name("TargetBrightness")
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "TargetBrightness feature not found",
+                ))?;
+
+        Self::write_number(control_connection, exposure_target_brightness, 64.0)?;
+        Self::write_enumeration(control_connection, exposure_auto, "Continuous")?;
+
+        log::warning!(
+            "Exposure Auto: {:?} Limit: {:?} Target Brightness: {:?}",
+            Self::read_enumeration(control_connection, exposure_auto)?,
+            Self::read_enumeration(control_connection, exposure_auto_limit)?,
+            Self::read_number(control_connection, exposure_target_brightness)?
+        );
+
+        let gain = genicam
+            .get_feature_by_name("Gain")
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Gain feature not found",
+            ))?;
+        let gain_auto = genicam
+            .get_enumeration_by_name("GainAuto")
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "GainAuto feature not found",
+            ))?;
+
+        Self::write_enumeration(control_connection, gain_auto, "Continuous")?;
+
+        log::warning!(
+            "Gain: {:?} {} Auto: {:?}",
+            Self::read_number(control_connection, gain)?,
+            gain.get_unit().unwrap_or(""),
+            Self::read_enumeration(control_connection, gain_auto)?
         );
 
         let heartbeat_timeout =
@@ -249,6 +302,7 @@ impl GigEClient {
             control_timeout,
             stream_connection,
             exit_flag,
+            &genicam,
         )?;
         Self::issue_command(control_connection, acquisition_stop_cmd)?;
         Self::write_register(control_connection, GVCP_CONTROL_ACCESS_REGISTER, 0)?;
@@ -263,6 +317,7 @@ impl GigEClient {
         timeout: std::time::Duration,
         stream_connection: &Connection,
         exit_flag: &std::sync::atomic::AtomicBool,
+        genicam: &genicam::GenICam,
     ) -> std::io::Result<()> {
         let mut buf = [0u8; 10_000];
 
@@ -296,6 +351,19 @@ impl GigEClient {
                 if let Some((min, max, mean)) = frame_receive_times.min_max_mean() {
                     log::info!("Frame min: {:?}, max: {:?}, mean: {:?}", min, max, mean);
                 }
+
+                let exposure_time =
+                    genicam
+                        .get_feature_by_name("ExposureTime")
+                        .ok_or(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "ExposureTime feature not found",
+                        ))?;
+                log::info!(
+                    "Exposure Time: {:?} {}",
+                    Self::read_number(control_connection, exposure_time)?,
+                    exposure_time.get_unit().unwrap_or("")
+                );
             }
 
             let recv_len = stream_connection.socket.recv(&mut buf)?;
@@ -532,6 +600,19 @@ impl GigEClient {
         }
     }
 
+    fn write_number(
+        connection: &Connection,
+        number_type: &genicam::GenIType,
+        value: f64,
+    ) -> std::io::Result<()> {
+        match &number_type {
+            genicam::GenIType::Float(f) => Self::write_float(connection, f, value),
+            genicam::GenIType::Integer(i) => Self::write_integer(connection, i, value),
+            genicam::GenIType::IntReg(r) => Self::write_int_reg(connection, r, value),
+            _ => Self::unsupported(format!("Unsupported number type: {:#?}", number_type)),
+        }
+    }
+
     fn unsupported<T>(msg: impl Into<String>) -> std::io::Result<T> {
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
@@ -550,37 +631,90 @@ impl GigEClient {
             return Self::unsupported("Unsupported IntReg endianess");
         }
 
-        let address = int_reg_type.address;
-
-        let raw_value = Self::read_register(connection, address)?;
+        let raw_value = Self::read_register(connection, int_reg_type.address)?;
         Ok(raw_value as f64)
+    }
+
+    fn write_int_reg(
+        connection: &Connection,
+        int_reg_type: &genicam::GenIIntReg,
+        value: f64,
+    ) -> std::io::Result<()> {
+        if int_reg_type.length != 4 {
+            return Self::unsupported("Unsupported IntReg length");
+        }
+        if !int_reg_type.big_endian {
+            return Self::unsupported("Unsupported IntReg endianess");
+        }
+
+        Self::write_register(connection, int_reg_type.address, value as u32)
+    }
+
+    fn read_enumeration<'a>(
+        connection: &Connection,
+        enumeration_type: &'a genicam::GenIEnumeration,
+    ) -> std::io::Result<&'a str> {
+        let value = Self::read_number(connection, &enumeration_type.value)?;
+
+        match enumeration_type.value_to_name(value as u32) {
+            Some(name) => Ok(name),
+            None => Self::unsupported("Enumeration value not found"),
+        }
+    }
+
+    fn write_enumeration(
+        connection: &Connection,
+        enumeration_type: &genicam::GenIEnumeration,
+        name: &str,
+    ) -> std::io::Result<()> {
+        let value = enumeration_type.name_to_value(name).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid enumeration name")
+        })?;
+        Self::write_number(connection, &enumeration_type.value, value as f64)
     }
 
     fn read_float(
         connection: &Connection,
         float_type: &genicam::GenIFloat,
     ) -> std::io::Result<f64> {
-        if let Some(fv) = &float_type.value {
-            return match &**fv {
-                genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
-                _ => Self::unsupported("Unsupported float type value"),
-            };
+        match &*float_type.value {
+            genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
+            _ => Self::unsupported("Unsupported float type value"),
         }
-        Self::unsupported("No value in float type")
+    }
+
+    fn write_float(
+        connection: &Connection,
+        float_type: &genicam::GenIFloat,
+        value: f64,
+    ) -> std::io::Result<()> {
+        match &*float_type.value {
+            genicam::GenIType::Converter(conv) => Self::write_converter(connection, conv, value),
+            _ => Self::unsupported("Unsupported float type value"),
+        }
     }
 
     fn read_integer(
         connection: &Connection,
         integer_type: &genicam::GenIInteger,
     ) -> std::io::Result<f64> {
-        if let Some(iv) = &integer_type.value {
-            return match &**iv {
-                genicam::GenIType::IntReg(ireg) => Self::read_int_reg(connection, ireg),
-                genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
-                _ => Self::unsupported("Unsupported integer type value"),
-            };
+        match &*integer_type.value {
+            genicam::GenIType::IntReg(ireg) => Self::read_int_reg(connection, ireg),
+            genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
+            _ => Self::unsupported("Unsupported integer type value"),
         }
-        Self::unsupported("No value in integer type")
+    }
+
+    fn write_integer(
+        connection: &Connection,
+        integer_type: &genicam::GenIInteger,
+        value: f64,
+    ) -> std::io::Result<()> {
+        match &*integer_type.value {
+            genicam::GenIType::IntReg(ireg) => Self::write_int_reg(connection, ireg, value),
+            genicam::GenIType::Converter(conv) => Self::write_converter(connection, conv, value),
+            _ => Self::unsupported("Unsupported integer type value"),
+        }
     }
 
     fn read_converter(
@@ -598,6 +732,24 @@ impl GigEClient {
         resolved_variables.insert("TO".to_string(), value);
 
         genicam::evaluate(&converter_type.expression_from, &resolved_variables)
+    }
+
+    fn write_converter(
+        connection: &Connection,
+        converter_type: &genicam::GenIConverter,
+        value: f64,
+    ) -> std::io::Result<()> {
+        let mut resolved_variables = HashMap::<String, f64>::new();
+
+        for (name, variable) in &converter_type.variables {
+            let value = Self::read_number(connection, variable)?;
+            resolved_variables.insert(name.clone(), value);
+        }
+
+        resolved_variables.insert("FROM".to_string(), value);
+
+        genicam::evaluate(&converter_type.expression_to, &resolved_variables)?;
+        Ok(())
     }
 
     fn read_memory(connection: &Connection, address: u32, length: u32) -> std::io::Result<Vec<u8>> {
