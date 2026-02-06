@@ -182,64 +182,72 @@ impl GigEClient {
         let acquisition_start_cmd =
             genicam
                 .get_command_by_name("AcquisitionStart")
-                .ok_or(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "AcquisitionStart command not found",
-                ))?;
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "AcquisitionStart command not found",
+                    )
+                })?;
         let acquisition_stop_cmd =
             genicam
                 .get_command_by_name("AcquisitionStop")
-                .ok_or(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "AcquisitionStop command not found",
-                ))?;
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "AcquisitionStop command not found",
+                    )
+                })?;
 
-        let frame_rate =
-            genicam
-                .get_feature_by_name("AcquisitionFrameRate")
-                .ok_or(std::io::Error::new(
+        let frame_rate = genicam
+            .get_feature_by_name("AcquisitionFrameRate")
+            .ok_or_else(|| {
+                std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     "AcquisitionFrameRate feature not found",
-                ))?;
+                )
+            })?;
         log::warning!(
             "Acquisition FPS: {:?} {}",
             Self::read_number(control_connection, frame_rate)?,
             frame_rate.get_unit().unwrap_or("")
         );
 
-        let exposure_time =
-            genicam
-                .get_feature_by_name("ExposureTime")
-                .ok_or(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "ExposureTime feature not found",
-                ))?;
+        let exposure_time = genicam.get_feature_by_name("ExposureTime").ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "ExposureTime feature not found",
+            )
+        })?;
         log::warning!(
             "Exposure Time: {:?} {}",
             Self::read_number(control_connection, exposure_time)?,
             exposure_time.get_unit().unwrap_or("")
         );
 
-        let exposure_auto =
-            genicam
-                .get_enumeration_by_name("ExposureAuto")
-                .ok_or(std::io::Error::new(
+        let exposure_auto = genicam
+            .get_enumeration_by_name("ExposureAuto")
+            .ok_or_else(|| {
+                std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     "ExposureAuto enumeration not found",
-                ))?;
+                )
+            })?;
         let exposure_auto_limit = genicam
             .get_enumeration_by_name("ExposureAutoLimitAuto")
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "ExposureAutoLimitAuto enumeration not found",
-            ))?;
-        let exposure_target_brightness =
-            genicam
-                .get_feature_by_name("TargetBrightness")
-                .ok_or(std::io::Error::new(
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "ExposureAutoLimitAuto enumeration not found",
+                )
+            })?;
+        let exposure_target_brightness = genicam
+            .get_feature_by_name("TargetBrightness")
+            .ok_or_else(|| {
+                std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     "TargetBrightness feature not found",
-                ))?;
+                )
+            })?;
 
         Self::write_number(control_connection, exposure_target_brightness, 64.0)?;
         Self::write_enumeration(control_connection, exposure_auto, "Continuous")?;
@@ -251,18 +259,12 @@ impl GigEClient {
             Self::read_number(control_connection, exposure_target_brightness)?
         );
 
-        let gain = genicam
-            .get_feature_by_name("Gain")
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "Gain feature not found",
-            ))?;
-        let gain_auto = genicam
-            .get_enumeration_by_name("GainAuto")
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "GainAuto feature not found",
-            ))?;
+        let gain = genicam.get_feature_by_name("Gain").ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "Gain feature not found")
+        })?;
+        let gain_auto = genicam.get_enumeration_by_name("GainAuto").ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "GainAuto feature not found")
+        })?;
 
         Self::write_enumeration(control_connection, gain_auto, "Continuous")?;
 
@@ -356,7 +358,7 @@ impl GigEClient {
                 let exposure_time =
                     genicam
                         .get_feature_by_name("ExposureTime")
-                        .ok_or(std::io::Error::new(
+                        .ok_or_else(|| std::io::Error::new(
                             std::io::ErrorKind::NotFound,
                             "ExposureTime feature not found",
                         ))?;
