@@ -25,9 +25,32 @@ impl Drop for GigEClient {
     fn drop(&mut self) {}
 }
 
+fn unsupported<T>(msg: impl Into<String>) -> std::io::Result<T> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        msg.into(),
+    ))
+}
+
+fn not_found_err(msg: impl Into<String>) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::NotFound, msg.into())
+}
+
+fn invalid_data_err<TE: ToString>(err: TE) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string())
+}
+
 impl GigEClient {
     const CMD_MAX_RETRIES: usize = 3;
     const CMD_RECV_TIMEOUT_MS: u64 = 100;
+
+    const STREAM_CHANNEL_RECV_BUFFER: usize = 4 * 1024 * 1024;
+    const STREAM_CHANNEL_DESTINATION_ADDRESS: u32 = 0x0D18;
+    const STREAM_CHANNEL_PORT_HOST: u32 = 0x0D00;
+    const STREAM_CHANNEL_PACKET_SIZE: u32 = 0x0D04;
+
+    const GVCP_XML_URL_SIZE: u32 = 512;
+    const GVCP_XML_0_URL_ADDRESS: u32 = 0x00000200;
 
     pub fn new(device: GigEDevice) -> Self {
         GigEClient { device }
@@ -52,44 +75,8 @@ impl GigEClient {
             (client.device.adapter.clone(), client.device.address)
         };
 
-        let socket = UdpSocket::bind(SocketAddrV4::new(adapter.address, 0))?;
-        let recv_address = SocketAddrV4::new(adapter.address, socket.local_addr()?.port());
-        let send_address = SocketAddrV4::new(device_address, GVCP_PORT);
-        socket.connect(send_address)?;
-
-        let control_connection = Connection {
-            socket,
-            remote_address: send_address,
-            local_address: recv_address,
-        };
-
-        let stream_local_address = SocketAddrV4::new(adapter.address, 0);
-        // TODO: Might need to negotiate the remote streaming port with the device.
-        let stream_remote_address = SocketAddrV4::new(device_address, 0);
-        let stream_socket = UdpSocket::bind(stream_local_address)?;
-        let stream_local_address =
-            SocketAddrV4::new(adapter.address, stream_socket.local_addr()?.port());
-        stream_socket.connect(stream_remote_address)?;
-        stream_socket.set_read_timeout(Some(std::time::Duration::from_millis(1000)))?;
-        let stream_connection = Connection {
-            socket: stream_socket,
-            remote_address: stream_remote_address,
-            local_address: stream_local_address,
-        };
-
-        let rcvbuf: libc::c_int = 4 * 1024 * 1024; // 4 MiB
-        unsafe {
-            let ret = libc::setsockopt(
-                stream_connection.socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
-                &rcvbuf as *const _ as *const libc::c_void,
-                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-            );
-            if ret != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        }
+        let (control_connection, stream_connection) =
+            Self::setup_sockets(&adapter, device_address)?;
 
         loop {
             if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -127,20 +114,13 @@ impl GigEClient {
         control_connection: &Connection,
         stream_connection: &Connection,
     ) -> std::io::Result<()> {
-        const STREAM_CHANNEL_DESTINATION_ADDRESS: u32 = 0x0D18;
-        const STREAM_CHANNEL_PORT_HOST: u32 = 0x0D00;
-        const STREAM_CHANNEL_PACKET_SIZE: u32 = 0x0D04;
-
-        const GVCP_XML_URL_SIZE: u32 = 512;
-        const GVCP_XML_0_URL_ADDRESS: u32 = 0x00000200;
-
         Self::write_register(control_connection, GVCP_CONTROL_ACCESS_REGISTER, 1)?;
 
         let genicam = {
             let xml_url = Self::read_memory(
                 control_connection,
-                GVCP_XML_0_URL_ADDRESS,
-                GVCP_XML_URL_SIZE,
+                Self::GVCP_XML_0_URL_ADDRESS,
+                Self::GVCP_XML_URL_SIZE,
             )?;
 
             // Trim trailing null bytes
@@ -150,12 +130,7 @@ impl GigEClient {
                 &xml_url
             };
 
-            let xml_url = match str::from_utf8(xml_url) {
-                Ok(s) => s,
-                Err(e) => {
-                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
-                }
-            };
+            let xml_url = str::from_utf8(xml_url).map_err(invalid_data_err)?;
 
             // "Local:xxxx.zip;800f3374;12a5d"
             // Filename;Address;Size
@@ -164,10 +139,8 @@ impl GigEClient {
             let xml_address = xml_url_parts.get(1).unwrap_or(&"");
             let xml_size = xml_url_parts.get(2).unwrap_or(&"");
 
-            let memory_address = u32::from_str_radix(xml_address, 16)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            let memory_size = u32::from_str_radix(xml_size, 16)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            let memory_address = u32::from_str_radix(xml_address, 16).map_err(invalid_data_err)?;
+            let memory_size = u32::from_str_radix(xml_size, 16).map_err(invalid_data_err)?;
 
             let xml_archive_bytes =
                 Self::read_memory(control_connection, memory_address, memory_size)?;
@@ -179,45 +152,25 @@ impl GigEClient {
             genicam::parse(&xml_string)?
         };
 
-        let acquisition_start_cmd =
-            genicam
-                .get_command_by_name("AcquisitionStart")
-                .ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "AcquisitionStart command not found",
-                    )
-                })?;
-        let acquisition_stop_cmd =
-            genicam
-                .get_command_by_name("AcquisitionStop")
-                .ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "AcquisitionStop command not found",
-                    )
-                })?;
+        let acquisition_start_cmd = genicam
+            .get_command_by_name("AcquisitionStart")
+            .ok_or_else(|| not_found_err("AcquisitionStart"))?;
+        let acquisition_stop_cmd = genicam
+            .get_command_by_name("AcquisitionStop")
+            .ok_or_else(|| not_found_err("AcquisitionStop"))?;
 
         let frame_rate = genicam
             .get_feature_by_name("AcquisitionFrameRate")
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "AcquisitionFrameRate feature not found",
-                )
-            })?;
+            .ok_or_else(|| not_found_err("AcquisitionFrameRate"))?;
         log::warning!(
             "Acquisition FPS: {:?} {}",
             Self::read_number(control_connection, frame_rate)?,
             frame_rate.get_unit().unwrap_or("")
         );
 
-        let exposure_time = genicam.get_feature_by_name("ExposureTime").ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "ExposureTime feature not found",
-            )
-        })?;
+        let exposure_time = genicam
+            .get_feature_by_name("ExposureTime")
+            .ok_or_else(|| not_found_err("ExposureTime"))?;
         log::warning!(
             "Exposure Time: {:?} {}",
             Self::read_number(control_connection, exposure_time)?,
@@ -226,28 +179,13 @@ impl GigEClient {
 
         let exposure_auto = genicam
             .get_enumeration_by_name("ExposureAuto")
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "ExposureAuto enumeration not found",
-                )
-            })?;
+            .ok_or_else(|| not_found_err("ExposureAuto"))?;
         let exposure_auto_limit = genicam
             .get_enumeration_by_name("ExposureAutoLimitAuto")
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "ExposureAutoLimitAuto enumeration not found",
-                )
-            })?;
+            .ok_or_else(|| not_found_err("ExposureAutoLimitAuto"))?;
         let exposure_target_brightness = genicam
             .get_feature_by_name("TargetBrightness")
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "TargetBrightness feature not found",
-                )
-            })?;
+            .ok_or_else(|| not_found_err("TargetBrightness"))?;
 
         Self::write_number(control_connection, exposure_target_brightness, 64.0)?;
         Self::write_enumeration(control_connection, exposure_auto, "Continuous")?;
@@ -259,12 +197,12 @@ impl GigEClient {
             Self::read_number(control_connection, exposure_target_brightness)?
         );
 
-        let gain = genicam.get_feature_by_name("Gain").ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, "Gain feature not found")
-        })?;
-        let gain_auto = genicam.get_enumeration_by_name("GainAuto").ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, "GainAuto feature not found")
-        })?;
+        let gain = genicam
+            .get_feature_by_name("Gain")
+            .ok_or_else(|| not_found_err("Gain"))?;
+        let gain_auto = genicam
+            .get_enumeration_by_name("GainAuto")
+            .ok_or_else(|| not_found_err("GainAuto"))?;
 
         Self::write_enumeration(control_connection, gain_auto, "Continuous")?;
 
@@ -281,17 +219,17 @@ impl GigEClient {
         {
             Self::write_register(
                 control_connection,
-                STREAM_CHANNEL_DESTINATION_ADDRESS,
+                Self::STREAM_CHANNEL_DESTINATION_ADDRESS,
                 adapter.address.into(),
             )?;
             Self::write_register(
                 control_connection,
-                STREAM_CHANNEL_PACKET_SIZE,
+                Self::STREAM_CHANNEL_PACKET_SIZE,
                 adapter.mtu.min(9000),
             )?;
             Self::write_register(
                 control_connection,
-                STREAM_CHANNEL_PORT_HOST,
+                Self::STREAM_CHANNEL_PORT_HOST,
                 stream_connection.local_address.port().into(),
             )?;
         }
@@ -355,13 +293,9 @@ impl GigEClient {
                     log::info!("Frame min: {:?}, max: {:?}, mean: {:?}", min, max, mean);
                 }
 
-                let exposure_time =
-                    genicam
-                        .get_feature_by_name("ExposureTime")
-                        .ok_or_else(|| std::io::Error::new(
-                            std::io::ErrorKind::NotFound,
-                            "ExposureTime feature not found",
-                        ))?;
+                let exposure_time = genicam
+                    .get_feature_by_name("ExposureTime")
+                    .ok_or_else(|| not_found_err("ExposureTime"))?;
                 log::info!(
                     "Exposure Time: {:?} {}",
                     Self::read_number(control_connection, exposure_time)?,
@@ -557,7 +491,7 @@ impl GigEClient {
                 )
                 .map_err(std::io::Error::other)?)
             }
-            _ => Self::unsupported(format!("Unsupported pixel format: {:?}", in_format)),
+            _ => unsupported(format!("Unsupported pixel format: {:?}", in_format)),
         }
     }
 
@@ -578,12 +512,12 @@ impl GigEClient {
                         "Unsupported address type in command value: {:#?}",
                         reg.address
                     );
-                    return Self::unsupported("Unsupported command address type");
+                    return unsupported("Unsupported command address type");
                 }
             },
             _ => {
                 log::error!("{:#?}", command.value);
-                return Self::unsupported("Unsupported command pValue");
+                return unsupported("Unsupported command pValue");
             }
         };
 
@@ -598,7 +532,7 @@ impl GigEClient {
             genicam::GenIType::Float(f) => Self::read_float(connection, f),
             genicam::GenIType::Integer(i) => Self::read_integer(connection, i),
             genicam::GenIType::IntReg(r) => Self::read_int_reg(connection, r),
-            _ => Self::unsupported(format!("Unsupported number type: {:#?}", number_type)),
+            _ => unsupported(format!("Unsupported number type: {:#?}", number_type)),
         }
     }
 
@@ -611,15 +545,8 @@ impl GigEClient {
             genicam::GenIType::Float(f) => Self::write_float(connection, f, value),
             genicam::GenIType::Integer(i) => Self::write_integer(connection, i, value),
             genicam::GenIType::IntReg(r) => Self::write_int_reg(connection, r, value),
-            _ => Self::unsupported(format!("Unsupported number type: {:#?}", number_type)),
+            _ => unsupported(format!("Unsupported number type: {:#?}", number_type)),
         }
-    }
-
-    fn unsupported<T>(msg: impl Into<String>) -> std::io::Result<T> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            msg.into(),
-        ))
     }
 
     fn read_int_reg(
@@ -629,10 +556,10 @@ impl GigEClient {
         if let genicam::GenIType::ConstantInteger(length) = *int_reg_type.length
             && length != 4
         {
-            return Self::unsupported("Unsupported IntReg length");
+            return unsupported("Unsupported IntReg length");
         }
         if !int_reg_type.big_endian {
-            return Self::unsupported("Unsupported IntReg endianess");
+            return unsupported("Unsupported IntReg endianess");
         }
         let address = match *int_reg_type.address {
             genicam::GenIType::ConstantInteger(addr) => addr,
@@ -641,7 +568,7 @@ impl GigEClient {
                     "Unsupported address type in IntReg: {:#?}",
                     int_reg_type.address
                 );
-                return Self::unsupported("Unsupported IntReg address type");
+                return unsupported("Unsupported IntReg address type");
             }
         };
 
@@ -657,10 +584,10 @@ impl GigEClient {
         if let genicam::GenIType::ConstantInteger(length) = *int_reg_type.length
             && length != 4
         {
-            return Self::unsupported("Unsupported IntReg length");
+            return unsupported("Unsupported IntReg length");
         }
         if !int_reg_type.big_endian {
-            return Self::unsupported("Unsupported IntReg endianess");
+            return unsupported("Unsupported IntReg endianess");
         }
         let address = match *int_reg_type.address {
             genicam::GenIType::ConstantInteger(addr) => addr,
@@ -669,7 +596,7 @@ impl GigEClient {
                     "Unsupported address type in IntReg: {:#?}",
                     int_reg_type.address
                 );
-                return Self::unsupported("Unsupported IntReg address type");
+                return unsupported("Unsupported IntReg address type");
             }
         };
 
@@ -684,7 +611,7 @@ impl GigEClient {
 
         match enumeration_type.value_to_name(value as u32) {
             Some(name) => Ok(name),
-            None => Self::unsupported("Enumeration value not found"),
+            None => unsupported("Enumeration value not found"),
         }
     }
 
@@ -705,7 +632,7 @@ impl GigEClient {
     ) -> std::io::Result<f64> {
         match &*float_type.value {
             genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
-            _ => Self::unsupported("Unsupported float type value"),
+            _ => unsupported("Unsupported float type value"),
         }
     }
 
@@ -716,7 +643,7 @@ impl GigEClient {
     ) -> std::io::Result<()> {
         match &*float_type.value {
             genicam::GenIType::Converter(conv) => Self::write_converter(connection, conv, value),
-            _ => Self::unsupported("Unsupported float type value"),
+            _ => unsupported("Unsupported float type value"),
         }
     }
 
@@ -727,7 +654,7 @@ impl GigEClient {
         match &*integer_type.value {
             genicam::GenIType::IntReg(ireg) => Self::read_int_reg(connection, ireg),
             genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
-            _ => Self::unsupported("Unsupported integer type value"),
+            _ => unsupported("Unsupported integer type value"),
         }
     }
 
@@ -739,7 +666,7 @@ impl GigEClient {
         match &*integer_type.value {
             genicam::GenIType::IntReg(ireg) => Self::write_int_reg(connection, ireg, value),
             genicam::GenIType::Converter(conv) => Self::write_converter(connection, conv, value),
-            _ => Self::unsupported("Unsupported integer type value"),
+            _ => unsupported("Unsupported integer type value"),
         }
     }
 
@@ -898,5 +825,48 @@ impl GigEClient {
                 ));
             }
         }
+    }
+
+    fn setup_sockets(
+        adapter: &IPAdapter,
+        device_address: Ipv4Addr,
+    ) -> std::io::Result<(Connection, Connection)> {
+        let socket = UdpSocket::bind(SocketAddrV4::new(adapter.address, 0))?;
+        let recv_address = SocketAddrV4::new(adapter.address, socket.local_addr()?.port());
+        let send_address = SocketAddrV4::new(device_address, GVCP_PORT);
+        socket.connect(send_address)?;
+        let control_connection = Connection {
+            socket,
+            remote_address: send_address,
+            local_address: recv_address,
+        };
+        let stream_local_address = SocketAddrV4::new(adapter.address, 0);
+        let stream_remote_address = SocketAddrV4::new(device_address, 0);
+        let stream_socket = UdpSocket::bind(stream_local_address)?;
+        let stream_local_address =
+            SocketAddrV4::new(adapter.address, stream_socket.local_addr()?.port());
+        stream_socket.connect(stream_remote_address)?;
+        stream_socket.set_read_timeout(Some(std::time::Duration::from_millis(1000)))?;
+        let stream_connection = Connection {
+            socket: stream_socket,
+            remote_address: stream_remote_address,
+            local_address: stream_local_address,
+        };
+
+        unsafe {
+            let rcvbuf = Self::STREAM_CHANNEL_RECV_BUFFER as libc::c_int;
+            let ret = libc::setsockopt(
+                stream_connection.socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_RCVBUF,
+                &rcvbuf as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+            if ret != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+
+        Ok((control_connection, stream_connection))
     }
 }
