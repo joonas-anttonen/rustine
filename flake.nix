@@ -9,6 +9,7 @@
   in {
     devShells = forAllSystems (pkgs: {
       default = pkgs.mkShell {
+        name = "rustine";
         packages = with pkgs; [
 
           pkg-config
