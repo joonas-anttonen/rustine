@@ -216,6 +216,30 @@ impl GigEClient {
             Self::read_enumeration(control_connection, gain_auto)?
         );*/
 
+        let laser_power = genicam
+            .get_feature_by_name("LaserPower")
+            .ok_or_else(|| not_found_err("LaserPower"))?;
+        Self::write_number(control_connection, laser_power, 512.0)?;
+
+        let texture_source = genicam
+            .get_enumeration_by_name("TextureSource")
+            .ok_or_else(|| not_found_err("TextureSource"))?;
+        Self::write_enumeration(control_connection, texture_source, "LED")?;
+
+        let operation_mode = genicam
+            .get_enumeration_by_name("OperationMode")
+            .ok_or_else(|| not_found_err("OperationMode"))?;
+        Self::write_enumeration(control_connection, operation_mode, "Camera")?;
+
+        let component_selection = genicam
+            .get_enumeration_by_name("ComponentSelector")
+            .ok_or_else(|| not_found_err("ComponentSelector"))?;
+        Self::read_enumeration(control_connection, component_selection)?;
+        log::warning!(
+            "Component Selection: {:?}",
+            Self::read_enumeration(control_connection, component_selection)?
+        );
+
         let heartbeat_timeout =
             Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
         let control_timeout = std::time::Duration::from_millis(heartbeat_timeout as u64 / 2);
@@ -358,17 +382,14 @@ impl GigEClient {
                     let _x_offset = packet_reader.read_u32_be()?;
                     let _y_offset = packet_reader.read_u32_be()?;
 
-                    let frame_buf_size = (frame_width
-                        * frame_height
-                        * (((frame_pixel_format.to_u32() >> 16) & 0xff) / 8))
-                        as usize;
-
-                    if frame_pixel_format != GVSPPixelFormat::BAYER_RG_8 {
-                        return Err(std::io::Error::other(format!(
-                            "Unsupported pixel format: {:?}",
-                            frame_pixel_format
-                        )));
-                    }
+                    let frame_buf_size =
+                        Self::frame_buffer_size(frame_width, frame_height, frame_pixel_format)
+                            .ok_or_else(|| {
+                                std::io::Error::other(format!(
+                                    "Unsupported pixel format: {:?}",
+                                    frame_pixel_format
+                                ))
+                            })?;
 
                     if payload_type != GVSPPayloadType::IMAGE {
                         return Err(std::io::Error::other(format!(
@@ -484,20 +505,127 @@ impl GigEClient {
         in_height: usize,
         in_format: GVSPPixelFormat,
     ) -> std::io::Result<Vec<u8>> {
+        let rffmpeg_format = Self::map_to_rffmpeg_pixel_format(in_format).ok_or_else(|| {
+            std::io::Error::other(format!("Unsupported pixel format: {:?}", in_format))
+        })?;
+
+        rustine::io::ffmpeg::demosaic_to_rgba(
+            in_buf,
+            in_width as u32,
+            in_height as u32,
+            rffmpeg_format,
+        )
+        .map_err(std::io::Error::other)
+    }
+
+    fn map_to_rffmpeg_pixel_format(
+        in_format: GVSPPixelFormat,
+    ) -> Option<rustine::io::ffmpeg::RffmpegPixelFormat> {
+        use rustine::io::ffmpeg::RffmpegPixelFormat;
+
         match in_format {
-            GVSPPixelFormat::BAYER_RG_8 => {
-                //crate::demosaic_bayer_rg8(in_buf, in_width, in_height)
-                Ok(rustine::io::ffmpeg::demosaic_bayer_rg8(
-                    in_buf,
-                    in_width as u32,
-                    in_height as u32,
-                )
-                .map_err(std::io::Error::other)?)
+            GVSPPixelFormat::BAYER_RG_8 => Some(RffmpegPixelFormat::BayerRggb8),
+            GVSPPixelFormat::BAYER_BG_8 => Some(RffmpegPixelFormat::BayerBggr8),
+            GVSPPixelFormat::BAYER_GB_8 => Some(RffmpegPixelFormat::BayerGbrg8),
+            GVSPPixelFormat::BAYER_GR_8 => Some(RffmpegPixelFormat::BayerGrbg8),
+            GVSPPixelFormat::BAYER_RG_10 => Some(RffmpegPixelFormat::BayerRggb10),
+            GVSPPixelFormat::BAYER_BG_10 => Some(RffmpegPixelFormat::BayerBggr10),
+            GVSPPixelFormat::BAYER_GB_10 => Some(RffmpegPixelFormat::BayerGbrg10),
+            GVSPPixelFormat::BAYER_GR_10 => Some(RffmpegPixelFormat::BayerGrbg10),
+            GVSPPixelFormat::BAYER_RG_12 => Some(RffmpegPixelFormat::BayerRggb12),
+            GVSPPixelFormat::BAYER_BG_12 => Some(RffmpegPixelFormat::BayerBggr12),
+            GVSPPixelFormat::BAYER_GB_12 => Some(RffmpegPixelFormat::BayerGbrg12),
+            GVSPPixelFormat::BAYER_GR_12 => Some(RffmpegPixelFormat::BayerGrbg12),
+            GVSPPixelFormat::BAYER_RG_16 => Some(RffmpegPixelFormat::BayerRggb16),
+            GVSPPixelFormat::BAYER_BG_16 => Some(RffmpegPixelFormat::BayerBggr16),
+            GVSPPixelFormat::BAYER_GB_16 => Some(RffmpegPixelFormat::BayerGbrg16),
+            GVSPPixelFormat::BAYER_GR_16 => Some(RffmpegPixelFormat::BayerGrbg16),
+            GVSPPixelFormat::BAYER_RG_10_PACKED | GVSPPixelFormat::BAYER_RG_10P => {
+                Some(RffmpegPixelFormat::BayerRggb10Packed)
             }
-            _ => unsupported(format!("Unsupported pixel format: {:?}", in_format)),
+            GVSPPixelFormat::BAYER_BG_10_PACKED | GVSPPixelFormat::BAYER_BG_10P => {
+                Some(RffmpegPixelFormat::BayerBggr10Packed)
+            }
+            GVSPPixelFormat::BAYER_GB_10_PACKED | GVSPPixelFormat::BAYER_GB_10P => {
+                Some(RffmpegPixelFormat::BayerGbrg10Packed)
+            }
+            GVSPPixelFormat::BAYER_GR_10_PACKED | GVSPPixelFormat::BAYER_GR_10P => {
+                Some(RffmpegPixelFormat::BayerGrbg10Packed)
+            }
+            GVSPPixelFormat::BAYER_RG_12_PACKED | GVSPPixelFormat::BAYER_RG_12P => {
+                Some(RffmpegPixelFormat::BayerRggb12Packed)
+            }
+            GVSPPixelFormat::BAYER_BG_12_PACKED | GVSPPixelFormat::BAYER_BG_12P => {
+                Some(RffmpegPixelFormat::BayerBggr12Packed)
+            }
+            GVSPPixelFormat::BAYER_GB_12_PACKED | GVSPPixelFormat::BAYER_GB_12P => {
+                Some(RffmpegPixelFormat::BayerGbrg12Packed)
+            }
+            GVSPPixelFormat::BAYER_GR_12_PACKED | GVSPPixelFormat::BAYER_GR_12P => {
+                Some(RffmpegPixelFormat::BayerGrbg12Packed)
+            }
+            GVSPPixelFormat::MONO_8 => Some(RffmpegPixelFormat::Mono8),
+            GVSPPixelFormat::MONO_10 => Some(RffmpegPixelFormat::Mono10),
+            GVSPPixelFormat::MONO_12 => Some(RffmpegPixelFormat::Mono12),
+            GVSPPixelFormat::MONO_16 => Some(RffmpegPixelFormat::Mono16),
+            GVSPPixelFormat::MONO_10_PACKED => Some(RffmpegPixelFormat::Mono10Packed),
+            GVSPPixelFormat::MONO_12_PACKED => Some(RffmpegPixelFormat::Mono12Packed),
+            _ => None,
         }
     }
 
+    fn frame_buffer_size(width: u32, height: u32, format: GVSPPixelFormat) -> Option<usize> {
+        let pixel_count = width.checked_mul(height)? as usize;
+
+        let size = match format {
+            GVSPPixelFormat::BAYER_RG_8
+            | GVSPPixelFormat::BAYER_BG_8
+            | GVSPPixelFormat::BAYER_GB_8
+            | GVSPPixelFormat::BAYER_GR_8
+            | GVSPPixelFormat::MONO_8 => pixel_count,
+            GVSPPixelFormat::BAYER_RG_10
+            | GVSPPixelFormat::BAYER_BG_10
+            | GVSPPixelFormat::BAYER_GB_10
+            | GVSPPixelFormat::BAYER_GR_10
+            | GVSPPixelFormat::BAYER_RG_12
+            | GVSPPixelFormat::BAYER_BG_12
+            | GVSPPixelFormat::BAYER_GB_12
+            | GVSPPixelFormat::BAYER_GR_12
+            | GVSPPixelFormat::BAYER_RG_16
+            | GVSPPixelFormat::BAYER_BG_16
+            | GVSPPixelFormat::BAYER_GB_16
+            | GVSPPixelFormat::BAYER_GR_16
+            | GVSPPixelFormat::MONO_10
+            | GVSPPixelFormat::MONO_12
+            | GVSPPixelFormat::MONO_16 => pixel_count.checked_mul(2)?,
+            GVSPPixelFormat::MONO_10_PACKED
+            | GVSPPixelFormat::BAYER_RG_10_PACKED
+            | GVSPPixelFormat::BAYER_BG_10_PACKED
+            | GVSPPixelFormat::BAYER_GB_10_PACKED
+            | GVSPPixelFormat::BAYER_GR_10_PACKED
+            | GVSPPixelFormat::BAYER_RG_10P
+            | GVSPPixelFormat::BAYER_BG_10P
+            | GVSPPixelFormat::BAYER_GB_10P
+            | GVSPPixelFormat::BAYER_GR_10P => Self::packed_size(pixel_count, 10)?,
+            GVSPPixelFormat::MONO_12_PACKED
+            | GVSPPixelFormat::BAYER_RG_12_PACKED
+            | GVSPPixelFormat::BAYER_BG_12_PACKED
+            | GVSPPixelFormat::BAYER_GB_12_PACKED
+            | GVSPPixelFormat::BAYER_GR_12_PACKED
+            | GVSPPixelFormat::BAYER_RG_12P
+            | GVSPPixelFormat::BAYER_BG_12P
+            | GVSPPixelFormat::BAYER_GB_12P
+            | GVSPPixelFormat::BAYER_GR_12P => Self::packed_size(pixel_count, 12)?,
+            _ => return None,
+        };
+
+        Some(size)
+    }
+
+    fn packed_size(pixel_count: usize, bits_per_pixel: usize) -> Option<usize> {
+        let total_bits = pixel_count.checked_mul(bits_per_pixel)?;
+        total_bits.checked_add(7).map(|bits| bits / 8)
+    }
     /// Issues a GenICam command by writing to the appropriate register.
     ///
     /// Fails if the command register is not a simple integer register.

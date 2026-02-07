@@ -206,6 +206,41 @@ mod ffi {
         EndOfStream = 5,
     }
 
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    pub enum RffmpegPixelFormat {
+        BayerRggb8 = 0,
+        BayerBggr8 = 1,
+        BayerGbrg8 = 2,
+        BayerGrbg8 = 3,
+        BayerRggb16 = 4,
+        BayerBggr16 = 5,
+        BayerGbrg16 = 6,
+        BayerGrbg16 = 7,
+        Mono8 = 8,
+        Mono10 = 9,
+        Mono12 = 10,
+        Mono16 = 11,
+        BayerRggb10 = 12,
+        BayerBggr10 = 13,
+        BayerGbrg10 = 14,
+        BayerGrbg10 = 15,
+        BayerRggb12 = 16,
+        BayerBggr12 = 17,
+        BayerGbrg12 = 18,
+        BayerGrbg12 = 19,
+        Mono10Packed = 20,
+        Mono12Packed = 21,
+        BayerRggb10Packed = 22,
+        BayerBggr10Packed = 23,
+        BayerGbrg10Packed = 24,
+        BayerGrbg10Packed = 25,
+        BayerRggb12Packed = 26,
+        BayerBggr12Packed = 27,
+        BayerGbrg12Packed = 28,
+        BayerGrbg12Packed = 29,
+    }
+
     /// Opaque decoder state handle
     #[repr(C)]
     pub struct RffmpegDecoder {
@@ -299,8 +334,20 @@ mod ffi {
             rgba_out: *mut u8,
             rgba_capacity: usize,
         ) -> RffmpegStatus;
+
+        pub fn rffmpegDemosaicToRgba(
+            input: *const u8,
+            input_size: usize,
+            width: u32,
+            height: u32,
+            input_format: RffmpegPixelFormat,
+            rgba_out: *mut u8,
+            rgba_capacity: usize,
+        ) -> RffmpegStatus;
     }
 }
+
+pub use ffi::RffmpegPixelFormat;
 
 /// A safe wrapper around the native FFmpeg video encoder.
 /// Automatically frees resources when dropped.
@@ -483,23 +530,71 @@ impl JpegEncoder {
 /// * `Err(String)` - Error description
 ///
 pub fn demosaic_bayer_rg8(bayer_in: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
-    let expected_size = (width as usize) * (height as usize);
-    if bayer_in.len() < expected_size {
+    demosaic_to_rgba(bayer_in, width, height, ffi::RffmpegPixelFormat::BayerRggb8)
+}
+
+/// Convert a Bayer or monochrome image to RGBA using FFmpeg's swscale.
+pub fn demosaic_to_rgba(
+    input: &[u8],
+    width: u32,
+    height: u32,
+    input_format: ffi::RffmpegPixelFormat,
+) -> Result<Vec<u8>, String> {
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| "Image dimensions overflow".to_string())?;
+
+    let expected_size = match input_format {
+        ffi::RffmpegPixelFormat::BayerRggb8
+        | ffi::RffmpegPixelFormat::BayerBggr8
+        | ffi::RffmpegPixelFormat::BayerGbrg8
+        | ffi::RffmpegPixelFormat::BayerGrbg8
+        | ffi::RffmpegPixelFormat::Mono8 => pixel_count,
+        ffi::RffmpegPixelFormat::BayerRggb16
+        | ffi::RffmpegPixelFormat::BayerBggr16
+        | ffi::RffmpegPixelFormat::BayerGbrg16
+        | ffi::RffmpegPixelFormat::BayerGrbg16
+        | ffi::RffmpegPixelFormat::Mono10
+        | ffi::RffmpegPixelFormat::Mono12
+        | ffi::RffmpegPixelFormat::Mono16
+        | ffi::RffmpegPixelFormat::BayerRggb10
+        | ffi::RffmpegPixelFormat::BayerBggr10
+        | ffi::RffmpegPixelFormat::BayerGbrg10
+        | ffi::RffmpegPixelFormat::BayerGrbg10
+        | ffi::RffmpegPixelFormat::BayerRggb12
+        | ffi::RffmpegPixelFormat::BayerBggr12
+        | ffi::RffmpegPixelFormat::BayerGbrg12
+        | ffi::RffmpegPixelFormat::BayerGrbg12 => pixel_count
+            .checked_mul(2)
+            .ok_or_else(|| "Image buffer size overflow".to_string())?,
+        ffi::RffmpegPixelFormat::Mono10Packed
+        | ffi::RffmpegPixelFormat::BayerRggb10Packed
+        | ffi::RffmpegPixelFormat::BayerBggr10Packed
+        | ffi::RffmpegPixelFormat::BayerGbrg10Packed
+        | ffi::RffmpegPixelFormat::BayerGrbg10Packed => packed_byte_size(pixel_count, 10)?,
+        ffi::RffmpegPixelFormat::Mono12Packed
+        | ffi::RffmpegPixelFormat::BayerRggb12Packed
+        | ffi::RffmpegPixelFormat::BayerBggr12Packed
+        | ffi::RffmpegPixelFormat::BayerGbrg12Packed
+        | ffi::RffmpegPixelFormat::BayerGrbg12Packed => packed_byte_size(pixel_count, 12)?,
+    };
+    if input.len() < expected_size {
         return Err(format!(
             "Input buffer too small: {} bytes, need {}",
-            bayer_in.len(),
+            input.len(),
             expected_size
         ));
     }
 
-    let mut rgba_out = vec![0u8; expected_size * 4];
+    let mut rgba_out = vec![0u8; pixel_count * 4];
 
     let status = unsafe {
-        ffi::rffmpegDemosaicBayerRG8(
-            bayer_in.as_ptr(),
-            bayer_in.len(),
+        ffi::rffmpegDemosaicToRgba(
+            input.as_ptr(),
+            input.len(),
             width,
             height,
+            input_format,
             rgba_out.as_mut_ptr(),
             rgba_out.len(),
         )
@@ -513,4 +608,14 @@ pub fn demosaic_bayer_rg8(bayer_in: &[u8], width: u32, height: u32) -> Result<Ve
         ffi::RffmpegStatus::EncodeFailed => Err("Failed to encode frame".to_string()),
         ffi::RffmpegStatus::EndOfStream => Err("Unexpected end of stream".to_string()),
     }
+}
+
+fn packed_byte_size(pixel_count: usize, bits_per_pixel: usize) -> Result<usize, String> {
+    let total_bits = pixel_count
+        .checked_mul(bits_per_pixel)
+        .ok_or_else(|| "Image buffer size overflow".to_string())?;
+    total_bits
+        .checked_add(7)
+        .map(|bits| bits / 8)
+        .ok_or_else(|| "Image buffer size overflow".to_string())
 }

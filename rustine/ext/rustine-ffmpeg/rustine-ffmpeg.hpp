@@ -17,6 +17,39 @@ typedef enum {
 	RFFMPEG_STATUS_END_OF_STREAM = 5,
 } rffmpeg_status;
 
+typedef enum {
+	RFFMPEG_PIXFMT_BAYER_RGGB8 = 0,
+	RFFMPEG_PIXFMT_BAYER_BGGR8 = 1,
+	RFFMPEG_PIXFMT_BAYER_GBRG8 = 2,
+	RFFMPEG_PIXFMT_BAYER_GRBG8 = 3,
+	RFFMPEG_PIXFMT_BAYER_RGGB16 = 4,
+	RFFMPEG_PIXFMT_BAYER_BGGR16 = 5,
+	RFFMPEG_PIXFMT_BAYER_GBRG16 = 6,
+	RFFMPEG_PIXFMT_BAYER_GRBG16 = 7,
+	RFFMPEG_PIXFMT_MONO8 = 8,
+	RFFMPEG_PIXFMT_MONO10 = 9,
+	RFFMPEG_PIXFMT_MONO12 = 10,
+	RFFMPEG_PIXFMT_MONO16 = 11,
+	RFFMPEG_PIXFMT_BAYER_RGGB10 = 12,
+	RFFMPEG_PIXFMT_BAYER_BGGR10 = 13,
+	RFFMPEG_PIXFMT_BAYER_GBRG10 = 14,
+	RFFMPEG_PIXFMT_BAYER_GRBG10 = 15,
+	RFFMPEG_PIXFMT_BAYER_RGGB12 = 16,
+	RFFMPEG_PIXFMT_BAYER_BGGR12 = 17,
+	RFFMPEG_PIXFMT_BAYER_GBRG12 = 18,
+	RFFMPEG_PIXFMT_BAYER_GRBG12 = 19,
+	RFFMPEG_PIXFMT_MONO10_PACKED = 20,
+	RFFMPEG_PIXFMT_MONO12_PACKED = 21,
+	RFFMPEG_PIXFMT_BAYER_RGGB10_PACKED = 22,
+	RFFMPEG_PIXFMT_BAYER_BGGR10_PACKED = 23,
+	RFFMPEG_PIXFMT_BAYER_GBRG10_PACKED = 24,
+	RFFMPEG_PIXFMT_BAYER_GRBG10_PACKED = 25,
+	RFFMPEG_PIXFMT_BAYER_RGGB12_PACKED = 26,
+	RFFMPEG_PIXFMT_BAYER_BGGR12_PACKED = 27,
+	RFFMPEG_PIXFMT_BAYER_GBRG12_PACKED = 28,
+	RFFMPEG_PIXFMT_BAYER_GRBG12_PACKED = 29,
+} rffmpeg_pixel_format;
+
 /// Opaque decoder handle
 typedef struct rffmpeg_decoder rffmpeg_decoder;
 /// Opaque encoder handle
@@ -97,6 +130,17 @@ rffmpeg_status rffmpegDemosaicBayerRG8(const uint8_t* bayer_in,
 	size_t bayer_size,
 	uint32_t width,
 	uint32_t height,
+	uint8_t* rgba_out,
+	size_t rgba_capacity);
+
+/// Convert a Bayer/mono image to RGBA using swscale.
+/// Input buffer size depends on the format (e.g. width*height for 8-bit, width*height*2 for 10/12/16-bit).
+/// Output buffer must be at least width * height * 4 bytes.
+rffmpeg_status rffmpegDemosaicToRgba(const uint8_t* input,
+	size_t input_size,
+	uint32_t width,
+	uint32_t height,
+	rffmpeg_pixel_format input_format,
 	uint8_t* rgba_out,
 	size_t rgba_capacity);
 

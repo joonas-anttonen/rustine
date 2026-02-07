@@ -1,6 +1,8 @@
 #include "rustine-ffmpeg.hpp"
 
 #include <cstring>
+#include <limits>
+#include <vector>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -1184,27 +1186,214 @@ extern "C" void rffmpegDecoderDestroy(rffmpeg_decoder* decoder) {
     delete decoder;
 }
 
+struct rffmpeg_pixfmt_info {
+    AVPixelFormat av_fmt = AV_PIX_FMT_NONE;
+    size_t bytes_per_pixel = 0;
+    bool packed = false;
+    uint8_t packed_bits = 0;
+};
+
+static bool rffmpeg_get_pixfmt_info(rffmpeg_pixel_format fmt, rffmpeg_pixfmt_info* out_info) {
+    if (!out_info) {
+        return false;
+    }
+
+    switch (fmt) {
+    case RFFMPEG_PIXFMT_BAYER_RGGB8:
+        *out_info = { AV_PIX_FMT_BAYER_RGGB8, 1, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_BGGR8:
+        *out_info = { AV_PIX_FMT_BAYER_BGGR8, 1, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GBRG8:
+        *out_info = { AV_PIX_FMT_BAYER_GBRG8, 1, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GRBG8:
+        *out_info = { AV_PIX_FMT_BAYER_GRBG8, 1, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_RGGB16:
+        *out_info = { AV_PIX_FMT_BAYER_RGGB16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_BGGR16:
+        *out_info = { AV_PIX_FMT_BAYER_BGGR16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GBRG16:
+        *out_info = { AV_PIX_FMT_BAYER_GBRG16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GRBG16:
+        *out_info = { AV_PIX_FMT_BAYER_GRBG16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_MONO8:
+        *out_info = { AV_PIX_FMT_GRAY8, 1, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_MONO10:
+        *out_info = { AV_PIX_FMT_GRAY10LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_MONO12:
+        *out_info = { AV_PIX_FMT_GRAY12LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_MONO16:
+        *out_info = { AV_PIX_FMT_GRAY16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_RGGB10:
+        *out_info = { AV_PIX_FMT_BAYER_RGGB16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_BGGR10:
+        *out_info = { AV_PIX_FMT_BAYER_BGGR16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GBRG10:
+        *out_info = { AV_PIX_FMT_BAYER_GBRG16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GRBG10:
+        *out_info = { AV_PIX_FMT_BAYER_GRBG16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_RGGB12:
+        *out_info = { AV_PIX_FMT_BAYER_RGGB16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_BGGR12:
+        *out_info = { AV_PIX_FMT_BAYER_BGGR16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GBRG12:
+        *out_info = { AV_PIX_FMT_BAYER_GBRG16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GRBG12:
+        *out_info = { AV_PIX_FMT_BAYER_GRBG16LE, 2, false, 0 };
+        return true;
+    case RFFMPEG_PIXFMT_MONO10_PACKED:
+        *out_info = { AV_PIX_FMT_GRAY16LE, 2, true, 10 };
+        return true;
+    case RFFMPEG_PIXFMT_MONO12_PACKED:
+        *out_info = { AV_PIX_FMT_GRAY16LE, 2, true, 12 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_RGGB10_PACKED:
+        *out_info = { AV_PIX_FMT_BAYER_RGGB16LE, 2, true, 10 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_BGGR10_PACKED:
+        *out_info = { AV_PIX_FMT_BAYER_BGGR16LE, 2, true, 10 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GBRG10_PACKED:
+        *out_info = { AV_PIX_FMT_BAYER_GBRG16LE, 2, true, 10 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GRBG10_PACKED:
+        *out_info = { AV_PIX_FMT_BAYER_GRBG16LE, 2, true, 10 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_RGGB12_PACKED:
+        *out_info = { AV_PIX_FMT_BAYER_RGGB16LE, 2, true, 12 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_BGGR12_PACKED:
+        *out_info = { AV_PIX_FMT_BAYER_BGGR16LE, 2, true, 12 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GBRG12_PACKED:
+        *out_info = { AV_PIX_FMT_BAYER_GBRG16LE, 2, true, 12 };
+        return true;
+    case RFFMPEG_PIXFMT_BAYER_GRBG12_PACKED:
+        *out_info = { AV_PIX_FMT_BAYER_GRBG16LE, 2, true, 12 };
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool rffmpeg_compute_packed_size(size_t pixel_count,
+    uint8_t bits_per_pixel,
+    size_t* out_size) {
+    if (!out_size || bits_per_pixel == 0) {
+        return false;
+    }
+
+    if (pixel_count > (std::numeric_limits<size_t>::max() - 7) / bits_per_pixel) {
+        return false;
+    }
+
+    const size_t total_bits = pixel_count * bits_per_pixel;
+    *out_size = (total_bits + 7) / 8;
+    return true;
+}
+
+static void rffmpeg_unpack_bits_to_u16(const uint8_t* src,
+    size_t src_size,
+    size_t pixel_count,
+    uint8_t bits_per_pixel,
+    uint16_t* dst) {
+    size_t bit_pos = 0;
+    const uint32_t mask = (1u << bits_per_pixel) - 1u;
+    for (size_t i = 0; i < pixel_count; ++i) {
+        const size_t byte_pos = bit_pos >> 3;
+        uint32_t value = 0;
+        if (byte_pos < src_size) {
+            value |= static_cast<uint32_t>(src[byte_pos]);
+        }
+        if (byte_pos + 1 < src_size) {
+            value |= static_cast<uint32_t>(src[byte_pos + 1]) << 8;
+        }
+        if (byte_pos + 2 < src_size) {
+            value |= static_cast<uint32_t>(src[byte_pos + 2]) << 16;
+        }
+        value >>= (bit_pos & 7);
+        dst[i] = static_cast<uint16_t>(value & mask);
+        bit_pos += bits_per_pixel;
+    }
+}
+
 extern "C" rffmpeg_status rffmpegDemosaicBayerRG8(const uint8_t* bayer_in,
     size_t bayer_size,
     uint32_t width,
     uint32_t height,
     uint8_t* rgba_out,
     size_t rgba_capacity) {
-    
-    if (!bayer_in || !rgba_out) {
+    return rffmpegDemosaicToRgba(
+        bayer_in,
+        bayer_size,
+        width,
+        height,
+        RFFMPEG_PIXFMT_BAYER_RGGB8,
+        rgba_out,
+        rgba_capacity);
+}
+
+extern "C" rffmpeg_status rffmpegDemosaicToRgba(const uint8_t* input,
+    size_t input_size,
+    uint32_t width,
+    uint32_t height,
+    rffmpeg_pixel_format input_format,
+    uint8_t* rgba_out,
+    size_t rgba_capacity) {
+
+    if (!input || !rgba_out || width == 0 || height == 0) {
         return RFFMPEG_STATUS_INVALID_ARGUMENT;
     }
 
-    size_t expected_in_size = width * height;
-    size_t expected_out_size = width * height * 4;
-
-    if (bayer_size < expected_in_size || rgba_capacity < expected_out_size) {
+    rffmpeg_pixfmt_info info;
+    if (!rffmpeg_get_pixfmt_info(input_format, &info)) {
         return RFFMPEG_STATUS_INVALID_ARGUMENT;
     }
 
-    // Create SwsContext to convert from Bayer RGGB8 to RGBA
+    const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (pixel_count == 0) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (!info.packed && info.bytes_per_pixel > 0 &&
+        pixel_count > (std::numeric_limits<size_t>::max() / info.bytes_per_pixel)) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    size_t expected_in_size = 0;
+    if (info.packed) {
+        if (!rffmpeg_compute_packed_size(pixel_count, info.packed_bits, &expected_in_size)) {
+            return RFFMPEG_STATUS_INVALID_ARGUMENT;
+        }
+    } else {
+        expected_in_size = pixel_count * info.bytes_per_pixel;
+    }
+    const size_t expected_out_size = pixel_count * 4;
+
+    if (input_size < expected_in_size || rgba_capacity < expected_out_size) {
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
     SwsContext* sws_ctx = sws_getContext(
-        width, height, AV_PIX_FMT_BAYER_RGGB8,
+        width, height, info.av_fmt,
         width, height, AV_PIX_FMT_RGBA,
         SWS_BILINEAR, nullptr, nullptr, nullptr);
 
@@ -1212,16 +1401,36 @@ extern "C" rffmpeg_status rffmpegDemosaicBayerRG8(const uint8_t* bayer_in,
         return RFFMPEG_STATUS_ALLOCATION_FAILED;
     }
 
-    // Setup source and destination plane pointers and strides
-    const uint8_t* src_data[4] = { bayer_in, nullptr, nullptr, nullptr };
-    int src_linesize[4] = { static_cast<int>(width), 0, 0, 0 };
+    const uint8_t* src_ptr = input;
+    std::vector<uint16_t> unpacked;
+    size_t src_bytes_per_pixel = info.bytes_per_pixel;
+
+    if (info.packed) {
+        unpacked.resize(pixel_count);
+        rffmpeg_unpack_bits_to_u16(input, input_size, pixel_count, info.packed_bits, unpacked.data());
+        src_ptr = reinterpret_cast<const uint8_t*>(unpacked.data());
+        src_bytes_per_pixel = 2;
+    }
+
+    if (src_bytes_per_pixel == 0 ||
+        width > static_cast<uint32_t>(std::numeric_limits<int>::max() / src_bytes_per_pixel)) {
+        sws_freeContext(sws_ctx);
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (width > static_cast<uint32_t>(std::numeric_limits<int>::max() / 4)) {
+        sws_freeContext(sws_ctx);
+        return RFFMPEG_STATUS_INVALID_ARGUMENT;
+    }
+
+    const uint8_t* src_data[4] = { src_ptr, nullptr, nullptr, nullptr };
+    int src_linesize[4] = { static_cast<int>(width * src_bytes_per_pixel), 0, 0, 0 };
 
     uint8_t* dst_data[4] = { rgba_out, nullptr, nullptr, nullptr };
     int dst_linesize[4] = { static_cast<int>(width * 4), 0, 0, 0 };
 
-    // Perform the conversion
     int result = sws_scale(sws_ctx, src_data, src_linesize, 0, height,
-                          dst_data, dst_linesize);
+        dst_data, dst_linesize);
 
     sws_freeContext(sws_ctx);
 

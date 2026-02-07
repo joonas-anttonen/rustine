@@ -90,7 +90,7 @@ fn main() {
                         &SHUTDOWN_FLAG,
                     );
                     if let Err(e) = run_result {
-                        log::error!("GigEClient::run error: {}", e);
+                        log::error!("GigEClient::run {}", e);
                     }
                 });
             }
