@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use rustine::log;
 
@@ -43,9 +43,9 @@ pub(crate) struct GenIStructReg {
 #[derive(Debug)]
 pub(crate) struct GenIBoolean {
     pub info: Option<GenIInfo>,
-    pub value: Option<Box<GenIType>>,
-    pub true_value: Option<Box<GenIType>>,
-    pub false_value: Option<Box<GenIType>>,
+    pub value: Box<GenIType>,
+    pub true_value: Box<GenIType>,
+    pub false_value: Box<GenIType>,
 }
 
 #[derive(Debug)]
@@ -56,6 +56,13 @@ pub(crate) struct GenIInteger {
     pub max: Option<Box<GenIType>>,
     pub increment: Option<Box<GenIType>>,
     pub unit: Option<String>,
+}
+
+/// Custom type to represent Integer with pIndex and pValueIndexed.
+#[derive(Debug)]
+pub(crate) struct GenIIndexedInteger {
+    pub index: Box<GenIType>,
+    pub values: HashMap<u32, Box<GenIType>>,
 }
 
 #[derive(Debug)]
@@ -125,9 +132,7 @@ pub(crate) enum GenIType {
     Command(GenICommand),
     Boolean(GenIBoolean),
     Integer(GenIInteger),
-    ConstantInteger(u32),
     Float(GenIFloat),
-    ConstantFloat(f64),
     String,
     ConstantString,
     Enumeration(GenIEnumeration),
@@ -139,6 +144,12 @@ pub(crate) enum GenIType {
     Converter(GenIConverter),
     IntConverter,
     SwissKnife(GenISwissKnife),
+
+    /// Custom type to represent Integer with pIndex and pValueIndexed.
+    IndexedInteger(GenIIndexedInteger),
+    /// Custom type to represent a variable value.
+    /// Enables persistent reading and writing from plain numerical values.
+    Variable(Rc<Cell<f64>>),
 }
 
 impl GenIType {
@@ -199,6 +210,25 @@ impl GenICam {
         }
     }
 
+    /// Attempts to get a boolean by its name.
+    ///
+    /// [`None`] if the boolean is not found or if the feature is not a boolean.
+    pub fn get_boolean_by_name(&self, name: &str) -> Option<&GenIBoolean> {
+        match self.features_map.get(name) {
+            Some(gtype) => match gtype {
+                GenIType::Boolean(boolean) => Some(boolean),
+                _ => {
+                    log::warning!("Feature is not a boolean: {}", name);
+                    None
+                }
+            },
+            None => {
+                log::warning!("Boolean not found: {}", name);
+                None
+            }
+        }
+    }
+
     /// Attempts to get a feature by its name.
     ///
     /// [`None`] if the feature is not found.
@@ -207,16 +237,18 @@ impl GenICam {
     }
 }
 
-fn node_text_to_u32(node: &roxmltree::Node) -> std::io::Result<u32> {
+fn node_text_to_integer(node: &roxmltree::Node) -> std::io::Result<u32> {
     match node.text() {
-        Some(text) => {
-            let radix = if text.starts_with("0x") { 16 } else { 10 };
-            let text = text.trim_start_matches("0x");
-            u32::from_str_radix(text, radix)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-        }
+        Some(text) => parse_integral_value(text),
         None => Err(std::io::Error::from(std::io::ErrorKind::InvalidData)),
     }
+}
+
+fn parse_integral_value(text: &str) -> Result<u32, std::io::Error> {
+    let radix = if text.starts_with("0x") { 16 } else { 10 };
+    let text = text.trim_start_matches("0x");
+    u32::from_str_radix(text, radix)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 fn node_text_to_f64(node: &roxmltree::Node) -> std::io::Result<f64> {
@@ -283,11 +315,11 @@ fn get_struct_entry(entry_name: &str, node: &roxmltree::Node) -> std::io::Result
     for entry_child in entry.children() {
         match entry_child.tag_name().name() {
             "Bit" => {
-                let bit = node_text_to_u32(&entry_child)?;
+                let bit = node_text_to_integer(&entry_child)?;
                 value_range = Some((bit, bit));
             }
             "LSB" => {
-                let lsb = node_text_to_u32(&entry_child)?;
+                let lsb = node_text_to_integer(&entry_child)?;
                 if let Some((_, some_msb)) = value_range {
                     value_range = Some((lsb, some_msb));
                 } else {
@@ -295,7 +327,7 @@ fn get_struct_entry(entry_name: &str, node: &roxmltree::Node) -> std::io::Result
                 }
             }
             "MSB" => {
-                let msb = node_text_to_u32(&entry_child)?;
+                let msb = node_text_to_integer(&entry_child)?;
                 if let Some((some_lsb, _)) = value_range {
                     value_range = Some((some_lsb, msb));
                 } else {
@@ -312,8 +344,8 @@ fn get_struct_entry(entry_name: &str, node: &roxmltree::Node) -> std::io::Result
 
     for child in node.children() {
         match child.tag_name().name() {
-            "Address" => address = node_text_to_u32(&child)?,
-            "Length" => length = node_text_to_u32(&child)?,
+            "Address" => address = node_text_to_integer(&child)?,
+            "Length" => length = node_text_to_integer(&child)?,
             "Endianess" => big_endian = child.text().unwrap_or("BigEndian") == "BigEndian",
             _ => {}
         }
@@ -338,13 +370,14 @@ fn get_struct_entry(entry_name: &str, node: &roxmltree::Node) -> std::io::Result
 fn get_required_value(
     node: &roxmltree::Node,
     name_to_node: &HashMap<String, roxmltree::Node>,
+    variable_storage: &mut HashMap<String, Rc<Cell<f64>>>,
 ) -> std::io::Result<GenIType> {
     if let Some(n) = node.text().and_then(|t| name_to_node.get(t)) {
         // Handle cursed special case of StructReg
         if n.tag_name().name() == "StructReg" {
             get_struct_entry(node.text().unwrap_or(""), n)
         } else {
-            node_to_type(n, name_to_node)
+            node_to_type(n, name_to_node, variable_storage)
         }
     } else {
         Err(std::io::Error::new(
@@ -361,6 +394,7 @@ fn get_required_value(
 fn node_to_type(
     node: &roxmltree::Node,
     name_to_node: &HashMap<String, roxmltree::Node>,
+    variable_storage: &mut HashMap<String, Rc<Cell<f64>>>,
 ) -> std::io::Result<GenIType> {
     match node.tag_name().name() {
         "Command" => {
@@ -369,8 +403,10 @@ fn node_to_type(
 
             for child in node.children() {
                 match child.tag_name().name() {
-                    "CommandValue" => cmd_value = Some(node_text_to_u32(&child)?),
-                    "pValue" => value = Some(get_required_value(&child, name_to_node)?),
+                    "CommandValue" => cmd_value = Some(node_text_to_integer(&child)?),
+                    "pValue" => {
+                        value = Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
                     _ => {}
                 }
             }
@@ -383,18 +419,37 @@ fn node_to_type(
                 })),
                 _ => Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("{} missing required fields", node.tag_name().name()),
+                    format!("{} no pValue or CommandValue", node.tag_name().name()),
                 )),
             }
         }
-        "Integer" => {
+        "Boolean" => {
             let mut value = None;
-            let mut unit = None;
+            let mut true_value = None;
+            let mut false_value = None;
+
             for child in node.children() {
                 match child.tag_name().name() {
-                    "Unit" => unit = child.text().map(|s| s.to_string()),
-                    "Value" => value = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
-                    "pValue" => value = Some(get_required_value(&child, name_to_node)?),
+                    "OnValue" => {
+                        true_value =
+                            Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
+                    "OffValue" => {
+                        false_value =
+                            Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
+                    "Value" => {
+                        let variable_value = node_text_to_integer(&child)?;
+                        value = Some(get_variable(
+                            variable_storage,
+                            node,
+                            child.tag_name().name(),
+                            variable_value as f64,
+                        )?);
+                    }
+                    "pValue" => {
+                        value = Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
                     _ => {}
                 }
             }
@@ -403,10 +458,82 @@ fn node_to_type(
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
-                        "{} no Value or pValue",
+                        "{} no Value or pValue or pIndex",
                         node.attribute("Name").unwrap_or("")
                     ),
                 ));
+            }
+
+            Ok(GenIType::Boolean(GenIBoolean {
+                info: extract_info(node),
+                value: Box::new(value.unwrap()),
+                true_value: Box::new(true_value.unwrap_or(get_variable(
+                    variable_storage,
+                    node,
+                    "True",
+                    1.0,
+                )?)),
+                false_value: Box::new(false_value.unwrap_or(get_variable(
+                    variable_storage,
+                    node,
+                    "False",
+                    0.0,
+                )?)),
+            }))
+        }
+        "Integer" => {
+            let mut value = None;
+            let mut value_indices: HashMap<u32, GenIType> = HashMap::new();
+            let mut unit = None;
+            for child in node.children() {
+                match child.tag_name().name() {
+                    "Unit" => unit = child.text().map(|s| s.to_string()),
+                    "Value" => {
+                        let variable_value = node_text_to_integer(&child)?;
+                        value = Some(get_variable(
+                            variable_storage,
+                            node,
+                            child.tag_name().name(),
+                            variable_value as f64,
+                        )?);
+                    }
+                    "pValue" => {
+                        value = Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
+                    // <pValueIndexed Index="SOME_INDEX">SOME_OTHER_VALUE</pValueIndexed>
+                    "pValueIndexed" => {
+                        if let Some(index) = child.attribute("Index") {
+                            let index = parse_integral_value(index)?;
+                            let value = get_required_value(&child, name_to_node, variable_storage)?;
+                            value_indices.insert(index, value);
+                        }
+                    }
+                    // Appears with pValueIndexed
+                    "pIndex" => {
+                        value = Some(get_required_value(&child, name_to_node, variable_storage)?);
+                    }
+                    _ => {}
+                }
+            }
+
+            if value.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "{} no Value or pValue or pIndex",
+                        node.attribute("Name").unwrap_or("")
+                    ),
+                ));
+            }
+
+            if value_indices.len() > 0 {
+                value = Some(GenIType::IndexedInteger(GenIIndexedInteger {
+                    index: Box::new(value.unwrap()),
+                    values: value_indices
+                        .into_iter()
+                        .map(|(k, v)| (k, Box::new(v)))
+                        .collect(),
+                }));
             }
 
             Ok(GenIType::Integer(GenIInteger {
@@ -424,8 +551,18 @@ fn node_to_type(
             for child in node.children() {
                 match child.tag_name().name() {
                     "Unit" => unit = child.text().map(|s| s.to_string()),
-                    "Value" => value = Some(GenIType::ConstantFloat(node_text_to_f64(&child)?)),
-                    "pValue" => value = Some(get_required_value(&child, name_to_node)?),
+                    "Value" => {
+                        let variable_value = node_text_to_f64(&child)?;
+                        value = Some(get_variable(
+                            variable_storage,
+                            node,
+                            child.tag_name().name(),
+                            variable_value,
+                        )?);
+                    }
+                    "pValue" => {
+                        value = Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
                     _ => {}
                 }
             }
@@ -457,23 +594,51 @@ fn node_to_type(
 
             for child in node.children() {
                 match child.tag_name().name() {
-                    "pAddress" => address = Some(get_required_value(&child, name_to_node)?),
-                    "Address" => {
-                        address = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?))
+                    "pAddress" => {
+                        address = Some(get_required_value(&child, name_to_node, variable_storage)?)
                     }
-                    "pLength" => length = Some(get_required_value(&child, name_to_node)?),
-                    "Length" => length = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
+                    "Address" => {
+                        let variable_value = node_text_to_integer(&child)?;
+                        address = Some(get_variable(
+                            variable_storage,
+                            node,
+                            child.tag_name().name(),
+                            variable_value as f64,
+                        )?);
+                    }
+                    "pLength" => {
+                        length = Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
+                    "Length" => {
+                        let variable_value = node_text_to_integer(&child)?;
+                        length = Some(get_variable(
+                            variable_storage,
+                            node,
+                            child.tag_name().name(),
+                            variable_value as f64,
+                        )?);
+                    }
                     "Sign" => signed = child.text().unwrap_or("Unsigned") == "Signed",
                     "Endianess" => big_endian = child.text().unwrap_or("BigEndian") == "BigEndian",
                     _ => {}
                 }
             }
 
-            if address.is_none() || length.is_none() {
+            if address.is_none() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
-                        "{} missing required fields",
+                        "{} no Address or pAddress",
+                        node.attribute("Name").unwrap_or("")
+                    ),
+                ));
+            }
+
+            if length.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "{} no Length or pLength",
                         node.attribute("Name").unwrap_or("")
                     ),
                 ));
@@ -494,12 +659,30 @@ fn node_to_type(
 
             for child in node.children() {
                 match child.tag_name().name() {
-                    "pAddress" => address = Some(get_required_value(&child, name_to_node)?),
-                    "Address" => {
-                        address = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?))
+                    "pAddress" => {
+                        address = Some(get_required_value(&child, name_to_node, variable_storage)?)
                     }
-                    "pLength" => length = Some(get_required_value(&child, name_to_node)?),
-                    "Length" => length = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
+                    "Address" => {
+                        let variable_value = node_text_to_integer(&child)?;
+                        address = Some(get_variable(
+                            variable_storage,
+                            node,
+                            child.tag_name().name(),
+                            variable_value as f64,
+                        )?);
+                    }
+                    "pLength" => {
+                        length = Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
+                    "Length" => {
+                        let variable_value = node_text_to_integer(&child)?;
+                        length = Some(get_variable(
+                            variable_storage,
+                            node,
+                            child.tag_name().name(),
+                            variable_value as f64,
+                        )?);
+                    }
                     "Endianess" => big_endian = child.text().unwrap_or("BigEndian") == "BigEndian",
                     _ => {}
                 }
@@ -542,7 +725,7 @@ fn node_to_type(
                     "pVariable" => {
                         variables.insert(
                             child.text().unwrap().to_string(),
-                            Box::new(get_required_value(&child, name_to_node)?),
+                            Box::new(get_required_value(&child, name_to_node, variable_storage)?),
                         );
                     }
                     _ => {}
@@ -572,11 +755,13 @@ fn node_to_type(
                 match child.tag_name().name() {
                     "FormulaTo" => formula_to = child.text().map(|s| s.to_string()),
                     "FormulaFrom" => formula_from = child.text().map(|s| s.to_string()),
-                    "pValue" => value = Some(get_required_value(&child, name_to_node)?),
+                    "pValue" => {
+                        value = Some(get_required_value(&child, name_to_node, variable_storage)?)
+                    }
                     "pVariable" => {
                         variables.insert(
                             child.text().unwrap().to_string(),
-                            Box::new(get_required_value(&child, name_to_node)?),
+                            Box::new(get_required_value(&child, name_to_node, variable_storage)?),
                         );
                     }
                     _ => {}
@@ -612,9 +797,17 @@ fn node_to_type(
 
             for child in node.children() {
                 match child.tag_name().name() {
-                    "Value" => value = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
+                    "Value" => {
+                        let variable_value = node_text_to_integer(&child)?;
+                        value = Some(get_variable(
+                            variable_storage,
+                            node,
+                            child.tag_name().name(),
+                            variable_value as f64,
+                        )?);
+                    }
                     "pValue" => {
-                        value = Some(get_required_value(&child, name_to_node)?);
+                        value = Some(get_required_value(&child, name_to_node, variable_storage)?);
                     }
                     "EnumEntry" => {
                         let name = child.attribute("Name");
@@ -625,7 +818,7 @@ fn node_to_type(
                                 "EnumEntry no Name or Value",
                             ));
                         }
-                        let value = node_text_to_u32(&value_child.unwrap())?;
+                        let value = node_text_to_integer(&value_child.unwrap())?;
                         names_to_values.insert(name.unwrap().to_string(), value);
                         values_to_names.insert(value, name.unwrap().to_string());
                     }
@@ -661,6 +854,35 @@ fn node_to_type(
     }
 }
 
+fn get_variable(
+    variable_storage: &mut HashMap<String, Rc<Cell<f64>>>,
+    node: &roxmltree::Node,
+    element_name: &str,
+    initial_value: f64,
+) -> std::io::Result<GenIType> {
+    let node_name = if let Some(node_name) = node.attribute("Name") {
+        node_name.to_string()
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Node has no Name attribute",
+        ));
+    };
+
+    let variable_name = format!("{}_{}", node_name, element_name);
+
+    let variable = if let Some(existing) = variable_storage.get(&variable_name) {
+        existing.clone()
+    } else {
+        let new_var = Rc::new(Cell::new(0.0));
+        variable_storage.insert(variable_name.clone(), new_var.clone());
+        new_var
+    };
+
+    variable.set(initial_value);
+    Ok(GenIType::Variable(variable))
+}
+
 /// GenICam XML -> `GenICam`.
 ///
 /// # Errors
@@ -672,15 +894,32 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
     let gen_doc = parse_xml(xml_content)?;
     let feature_name_to_node = preprocess_xml(&gen_doc)?;
 
+    let mut variable_storage = HashMap::<String, Rc<Cell<f64>>>::new();
+
     let mut gen_features_map = HashMap::<String, GenIType>::new();
     for (feature_name, node) in &feature_name_to_node {
         if !node.is_element() {
             continue;
         }
 
+        // TODO: Skip Visibility == "Invisible"
         match node.tag_name().name() {
+            "Boolean" => {
+                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
+                    Ok(feature) => {
+                        gen_features_map.insert(feature_name.clone(), feature);
+                    }
+                    Err(e) => {
+                        log::warning!(
+                            "parse::Boolean {} {}",
+                            node.attribute("Name").unwrap_or(""),
+                            e.to_string()
+                        );
+                    }
+                };
+            }
             "Integer" => {
-                match node_to_type(&node, &feature_name_to_node) {
+                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
                     Ok(feature) => {
                         gen_features_map.insert(feature_name.clone(), feature);
                     }
@@ -694,7 +933,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                 };
             }
             "Float" => {
-                match node_to_type(&node, &feature_name_to_node) {
+                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
                     Ok(feature) => {
                         gen_features_map.insert(feature_name.clone(), feature);
                     }
@@ -708,7 +947,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                 };
             }
             "Enumeration" => {
-                match node_to_type(&node, &feature_name_to_node) {
+                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
                     Ok(enumeration) => {
                         gen_features_map.insert(feature_name.clone(), enumeration);
                     }
@@ -722,7 +961,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
                 };
             }
             "Command" => {
-                match node_to_type(&node, &feature_name_to_node) {
+                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
                     Ok(cmd) => {
                         gen_features_map.insert(feature_name.clone(), cmd);
                     }
@@ -804,15 +1043,96 @@ mod tests {
     use super::*;
 
     #[test]
+    fn indexed_integer() {
+        let xml = r#"
+        <RegisterDescription>
+            <Group>
+                <Boolean Name="N1">
+                    <pValue>N2</pValue>
+                </Boolean>
+            </Group>
+            <Group>
+                <Integer Name="N4" NameSpace="Custom">
+                    <Value>0</Value>
+                </Integer>
+                <Integer Name="N3" NameSpace="Custom">
+                    <Value>0</Value>
+                </Integer>
+                <Integer Name="N2" NameSpace="Custom">
+                    <pIndex>N3</pIndex>
+                    <pValueIndexed Index="1">N4</pValueIndexed>
+                    <pValueIndexed Index="4">N4</pValueIndexed>
+                    <pValueDefault>N4</pValueDefault>
+                </Integer>
+            </Group>
+        </RegisterDescription>
+        "#;
+
+        let gen_doc = parse_xml(xml).unwrap();
+        let name_to_node = preprocess_xml(&gen_doc).unwrap();
+
+        // Assert we have "N1" and "N2" and "N3"
+        assert!(name_to_node.contains_key("N1"), "Missing key N1");
+        assert!(name_to_node.contains_key("N2"), "Missing key N2");
+        assert!(name_to_node.contains_key("N3"), "Missing key N3");
+
+        let parse_result = node_to_type(&name_to_node["N1"], &name_to_node, &mut HashMap::new());
+
+        // What we should have now is GenIBoolean with the value
+        // pointing to GenIInteger N2 and N2 value having type GenIIndexedInteger
+        assert!(parse_result.is_ok());
+
+        let gen_bool = match parse_result.unwrap() {
+            GenIType::Boolean(gen_bool) => gen_bool,
+            other => panic!("Expected GenIType::Boolean, got {:?}", other),
+        };
+
+        let gen_int = match *gen_bool.value {
+            GenIType::Integer(gen_int) => gen_int,
+            other => panic!("Expected GenIType::Integer, got {:?}", other),
+        };
+
+        let indexed = match *gen_int.value {
+            GenIType::IndexedInteger(indexed) => indexed,
+            other => panic!("Expected GenIType::IndexedInteger, got {:?}", other),
+        };
+
+        let index = match *indexed.index {
+            GenIType::Integer(index) => index,
+            other => panic!("Expected GenIType::Integer index, got {:?}", other),
+        };
+
+        let index_value = match *index.value {
+            GenIType::Variable(value) => value.get(),
+            other => panic!("Expected GenIType::Variable, got {:?}", other),
+        };
+
+        assert_eq!(index_value, 0.0);
+        assert_eq!(indexed.values.len(), 2);
+        assert!(indexed.values.contains_key(&1));
+        assert!(indexed.values.contains_key(&4));
+
+        for value in indexed.values.values() {
+            match value.as_ref() {
+                GenIType::Integer(gen_int) => match gen_int.value.as_ref() {
+                    GenIType::Variable(value) => assert_eq!(value.get(), 0.0),
+                    other => panic!("Expected Variable, got {:?}", other),
+                },
+                other => panic!("Expected GenIType::Integer, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
     fn unsupported_node_type() {
         let xml = r#"
         <RegisterDescription>
-            <Group Comment="Test1">
+            <Group>
                 <Integer Name="N1">
                     <pValue>N2</pValue>
                 </Integer>
             </Group>
-            <Group Comment="Test2">
+            <Group>
                 <WeirdReg Name="N2">
                     <Address>0x0D04</Address>
                     <Length>4</Length>
@@ -832,7 +1152,7 @@ mod tests {
         assert!(name_to_node.contains_key("N1"), "Missing key N1");
         assert!(name_to_node.contains_key("N2"), "Missing key N2");
 
-        let parse_result = node_to_type(&name_to_node["N1"], &name_to_node);
+        let parse_result = node_to_type(&name_to_node["N1"], &name_to_node, &mut HashMap::new());
 
         assert!(parse_result.is_err());
 
@@ -876,6 +1196,7 @@ mod tests {
                 .first_element_child()
                 .unwrap(),
             &name_to_node,
+            &mut HashMap::new(),
         );
         if let Err(e) = &parse_result {
             eprintln!("{:?}", e);

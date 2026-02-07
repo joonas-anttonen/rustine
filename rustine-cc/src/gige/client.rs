@@ -234,11 +234,28 @@ impl GigEClient {
         let component_selection = genicam
             .get_enumeration_by_name("ComponentSelector")
             .ok_or_else(|| not_found_err("ComponentSelector"))?;
-        Self::read_enumeration(control_connection, component_selection)?;
+        let component_enable = genicam
+            .get_boolean_by_name("ComponentEnable")
+            .ok_or_else(|| not_found_err("ComponentEnable"))?;
+
+        Self::write_enumeration(control_connection, component_selection, "Range")?;
+        Self::write_boolean(control_connection, component_enable, true)?;
+        
         log::warning!(
-            "Component Selection: {:?}",
-            Self::read_enumeration(control_connection, component_selection)?
+            "Component Selection: {:?} Enable: {:?}",
+            Self::read_enumeration(control_connection, component_selection)?,
+            Self::read_boolean(control_connection, component_enable)?
         );
+        // Intensity = Texture
+        // Range = Depth map
+        // CoordinateMapA = Point cloud
+        //Self::write_enumeration(control_connection, component_selection, "CoordinateMapA")?;
+        //Self::write_boolean(control_connection, component_enable, true)?;
+        //log::warning!(
+        //    "Component Selection: {:?} Enable: {:?}",
+        //    Self::read_enumeration(control_connection, component_selection)?,
+        //    Self::read_boolean(control_connection, component_enable)?
+        //);
 
         let heartbeat_timeout =
             Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
@@ -637,7 +654,7 @@ impl GigEClient {
     ) -> std::io::Result<()> {
         let address = match &*command.value {
             genicam::GenIType::IntReg(reg) => match *reg.address {
-                genicam::GenIType::ConstantInteger(addr) => addr,
+                genicam::GenIType::Variable(ref addr) => addr.get(),
                 _ => {
                     log::error!(
                         "Unsupported address type in command value: {:#?}",
@@ -652,7 +669,7 @@ impl GigEClient {
             }
         };
 
-        Self::write_register(connection, address, command.cmd_value)
+        Self::write_register(connection, address as u32, command.cmd_value)
     }
 
     fn read_number(
@@ -660,6 +677,7 @@ impl GigEClient {
         number_type: &genicam::GenIType,
     ) -> std::io::Result<f64> {
         match &number_type {
+            genicam::GenIType::Variable(ci) => Ok(ci.get()),
             genicam::GenIType::Float(f) => Self::read_float(connection, f),
             genicam::GenIType::Integer(i) => Self::read_integer(connection, i),
             genicam::GenIType::IntReg(r) => Self::read_int_reg(connection, r),
@@ -685,13 +703,13 @@ impl GigEClient {
         connection: &Connection,
         float_reg_type: &genicam::GenIFloatReg,
     ) -> std::io::Result<f64> {
-        let length = if let genicam::GenIType::ConstantInteger(length) = *float_reg_type.length {
-            length
+        let length = if let genicam::GenIType::Variable(ref length) = *float_reg_type.length {
+            length.get()
         } else {
             return unsupported("Unsupported FloatReg length");
         };
         let address = match *float_reg_type.address {
-            genicam::GenIType::ConstantInteger(addr) => addr,
+            genicam::GenIType::Variable(ref addr) => addr.get(),
             _ => {
                 log::error!(
                     "Unsupported address type in FloatReg: {:#?}",
@@ -701,11 +719,11 @@ impl GigEClient {
             }
         };
 
-        if length == 4 {
-            let raw_value = Self::read_register(connection, address)?;
+        if length == 4.0 {
+            let raw_value = Self::read_register(connection, address as u32)?;
             Ok(raw_value as f64)
-        } else if length == 8 {
-            let raw_value = Self::read_memory(connection, address, length)?;
+        } else if length == 8.0 {
+            let raw_value = Self::read_memory(connection, address as u32, length as u32)?;
             let f64_value = f64::from_be_bytes(raw_value.as_slice().try_into().unwrap());
             Ok(f64_value)
         } else {
@@ -717,8 +735,8 @@ impl GigEClient {
         connection: &Connection,
         int_reg_type: &genicam::GenIIntReg,
     ) -> std::io::Result<f64> {
-        if let genicam::GenIType::ConstantInteger(length) = *int_reg_type.length
-            && length != 4
+        if let genicam::GenIType::Variable(ref length) = *int_reg_type.length
+            && length.get() != 4.0
         {
             return unsupported("Unsupported IntReg length");
         }
@@ -726,7 +744,7 @@ impl GigEClient {
             return unsupported("Unsupported IntReg endianess");
         }
         let address = match *int_reg_type.address {
-            genicam::GenIType::ConstantInteger(addr) => addr,
+            genicam::GenIType::Variable(ref addr) => addr.get(),
             _ => {
                 log::error!(
                     "Unsupported address type in IntReg: {:#?}",
@@ -736,7 +754,7 @@ impl GigEClient {
             }
         };
 
-        let raw_value = Self::read_register(connection, address)?;
+        let raw_value = Self::read_register(connection, address as u32)?;
         Ok(raw_value as f64)
     }
 
@@ -745,8 +763,8 @@ impl GigEClient {
         int_reg_type: &genicam::GenIIntReg,
         value: f64,
     ) -> std::io::Result<()> {
-        if let genicam::GenIType::ConstantInteger(length) = *int_reg_type.length
-            && length != 4
+        if let genicam::GenIType::Variable(ref length) = *int_reg_type.length
+            && length.get() != 4.0
         {
             return unsupported("Unsupported IntReg length");
         }
@@ -754,7 +772,7 @@ impl GigEClient {
             return unsupported("Unsupported IntReg endianess");
         }
         let address = match *int_reg_type.address {
-            genicam::GenIType::ConstantInteger(addr) => addr,
+            genicam::GenIType::Variable(ref addr) => addr.get(),
             _ => {
                 log::error!(
                     "Unsupported address type in IntReg: {:#?}",
@@ -764,7 +782,7 @@ impl GigEClient {
             }
         };
 
-        Self::write_register(connection, address, value as u32)
+        Self::write_register(connection, address as u32, value as u32)
     }
 
     fn read_enumeration<'a>(
@@ -787,6 +805,7 @@ impl GigEClient {
         let value = enumeration_type.name_to_value(name).ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid enumeration name")
         })?;
+
         Self::write_number(connection, &enumeration_type.value, value as f64)
     }
 
@@ -812,14 +831,43 @@ impl GigEClient {
         }
     }
 
+    fn read_boolean(
+        connection: &Connection,
+        boolean_type: &genicam::GenIBoolean,
+    ) -> std::io::Result<bool> {
+        let number = Self::read_number(connection, &boolean_type.value)?;
+        Ok(number == Self::read_number(connection, &boolean_type.true_value)?)
+    }
+
+    fn write_boolean(
+        connection: &Connection,
+        boolean_type: &genicam::GenIBoolean,
+        value: bool,
+    ) -> std::io::Result<()> {
+        let write_value = if value {
+            Self::read_number(connection, &boolean_type.true_value)?
+        } else {
+            Self::read_number(connection, &boolean_type.false_value)?
+        };
+        Self::write_number(connection, &boolean_type.value, write_value)
+    }
+
     fn read_integer(
         connection: &Connection,
         integer_type: &genicam::GenIInteger,
     ) -> std::io::Result<f64> {
         match &*integer_type.value {
+            &genicam::GenIType::Variable(ref ci) => Ok(ci.get() as f64),
+            &genicam::GenIType::Integer(ref i) => Self::read_integer(connection, i),
             genicam::GenIType::IntReg(ireg) => Self::read_int_reg(connection, ireg),
             genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
-            _ => unsupported("Unsupported integer type value"),
+            genicam::GenIType::IndexedInteger(indexed_integer) => {
+                Self::read_indexed_integer(connection, indexed_integer)
+            }
+            _ => unsupported(format!(
+                "Unsupported integer value: {:?}",
+                integer_type.value
+            )),
         }
     }
 
@@ -829,9 +877,55 @@ impl GigEClient {
         value: f64,
     ) -> std::io::Result<()> {
         match &*integer_type.value {
+            &genicam::GenIType::Variable(ref ci) => {
+                log::error!("Writing constant integer with value: {}", value);
+                Ok(ci.update(|_| value as f64))
+            }
+            &genicam::GenIType::Integer(ref i) => Self::write_integer(connection, i, value),
+            &genicam::GenIType::IndexedInteger(ref ii) => {
+                Self::write_indexed_integer(connection, ii, value)
+            }
             genicam::GenIType::IntReg(ireg) => Self::write_int_reg(connection, ireg, value),
             genicam::GenIType::Converter(conv) => Self::write_converter(connection, conv, value),
-            _ => unsupported("Unsupported integer type value"),
+            _ => unsupported(format!(
+                "write_integer: Unsupported value: {:?}",
+                integer_type.value
+            )),
+        }
+    }
+
+    fn read_indexed_integer(
+        connection: &Connection,
+        indexed_integer_type: &genicam::GenIIndexedInteger,
+    ) -> std::io::Result<f64> {
+        let index = match &*indexed_integer_type.index {
+            genicam::GenIType::Integer(i) => Self::read_integer(connection, i)? as u32,
+            _ => return unsupported("Unsupported integer index value"),
+        };
+
+        log::error!("Reading indexed integer at index: {}", index);
+
+        match indexed_integer_type.values.get(&index) {
+            Some(v) => Self::read_number(connection, v),
+            None => unsupported("Indexed integer value not found"),
+        }
+    }
+
+    fn write_indexed_integer(
+        connection: &Connection,
+        indexed_integer_type: &genicam::GenIIndexedInteger,
+        value: f64,
+    ) -> std::io::Result<()> {
+        let index = match &*indexed_integer_type.index {
+            genicam::GenIType::Integer(i) => Self::read_integer(connection, i)? as u32,
+            _ => return unsupported("Unsupported integer index value"),
+        };
+
+        log::error!("Writing indexed integer at index: {}", index);
+
+        match indexed_integer_type.values.get(&index) {
+            Some(v) => Self::write_number(connection, v, value),
+            None => unsupported("Indexed integer value not found"),
         }
     }
 
