@@ -66,11 +66,14 @@ impl GigEClient {
         let (adapter, device_address) = {
             let client = client.lock().unwrap();
 
-            log::set_current_thread_name(format!(
-                "gige::{}_{}",
-                client.device.model.clone(),
-                client.device.serial.clone()
-            ));
+            log::set_current_thread_name(
+                format!(
+                    "{} {}",
+                    client.device.model.clone(),
+                    client.device.serial.clone()
+                )
+                .trim_matches(' '),
+            );
 
             (client.device.adapter.clone(), client.device.address)
         };
@@ -159,7 +162,7 @@ impl GigEClient {
             .get_command_by_name("AcquisitionStop")
             .ok_or_else(|| not_found_err("AcquisitionStop"))?;
 
-        let frame_rate = genicam
+        /*let frame_rate = genicam
             .get_feature_by_name("AcquisitionFrameRate")
             .ok_or_else(|| not_found_err("AcquisitionFrameRate"))?;
         log::warning!(
@@ -211,7 +214,7 @@ impl GigEClient {
             Self::read_number(control_connection, gain)?,
             gain.get_unit().unwrap_or(""),
             Self::read_enumeration(control_connection, gain_auto)?
-        );
+        );*/
 
         let heartbeat_timeout =
             Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
@@ -532,6 +535,7 @@ impl GigEClient {
             genicam::GenIType::Float(f) => Self::read_float(connection, f),
             genicam::GenIType::Integer(i) => Self::read_integer(connection, i),
             genicam::GenIType::IntReg(r) => Self::read_int_reg(connection, r),
+            genicam::GenIType::FloatReg(f) => Self::read_float_reg(connection, f),
             _ => unsupported(format!("Unsupported number type: {:#?}", number_type)),
         }
     }
@@ -546,6 +550,38 @@ impl GigEClient {
             genicam::GenIType::Integer(i) => Self::write_integer(connection, i, value),
             genicam::GenIType::IntReg(r) => Self::write_int_reg(connection, r, value),
             _ => unsupported(format!("Unsupported number type: {:#?}", number_type)),
+        }
+    }
+
+    fn read_float_reg(
+        connection: &Connection,
+        float_reg_type: &genicam::GenIFloatReg,
+    ) -> std::io::Result<f64> {
+        let length = if let genicam::GenIType::ConstantInteger(length) = *float_reg_type.length {
+            length
+        } else {
+            return unsupported("Unsupported FloatReg length");
+        };
+        let address = match *float_reg_type.address {
+            genicam::GenIType::ConstantInteger(addr) => addr,
+            _ => {
+                log::error!(
+                    "Unsupported address type in FloatReg: {:#?}",
+                    float_reg_type.address
+                );
+                return unsupported("Unsupported FloatReg address type");
+            }
+        };
+
+        if length == 4 {
+            let raw_value = Self::read_register(connection, address)?;
+            Ok(raw_value as f64)
+        } else if length == 8 {
+            let raw_value = Self::read_memory(connection, address, length)?;
+            let f64_value = f64::from_be_bytes(raw_value.as_slice().try_into().unwrap());
+            Ok(f64_value)
+        } else {
+            unsupported("Unsupported FloatReg length")
         }
     }
 
@@ -632,6 +668,7 @@ impl GigEClient {
     ) -> std::io::Result<f64> {
         match &*float_type.value {
             genicam::GenIType::Converter(conv) => Self::read_converter(connection, conv),
+            genicam::GenIType::FloatReg(freg) => Self::read_float_reg(connection, freg),
             _ => unsupported("Unsupported float type value"),
         }
     }

@@ -23,6 +23,14 @@ pub(crate) struct GenIIntReg {
 }
 
 #[derive(Debug)]
+pub(crate) struct GenIFloatReg {
+    pub info: Option<GenIInfo>,
+    pub address: Box<GenIType>,
+    pub length: Box<GenIType>,
+    pub big_endian: bool,
+}
+
+#[derive(Debug)]
 pub(crate) struct GenIStructReg {
     pub info: Option<GenIInfo>,
     pub address: u32,
@@ -101,6 +109,17 @@ impl GenIEnumeration {
     }
 }
 
+pub enum GenIUnit {
+    None,
+    Second,
+    Millisecond,
+    Microsecond,
+    Nanosecond,
+    Percent,
+    Decibel,
+    Unknown(String),
+}
+
 #[derive(Debug)]
 pub(crate) enum GenIType {
     Command(GenICommand),
@@ -114,7 +133,7 @@ pub(crate) enum GenIType {
     Enumeration(GenIEnumeration),
     IntReg(GenIIntReg),
     MaskedIntReg,
-    FloatReg,
+    FloatReg(GenIFloatReg),
     StringReg,
     StructReg(GenIStructReg),
     Converter(GenIConverter),
@@ -194,6 +213,17 @@ fn node_text_to_u32(node: &roxmltree::Node) -> std::io::Result<u32> {
             let radix = if text.starts_with("0x") { 16 } else { 10 };
             let text = text.trim_start_matches("0x");
             u32::from_str_radix(text, radix)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        }
+        None => Err(std::io::Error::from(std::io::ErrorKind::InvalidData)),
+    }
+}
+
+fn node_text_to_f64(node: &roxmltree::Node) -> std::io::Result<f64> {
+    match node.text() {
+        Some(text) => {
+            let text = text.trim();
+            text.parse::<f64>()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
         }
         None => Err(std::io::Error::from(std::io::ErrorKind::InvalidData)),
@@ -373,7 +403,7 @@ fn node_to_type(
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
-                        "{} missing required fields",
+                        "{} no Value or pValue",
                         node.attribute("Name").unwrap_or("")
                     ),
                 ));
@@ -394,6 +424,7 @@ fn node_to_type(
             for child in node.children() {
                 match child.tag_name().name() {
                     "Unit" => unit = child.text().map(|s| s.to_string()),
+                    "Value" => value = Some(GenIType::ConstantFloat(node_text_to_f64(&child)?)),
                     "pValue" => value = Some(get_required_value(&child, name_to_node)?),
                     _ => {}
                 }
@@ -403,7 +434,7 @@ fn node_to_type(
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
-                        "{} missing required fields",
+                        "{} no Value or pValue",
                         node.attribute("Name").unwrap_or("")
                     ),
                 ));
@@ -431,7 +462,7 @@ fn node_to_type(
                         address = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?))
                     }
                     "pLength" => length = Some(get_required_value(&child, name_to_node)?),
-                    "Length" => length =  Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
+                    "Length" => length = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
                     "Sign" => signed = child.text().unwrap_or("Unsigned") == "Signed",
                     "Endianess" => big_endian = child.text().unwrap_or("BigEndian") == "BigEndian",
                     _ => {}
@@ -453,6 +484,51 @@ fn node_to_type(
                 address: Box::new(address.unwrap()),
                 length: Box::new(length.unwrap()),
                 signed,
+                big_endian,
+            }))
+        }
+        "FloatReg" => {
+            let mut address = None;
+            let mut length = None;
+            let mut big_endian: bool = true;
+
+            for child in node.children() {
+                match child.tag_name().name() {
+                    "pAddress" => address = Some(get_required_value(&child, name_to_node)?),
+                    "Address" => {
+                        address = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?))
+                    }
+                    "pLength" => length = Some(get_required_value(&child, name_to_node)?),
+                    "Length" => length = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
+                    "Endianess" => big_endian = child.text().unwrap_or("BigEndian") == "BigEndian",
+                    _ => {}
+                }
+            }
+
+            if address.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "{} no Address or pAddress",
+                        node.attribute("Name").unwrap_or("")
+                    ),
+                ));
+            }
+
+            if length.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "{} no Length or pLength",
+                        node.attribute("Name").unwrap_or("")
+                    ),
+                ));
+            }
+
+            Ok(GenIType::FloatReg(GenIFloatReg {
+                info: extract_info(node),
+                address: Box::new(address.unwrap()),
+                length: Box::new(length.unwrap()),
                 big_endian,
             }))
         }
@@ -507,10 +583,17 @@ fn node_to_type(
                 }
             }
 
-            if value.is_none() || formula_to.is_none() || formula_from.is_none() {
+            if value.is_none() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("{} missing required fields", node.tag_name().name()),
+                    format!("{} no pValue", node.tag_name().name()),
+                ));
+            }
+
+            if formula_to.is_none() || formula_from.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{} no FormulaTo or FormulaFrom", node.tag_name().name()),
                 ));
             }
 
@@ -531,19 +614,7 @@ fn node_to_type(
                 match child.tag_name().name() {
                     "Value" => value = Some(GenIType::ConstantInteger(node_text_to_u32(&child)?)),
                     "pValue" => {
-                        value = match get_required_value(&child, name_to_node) {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                return Err(std::io::Error::new(
-                                    std::io::ErrorKind::InvalidData,
-                                    format!(
-                                        "{} missing required fields: {}",
-                                        node.attribute("Name").unwrap_or(""),
-                                        e
-                                    ),
-                                ));
-                            }
-                        };
+                        value = Some(get_required_value(&child, name_to_node)?);
                     }
                     "EnumEntry" => {
                         let name = child.attribute("Name");
@@ -551,7 +622,7 @@ fn node_to_type(
                         if value_child.is_none() || name.is_none() {
                             return Err(std::io::Error::new(
                                 std::io::ErrorKind::InvalidData,
-                                "EnumEntry missing required fields",
+                                "EnumEntry no Name or Value",
                             ));
                         }
                         let value = node_text_to_u32(&value_child.unwrap())?;
@@ -566,7 +637,7 @@ fn node_to_type(
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
-                        "{} missing required fields",
+                        "{} no Value or pValue",
                         node.attribute("Name").unwrap_or("")
                     ),
                 ));
@@ -582,7 +653,7 @@ fn node_to_type(
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             format!(
-                "Unsupported node type {} {}",
+                "Unsupported: {} {}",
                 node.tag_name().name(),
                 node.attribute("Name").unwrap_or("")
             ),
@@ -599,77 +670,70 @@ fn node_to_type(
 ///
 pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
     let gen_doc = parse_xml(xml_content)?;
-    let (gen_node, name_to_node) = preprocess_xml(&gen_doc)?;
+    let feature_name_to_node = preprocess_xml(&gen_doc)?;
 
     let mut gen_features_map = HashMap::<String, GenIType>::new();
-    for node in gen_node.children() {
+    for (feature_name, node) in &feature_name_to_node {
         if !node.is_element() {
             continue;
         }
 
-        let info = extract_info(&node);
-        if info.is_none() {
-            continue;
-        }
-        let info = info.unwrap();
-        let info_name = info.name.clone();
-
         match node.tag_name().name() {
             "Integer" => {
-                let integer = match node_to_type(&node, &name_to_node) {
-                    Ok(feature) => feature,
+                match node_to_type(&node, &feature_name_to_node) {
+                    Ok(feature) => {
+                        gen_features_map.insert(feature_name.clone(), feature);
+                    }
                     Err(e) => {
                         log::warning!(
-                            "Failed to parse Integer {} {}",
+                            "parse::Integer {} {}",
                             node.attribute("Name").unwrap_or(""),
-                            e
+                            e.to_string()
                         );
-                        continue;
                     }
                 };
-                gen_features_map.insert(info_name, integer);
             }
             "Float" => {
-                let float = match node_to_type(&node, &name_to_node) {
-                    Ok(feature) => feature,
+                match node_to_type(&node, &feature_name_to_node) {
+                    Ok(feature) => {
+                        gen_features_map.insert(feature_name.clone(), feature);
+                    }
                     Err(e) => {
                         log::warning!(
-                            "Failed to parse Float {} {}",
+                            "parse::Float {} {}",
                             node.attribute("Name").unwrap_or(""),
                             e
                         );
-                        continue;
                     }
                 };
-                gen_features_map.insert(info_name, float);
             }
             "Enumeration" => {
-                let enumeration = match node_to_type(&node, &name_to_node) {
-                    Ok(enumeration) => enumeration,
+                match node_to_type(&node, &feature_name_to_node) {
+                    Ok(enumeration) => {
+                        gen_features_map.insert(feature_name.clone(), enumeration);
+                    }
                     Err(e) => {
                         log::warning!(
-                            "Failed to parse Enumeration {} {}",
+                            "parse::Enumeration {} {}",
                             node.attribute("Name").unwrap_or(""),
                             e
                         );
-                        continue;
                     }
                 };
-                gen_features_map.insert(info_name, enumeration);
             }
             "Command" => {
-                let cmd = match node_to_type(&node, &name_to_node) {
-                    Ok(cmd) => cmd,
+                match node_to_type(&node, &feature_name_to_node) {
+                    Ok(cmd) => {
+                        gen_features_map.insert(feature_name.clone(), cmd);
+                    }
                     Err(e) => {
                         log::warning!(
-                            "Failed to parse Command {} {}",
+                            "parse::Command {} {}",
                             node.attribute("Name").unwrap_or(""),
                             e
                         );
-                        continue;
                     }
                 };
-                gen_features_map.insert(info_name, cmd);
             }
             _ => {}
         };
@@ -680,10 +744,7 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
 
 fn preprocess_xml<'a>(
     doc: &'a roxmltree::Document<'a>,
-) -> std::io::Result<(
-    roxmltree::Node<'a, 'a>,
-    HashMap<String, roxmltree::Node<'a, 'a>>,
-)> {
+) -> std::io::Result<HashMap<String, roxmltree::Node<'a, 'a>>> {
     let maybe_register_description = doc.root().first_child();
     if maybe_register_description.is_none() {
         return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
@@ -695,31 +756,42 @@ fn preprocess_xml<'a>(
     let mut name_to_node = HashMap::<String, roxmltree::Node>::new();
     {
         for node in genicam_node.children() {
-            if node.is_element() {
-                let name = if let Some(name) = node.attribute("Name") {
-                    name.to_string()
-                } else {
-                    // Special case:
-                    // <StructReg Comment="XXX">
-                    //     <StructEntry Name="YYY" />
-                    // Map all entry names to the parent StructReg node.
-                    if node.tag_name().name() == "StructReg" {
-                        for child_node in node.children() {
-                            if child_node.tag_name().name() == "StructEntry"
-                                && let Some(entry_name) = child_node.attribute("Name")
-                            {
-                                name_to_node.insert(entry_name.to_string(), node);
-                            }
+            if !node.is_element() {
+                continue;
+            }
+
+            // Normal case:
+            // Nodes with "Name" attribute are at the top level
+            if let Some(name) = node.attribute("Name") {
+                name_to_node.insert(name.to_string(), node);
+            } else {
+                // Special case:
+                // Nodes are inside <Group>s
+                if node.tag_name().name() == "Group" {
+                    for child_node in node.children() {
+                        if let Some(name) = child_node.attribute("Name") {
+                            name_to_node.insert(name.to_string(), child_node);
                         }
                     }
-
-                    continue;
-                };
-                name_to_node.insert(name, node);
-            }
+                }
+                // Special case:
+                // <StructReg Comment="XXX">
+                //     <StructEntry Name="YYY" />
+                // Map all entry names to the parent StructReg node.
+                else if node.tag_name().name() == "StructReg" {
+                    for child_node in node.children() {
+                        if child_node.tag_name().name() == "StructEntry"
+                            && let Some(entry_name) = child_node.attribute("Name")
+                        {
+                            name_to_node.insert(entry_name.to_string(), node);
+                        }
+                    }
+                }
+            };
         }
     }
-    Ok((genicam_node, name_to_node))
+
+    Ok(name_to_node)
 }
 
 fn parse_xml(xml_content: &str) -> std::io::Result<roxmltree::Document<'_>> {
@@ -730,6 +802,45 @@ fn parse_xml(xml_content: &str) -> std::io::Result<roxmltree::Document<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_node_type() {
+        let xml = r#"
+        <RegisterDescription>
+            <Group Comment="Test1">
+                <Integer Name="N1">
+                    <pValue>N2</pValue>
+                </Integer>
+            </Group>
+            <Group Comment="Test2">
+                <WeirdReg Name="N2">
+                    <Address>0x0D04</Address>
+                    <Length>4</Length>
+                    <LSB>31</LSB>
+                    <MSB>16</MSB>
+                    <Sign>Unsigned</Sign>
+                    <Endianess>BigEndian</Endianess>
+                </WeirdReg>
+            </Group>
+        </RegisterDescription>
+        "#;
+
+        let gen_doc = parse_xml(xml).unwrap();
+        let name_to_node = preprocess_xml(&gen_doc).unwrap();
+
+        // Assert we have "N1" and "N2"
+        assert!(name_to_node.contains_key("N1"), "Missing key N1");
+        assert!(name_to_node.contains_key("N2"), "Missing key N2");
+
+        let parse_result = node_to_type(&name_to_node["N1"], &name_to_node);
+
+        assert!(parse_result.is_err());
+
+        // Assert that the error mentions "WeirdReg"
+        if let Err(e) = &parse_result {
+            assert!(e.to_string().contains("WeirdReg"));
+        }
+    }
 
     #[test]
     fn intreg_paddress_into_intswissknife() {
@@ -755,9 +866,17 @@ mod tests {
         "#;
 
         let gen_doc = parse_xml(xml).unwrap();
-        let (gen_node, name_to_node) = preprocess_xml(&gen_doc).unwrap();
+        let name_to_node = preprocess_xml(&gen_doc).unwrap();
 
-        let parse_result = node_to_type(&gen_node.first_element_child().unwrap(), &name_to_node);
+        let parse_result = node_to_type(
+            &gen_doc
+                .root()
+                .first_element_child()
+                .unwrap()
+                .first_element_child()
+                .unwrap(),
+            &name_to_node,
+        );
         if let Err(e) = &parse_result {
             eprintln!("{:?}", e);
         }
