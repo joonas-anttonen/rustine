@@ -902,74 +902,29 @@ pub(crate) fn parse(xml_content: &str) -> std::io::Result<GenICam> {
             continue;
         }
 
-        // TODO: Skip Visibility == "Invisible"
+        // Skip <Visibility>Invisible</Visibility>
+        // This is because we don't want to include implementation detail
+        // features in the final collection.
+        if let Some(vis) = node
+            .children()
+            .find(|n| n.tag_name().name() == "Visibility")
+            && vis.text().unwrap_or("") == "Invisible"
+        {
+            continue;
+        }
+
         match node.tag_name().name() {
-            "Boolean" => {
+            "Boolean" | "Integer" | "Float" | "Enumeration" | "Command" => {
                 match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
                     Ok(feature) => {
                         gen_features_map.insert(feature_name.clone(), feature);
                     }
                     Err(e) => {
                         log::warning!(
-                            "parse::Boolean {} {}",
+                            "parse::{} {} {}",
+                            node.tag_name().name(),
                             node.attribute("Name").unwrap_or(""),
                             e.to_string()
-                        );
-                    }
-                };
-            }
-            "Integer" => {
-                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
-                    Ok(feature) => {
-                        gen_features_map.insert(feature_name.clone(), feature);
-                    }
-                    Err(e) => {
-                        log::warning!(
-                            "parse::Integer {} {}",
-                            node.attribute("Name").unwrap_or(""),
-                            e.to_string()
-                        );
-                    }
-                };
-            }
-            "Float" => {
-                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
-                    Ok(feature) => {
-                        gen_features_map.insert(feature_name.clone(), feature);
-                    }
-                    Err(e) => {
-                        log::warning!(
-                            "parse::Float {} {}",
-                            node.attribute("Name").unwrap_or(""),
-                            e
-                        );
-                    }
-                };
-            }
-            "Enumeration" => {
-                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
-                    Ok(enumeration) => {
-                        gen_features_map.insert(feature_name.clone(), enumeration);
-                    }
-                    Err(e) => {
-                        log::warning!(
-                            "parse::Enumeration {} {}",
-                            node.attribute("Name").unwrap_or(""),
-                            e
-                        );
-                    }
-                };
-            }
-            "Command" => {
-                match node_to_type(&node, &feature_name_to_node, &mut variable_storage) {
-                    Ok(cmd) => {
-                        gen_features_map.insert(feature_name.clone(), cmd);
-                    }
-                    Err(e) => {
-                        log::warning!(
-                            "parse::Command {} {}",
-                            node.attribute("Name").unwrap_or(""),
-                            e
                         );
                     }
                 };

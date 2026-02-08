@@ -240,7 +240,7 @@ impl GigEClient {
 
         Self::write_enumeration(control_connection, component_selection, "Range")?;
         Self::write_boolean(control_connection, component_enable, true)?;
-        
+
         log::warning!(
             "Component Selection: {:?} Enable: {:?}",
             Self::read_enumeration(control_connection, component_selection)?,
@@ -594,6 +594,11 @@ impl GigEClient {
     fn frame_buffer_size(width: u32, height: u32, format: GVSPPixelFormat) -> Option<usize> {
         let pixel_count = width.checked_mul(height)? as usize;
 
+        fn packed_size(pixel_count: usize, bits_per_pixel: usize) -> Option<usize> {
+            let total_bits = pixel_count.checked_mul(bits_per_pixel)?;
+            total_bits.checked_add(7).map(|bits| bits / 8)
+        }
+
         let size = match format {
             GVSPPixelFormat::BAYER_RG_8
             | GVSPPixelFormat::BAYER_BG_8
@@ -623,7 +628,7 @@ impl GigEClient {
             | GVSPPixelFormat::BAYER_RG_10P
             | GVSPPixelFormat::BAYER_BG_10P
             | GVSPPixelFormat::BAYER_GB_10P
-            | GVSPPixelFormat::BAYER_GR_10P => Self::packed_size(pixel_count, 10)?,
+            | GVSPPixelFormat::BAYER_GR_10P => packed_size(pixel_count, 10)?,
             GVSPPixelFormat::MONO_12_PACKED
             | GVSPPixelFormat::BAYER_RG_12_PACKED
             | GVSPPixelFormat::BAYER_BG_12_PACKED
@@ -632,17 +637,178 @@ impl GigEClient {
             | GVSPPixelFormat::BAYER_RG_12P
             | GVSPPixelFormat::BAYER_BG_12P
             | GVSPPixelFormat::BAYER_GB_12P
-            | GVSPPixelFormat::BAYER_GR_12P => Self::packed_size(pixel_count, 12)?,
+            | GVSPPixelFormat::BAYER_GR_12P => packed_size(pixel_count, 12)?,
             _ => return None,
         };
 
         Some(size)
     }
 
-    fn packed_size(pixel_count: usize, bits_per_pixel: usize) -> Option<usize> {
-        let total_bits = pixel_count.checked_mul(bits_per_pixel)?;
-        total_bits.checked_add(7).map(|bits| bits / 8)
+    fn read_memory(connection: &Connection, address: u32, length: u32) -> std::io::Result<Vec<u8>> {
+        const MAXIMUM_READ_LENGTH: u32 = 512;
+        const READ_ALIGN: u32 = std::mem::size_of::<u32>() as u32;
+
+        let mut io_buffer = [0u8; 1500];
+
+        let mut read_buffer = Vec::with_capacity(length as usize);
+        let read_count = length.div_ceil(MAXIMUM_READ_LENGTH);
+
+        for ir in 0..read_count {
+            let read_head = ir * MAXIMUM_READ_LENGTH;
+            let read_size = (length - read_head).min(MAXIMUM_READ_LENGTH);
+            let read_size_aligned = read_size.div_ceil(READ_ALIGN) * READ_ALIGN;
+            let read_offset = address + read_head;
+
+            let mut request_packet_data = [0u8; 8];
+            request_packet_data[..4].copy_from_slice(&read_offset.to_be_bytes());
+            request_packet_data[4..].copy_from_slice(&read_size_aligned.to_be_bytes());
+            let request_packet = GigEPacket::new(
+                GigEPacketType::CMD,
+                GigEPacketFlags::ACK_REQUIRED,
+                GigECommand::READ_MEMORY_CMD,
+                REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
+                &request_packet_data,
+            );
+
+            let response_len =
+                Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
+            let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
+            let mut response_data_reader = ByteSliceReader::new(response_packet.data);
+            response_data_reader.read_u32_be()?;
+            read_buffer.extend_from_slice(response_data_reader.read_to_end()?);
+        }
+
+        Ok(read_buffer)
     }
+
+    fn read_register(connection: &Connection, address: u32) -> std::io::Result<u32> {
+        let request_packet_data = address.to_be_bytes();
+        let request_packet = GigEPacket::new(
+            GigEPacketType::CMD,
+            GigEPacketFlags::ACK_REQUIRED,
+            GigECommand::READ_REGISTER_CMD,
+            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
+            &request_packet_data,
+        );
+
+        let mut io_buffer = [0u8; 1500];
+
+        let response_len = Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
+        let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
+
+        let mut response_data_reader = ByteSliceReader::new(response_packet.data);
+
+        let register_value = response_data_reader.read_u32_be()?;
+        Ok(register_value)
+    }
+
+    fn write_register(connection: &Connection, address: u32, value: u32) -> std::io::Result<()> {
+        let mut request_packet_data = [0u8; 8];
+        request_packet_data[..4].copy_from_slice(&address.to_be_bytes());
+        request_packet_data[4..].copy_from_slice(&value.to_be_bytes());
+
+        let request_packet = GigEPacket::new(
+            GigEPacketType::CMD,
+            GigEPacketFlags::ACK_REQUIRED,
+            GigECommand::WRITE_REGISTER_CMD,
+            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
+            &request_packet_data,
+        );
+
+        let mut io_buffer = [0u8; 1500];
+        Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
+        Ok(())
+    }
+
+    /// Sends a command packet and waits for an ACK response.
+    ///
+    /// Retry count according to `CMD_MAX_RETRIES`.
+    ///
+    /// Timeout according to `CMD_RECV_TIMEOUT_MS`.
+    fn send_cmd_recv_ack(
+        connection: &Connection,
+        send_packet: &GigEPacket,
+        io_buffer: &mut [u8],
+    ) -> std::io::Result<usize> {
+        let mut retries = 0;
+
+        let send_len = send_packet.to_slice(io_buffer)?;
+
+        connection.socket.send(&io_buffer[..send_len])?;
+        connection
+            .socket
+            .set_read_timeout(Some(std::time::Duration::from_millis(
+                Self::CMD_RECV_TIMEOUT_MS,
+            )))?;
+
+        loop {
+            if let Ok(recv_len) = connection.socket.recv(io_buffer) {
+                let recv_packet = GigEPacket::from_slice(&io_buffer[..recv_len])?;
+
+                let is_ack = recv_packet.t == GigEPacketType::ACK;
+                let is_same_request = send_packet.id == recv_packet.id;
+
+                if is_ack && is_same_request {
+                    return Ok(recv_len);
+                }
+
+                // Oh no, received a packet that is not an ACK
+                // or does not match the request ID, try receiving again
+            }
+
+            retries += 1;
+            if retries >= Self::CMD_MAX_RETRIES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "send_cmd_recv_ack: No ACK received",
+                ));
+            }
+        }
+    }
+
+    fn setup_sockets(
+        adapter: &IPAdapter,
+        device_address: Ipv4Addr,
+    ) -> std::io::Result<(Connection, Connection)> {
+        let socket = UdpSocket::bind(SocketAddrV4::new(adapter.address, 0))?;
+        let recv_address = SocketAddrV4::new(adapter.address, socket.local_addr()?.port());
+        let send_address = SocketAddrV4::new(device_address, GVCP_PORT);
+        socket.connect(send_address)?;
+        let control_connection = Connection {
+            socket,
+            remote_address: send_address,
+            local_address: recv_address,
+        };
+        let stream_local_address = SocketAddrV4::new(adapter.address, 0);
+        let stream_remote_address = SocketAddrV4::new(device_address, 0);
+        let stream_socket = UdpSocket::bind(stream_local_address)?;
+        let stream_local_address =
+            SocketAddrV4::new(adapter.address, stream_socket.local_addr()?.port());
+        stream_socket.connect(stream_remote_address)?;
+        stream_socket.set_read_timeout(Some(std::time::Duration::from_millis(1000)))?;
+        let stream_connection = Connection {
+            socket: stream_socket,
+            remote_address: stream_remote_address,
+            local_address: stream_local_address,
+        };
+
+        unsafe {
+            let rcvbuf = Self::STREAM_CHANNEL_RECV_BUFFER as libc::c_int;
+            let ret = libc::setsockopt(
+                stream_connection.socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_RCVBUF,
+                &rcvbuf as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+            if ret != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+
+        Ok((control_connection, stream_connection))
+    }
+
     /// Issues a GenICam command by writing to the appropriate register.
     ///
     /// Fails if the command register is not a simple integer register.
@@ -877,10 +1043,7 @@ impl GigEClient {
         value: f64,
     ) -> std::io::Result<()> {
         match &*integer_type.value {
-            &genicam::GenIType::Variable(ref ci) => {
-                log::error!("Writing constant integer with value: {}", value);
-                Ok(ci.update(|_| value as f64))
-            }
+            &genicam::GenIType::Variable(ref ci) => Ok(ci.update(|_| value as f64)),
             &genicam::GenIType::Integer(ref i) => Self::write_integer(connection, i, value),
             &genicam::GenIType::IndexedInteger(ref ii) => {
                 Self::write_indexed_integer(connection, ii, value)
@@ -921,8 +1084,6 @@ impl GigEClient {
             _ => return unsupported("Unsupported integer index value"),
         };
 
-        log::error!("Writing indexed integer at index: {}", index);
-
         match indexed_integer_type.values.get(&index) {
             Some(v) => Self::write_number(connection, v, value),
             None => unsupported("Indexed integer value not found"),
@@ -962,170 +1123,5 @@ impl GigEClient {
 
         genicam::evaluate(&converter_type.expression_to, &resolved_variables)?;
         Ok(())
-    }
-
-    fn read_memory(connection: &Connection, address: u32, length: u32) -> std::io::Result<Vec<u8>> {
-        const MAXIMUM_READ_LENGTH: u32 = 512;
-        const READ_ALIGN: u32 = std::mem::size_of::<u32>() as u32;
-
-        let mut io_buffer = [0u8; 1500];
-
-        let mut read_buffer = Vec::with_capacity(length as usize);
-        let read_count = length.div_ceil(MAXIMUM_READ_LENGTH);
-
-        for ir in 0..read_count {
-            let read_head = ir * MAXIMUM_READ_LENGTH;
-            let read_size = (length - read_head).min(MAXIMUM_READ_LENGTH);
-            let read_size_aligned = read_size.div_ceil(READ_ALIGN) * READ_ALIGN;
-            let read_offset = address + read_head;
-
-            let mut request_packet_data = [0u8; 8];
-            request_packet_data[..4].copy_from_slice(&read_offset.to_be_bytes());
-            request_packet_data[4..].copy_from_slice(&read_size_aligned.to_be_bytes());
-            let request_packet = GigEPacket::new(
-                GigEPacketType::CMD,
-                GigEPacketFlags::ACK_REQUIRED,
-                GigECommand::READ_MEMORY_CMD,
-                REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
-                &request_packet_data,
-            );
-
-            let response_len =
-                Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
-            let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
-            let mut response_data_reader = ByteSliceReader::new(response_packet.data);
-            response_data_reader.read_u32_be()?;
-            read_buffer.extend_from_slice(response_data_reader.read_to_end()?);
-        }
-
-        Ok(read_buffer)
-    }
-
-    fn read_register(connection: &Connection, address: u32) -> std::io::Result<u32> {
-        let request_packet_data = address.to_be_bytes();
-        let request_packet = GigEPacket::new(
-            GigEPacketType::CMD,
-            GigEPacketFlags::ACK_REQUIRED,
-            GigECommand::READ_REGISTER_CMD,
-            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
-            &request_packet_data,
-        );
-
-        let mut io_buffer = [0u8; 1500];
-
-        let response_len = Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
-        let response_packet = GigEPacket::from_slice(&io_buffer[..response_len])?;
-
-        let mut response_data_reader = ByteSliceReader::new(response_packet.data);
-
-        let register_value = response_data_reader.read_u32_be()?;
-        Ok(register_value)
-    }
-
-    fn write_register(connection: &Connection, address: u32, value: u32) -> std::io::Result<()> {
-        let mut request_packet_data = [0u8; 8];
-        request_packet_data[..4].copy_from_slice(&address.to_be_bytes());
-        request_packet_data[4..].copy_from_slice(&value.to_be_bytes());
-
-        let request_packet = GigEPacket::new(
-            GigEPacketType::CMD,
-            GigEPacketFlags::ACK_REQUIRED,
-            GigECommand::WRITE_REGISTER_CMD,
-            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
-            &request_packet_data,
-        );
-
-        let mut io_buffer = [0u8; 1500];
-        Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
-        Ok(())
-    }
-
-    /// Sends a command packet and waits for an ACK response.
-    ///
-    /// Retry count according to `CMD_MAX_RETRIES`.
-    ///
-    /// Timeout according to `CMD_RECV_TIMEOUT_MS`.
-    fn send_cmd_recv_ack(
-        connection: &Connection,
-        send_packet: &GigEPacket,
-        io_buffer: &mut [u8],
-    ) -> std::io::Result<usize> {
-        let mut retries = 0;
-
-        let send_len = send_packet.to_slice(io_buffer)?;
-
-        connection.socket.send(&io_buffer[..send_len])?;
-        connection
-            .socket
-            .set_read_timeout(Some(std::time::Duration::from_millis(
-                Self::CMD_RECV_TIMEOUT_MS,
-            )))?;
-
-        loop {
-            if let Ok(recv_len) = connection.socket.recv(io_buffer) {
-                let recv_packet = GigEPacket::from_slice(&io_buffer[..recv_len])?;
-
-                let is_ack = recv_packet.t == GigEPacketType::ACK;
-                let is_same_request = send_packet.id == recv_packet.id;
-
-                if is_ack && is_same_request {
-                    return Ok(recv_len);
-                }
-
-                // Oh no, received a packet that is not an ACK
-                // or does not match the request ID, try receiving again
-            }
-
-            retries += 1;
-            if retries >= Self::CMD_MAX_RETRIES {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "send_cmd_recv_ack: No ACK received",
-                ));
-            }
-        }
-    }
-
-    fn setup_sockets(
-        adapter: &IPAdapter,
-        device_address: Ipv4Addr,
-    ) -> std::io::Result<(Connection, Connection)> {
-        let socket = UdpSocket::bind(SocketAddrV4::new(adapter.address, 0))?;
-        let recv_address = SocketAddrV4::new(adapter.address, socket.local_addr()?.port());
-        let send_address = SocketAddrV4::new(device_address, GVCP_PORT);
-        socket.connect(send_address)?;
-        let control_connection = Connection {
-            socket,
-            remote_address: send_address,
-            local_address: recv_address,
-        };
-        let stream_local_address = SocketAddrV4::new(adapter.address, 0);
-        let stream_remote_address = SocketAddrV4::new(device_address, 0);
-        let stream_socket = UdpSocket::bind(stream_local_address)?;
-        let stream_local_address =
-            SocketAddrV4::new(adapter.address, stream_socket.local_addr()?.port());
-        stream_socket.connect(stream_remote_address)?;
-        stream_socket.set_read_timeout(Some(std::time::Duration::from_millis(1000)))?;
-        let stream_connection = Connection {
-            socket: stream_socket,
-            remote_address: stream_remote_address,
-            local_address: stream_local_address,
-        };
-
-        unsafe {
-            let rcvbuf = Self::STREAM_CHANNEL_RECV_BUFFER as libc::c_int;
-            let ret = libc::setsockopt(
-                stream_connection.socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
-                &rcvbuf as *const _ as *const libc::c_void,
-                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-            );
-            if ret != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        }
-
-        Ok((control_connection, stream_connection))
     }
 }
