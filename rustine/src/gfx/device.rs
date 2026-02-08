@@ -226,12 +226,10 @@ impl Device {
             let external_memory_win32_name = c"VK_KHR_external_memory_win32";
             let keyed_mutex_win32_name = c"VK_KHR_win32_keyed_mutex";
             if available_device_extensions.contains(external_memory_win32_name) {
-                warning!("Enabling VK_KHR_external_memory_win32");
                 enabled_extensions_cstrings
                     .push(std::ffi::CString::new(external_memory_win32_name.to_owned()).unwrap());
             }
             if available_device_extensions.contains(keyed_mutex_win32_name) {
-                warning!("Enabling VK_KHR_win32_keyed_mutex");
                 enabled_extensions_cstrings
                     .push(std::ffi::CString::new(keyed_mutex_win32_name.to_owned()).unwrap());
             }

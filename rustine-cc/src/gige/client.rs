@@ -319,7 +319,7 @@ impl GigEClient {
         let mut heartbeat_time = std::time::Instant::now();
 
         let mut frame_receive_times = rustine::RingBuffer::<f64>::new(100);
-        let mut demosaic_times = rustine::RingBuffer::<f64>::new(100);
+        let mut decode_times = rustine::RingBuffer::<f64>::new(100);
 
         loop {
             if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -330,8 +330,8 @@ impl GigEClient {
                 heartbeat_time = std::time::Instant::now();
                 Self::read_register(control_connection, GVCP_HEARTBEAT_TIMEOUT_REGISTER)?;
 
-                if let Some((min, max, mean)) = demosaic_times.min_max_mean() {
-                    log::info!("Demosaic min: {:?}, max: {:?}, mean: {:?}", min, max, mean);
+                if let Some((min, max, mean)) = decode_times.min_max_mean() {
+                    log::info!("Decode min: {:?}, max: {:?}, mean: {:?}", min, max, mean);
                 }
                 if let Some((min, max, mean)) = frame_receive_times.min_max_mean() {
                     log::info!("Frame min: {:?}, max: {:?}, mean: {:?}", min, max, mean);
@@ -416,8 +416,8 @@ impl GigEClient {
                     }
 
                     if frame_buf.len() != frame_buf_size {
-                        log::warning!(
-                            "New frame buffer: {}x{} {:?} {}",
+                        log::debug!(
+                            "{}x{} {:?} {}",
                             frame_width,
                             frame_height,
                             frame_pixel_format,
@@ -466,7 +466,7 @@ impl GigEClient {
                     };
 
                     let demosaic_duration = demosaic_start.elapsed();
-                    demosaic_times.push(demosaic_duration.as_secs_f64());
+                    decode_times.push(demosaic_duration.as_secs_f64());
 
                     if let Some(cache) = stream_cache.as_ref() {
                         cache.update(io_image.clone());
@@ -1065,8 +1065,6 @@ impl GigEClient {
             genicam::GenIType::Integer(i) => Self::read_integer(connection, i)? as u32,
             _ => return unsupported("Unsupported integer index value"),
         };
-
-        log::error!("Reading indexed integer at index: {}", index);
 
         match indexed_integer_type.values.get(&index) {
             Some(v) => Self::read_number(connection, v),

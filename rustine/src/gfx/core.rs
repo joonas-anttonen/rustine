@@ -97,8 +97,6 @@ impl Gfx {
     fn run(am_gfx: Arc<Mutex<gfx::Gfx>>, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
         log::set_current_thread_name("gfx");
 
-        info!("GFX START");
-
         const TARGET_FPS: u32 = 120;
         let target_frame_time = Duration::from_secs_f64(1.0 / TARGET_FPS as f64);
         const SPIN_THRESHOLD: Duration = Duration::from_micros(500);
@@ -141,8 +139,8 @@ impl Gfx {
                 if stat_now.duration_since(last_stat_instant).as_secs_f64() >= 1.0 {
                     let (allocations, deallocations) = alloc::counts();
                     let current_ram = alloc::rss_bytes().unwrap_or(0);
-                    info!(
-                        "RAM -> {} (live allocs: {}, total allocs: {})",
+                    debug!(
+                        "RAM {} (live allocs: {}, total allocs: {})",
                         utilities::format_bytes_iec(current_ram),
                         allocations - deallocations,
                         allocations
@@ -151,19 +149,16 @@ impl Gfx {
                     let (vram_allocations, vram_deallocations) =
                         allocator::Allocator::alloc_counts();
                     let current_vram = allocator::Allocator::current_allocated_bytes();
-                    info!(
-                        "VRAM -> {} (live allocs: {}, total allocs: {})",
+                    debug!(
+                        "VRAM {} (live allocs: {}, total allocs: {})",
                         utilities::format_bytes_iec(current_vram),
                         vram_allocations - vram_deallocations,
                         vram_allocations
                     );
 
-                    let full_frames = gfx.frame_n - gfx.frame_skips;
-                    info!("GFX frame -> {} (full: {})", gfx.frame_n, full_frames);
-
                     if let Some((min, max, mean)) = gfx.frame_cpu_times.min_max_mean() {
                         debug!(
-                            "GFX cpu -> min: {}, max: {}, mean: {}",
+                            "CPU min: {}, max: {}, mean: {}",
                             utilities::format_duration(min),
                             utilities::format_duration(max),
                             utilities::format_duration(mean)
@@ -171,11 +166,14 @@ impl Gfx {
                     }
 
                     if let Some((min, max, mean)) = frame_delta_times.min_max_mean() {
+                        let full_frames = gfx.frame_n - gfx.frame_skips;
                         debug!(
-                            "GFX dt -> min: {}, max: {}, mean: {}",
+                            "FRAME min: {}, max: {}, mean: {} n: {} (full: {})",
                             utilities::format_duration(min),
                             utilities::format_duration(max),
-                            utilities::format_duration(mean)
+                            utilities::format_duration(mean),
+                            gfx.frame_n,
+                            full_frames
                         );
                     }
 
@@ -202,8 +200,6 @@ impl Gfx {
                 }
             }
         }
-
-        info!("GFX STOP");
     }
 
     pub fn current_allocated_vram_bytes() -> usize {
@@ -541,7 +537,6 @@ impl Gfx {
             frame.size = size;
             frame
         } else {
-            warning!("Allocating new RenderFrame for GUI");
             RenderFrame::new(size)
         }
     }
@@ -590,8 +585,6 @@ impl Gfx {
 
     fn drain_released_images(&mut self) {
         while let Some(image_id) = self.released_images.pop_front() {
-            warning!("Releasing image: {}", image_id);
-
             self.pixel_buffers.remove(&image_id);
             self.pixel_buffers_deleted.insert(image_id);
             // Also remove from pending uploads if not yet staged

@@ -84,7 +84,7 @@ impl Queue {
     }
 
     pub fn drain(&mut self) {
-        warning!("Queue::drain");
+        //warning!("Queue::drain");
         self.wait_for_idle();
 
         while let Some(mut cmd) = self.queued_commands.pop_front() {

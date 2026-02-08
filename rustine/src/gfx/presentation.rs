@@ -420,7 +420,7 @@ impl SwapchainProvider {
         }
 
         // DEBUG: Log swapchain information
-        warning!(
+        debug!(
             "{}x{}x{} {:?} {:?}",
             chosen_extent.width,
             chosen_extent.height,

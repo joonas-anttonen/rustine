@@ -150,8 +150,6 @@ impl Gui {
     }
 
     fn run(gui: &gui::Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
-        info!("GUI START");
-
         //let start_instant = std::time::Instant::now();
         let mut last_instant = std::time::Instant::now();
         let mut last_stat_instant = std::time::Instant::now();
@@ -225,8 +223,6 @@ impl Gui {
                 }
             }
         }
-
-        info!("GUI STOP");
     }
 
     /// Creates a new `GuiBuilder` to configure and build a `Gui` instance.
@@ -259,37 +255,6 @@ impl Gui {
                 outputs.as_mut_ptr(),
             ));
             outputs.set_len(output_count as usize);
-
-            // DEBUG: Print output information
-            for output in &outputs {
-                let name = if output.name.is_null() {
-                    "<null>"
-                } else {
-                    std::ffi::CStr::from_ptr(output.name)
-                        .to_str()
-                        .unwrap_or("<invalid utf8>")
-                };
-                let description = if output.description.is_null() {
-                    "<null>"
-                } else {
-                    std::ffi::CStr::from_ptr(output.description)
-                        .to_str()
-                        .unwrap_or("<invalid utf8>")
-                };
-                debug!(
-                    "Output: name={}, description={}, scale={}, width={}, height={}",
-                    name, description, output.scale, output.width, output.height
-                );
-            }
-
-            // DEBUG: Select eDP-1 or nothing
-            let _output = {
-                outputs
-                    .iter()
-                    .find(|o| std::ffi::CStr::from_ptr(o.name).to_string_lossy() == "asdasd")
-                    .map(|o| o.wl_output)
-                    .unwrap_or(std::ptr::null_mut())
-            };
 
             let rwl_window_params = match parameters.window_type {
                 WindowType::Normal => (
@@ -458,7 +423,6 @@ impl Gui {
                     height
                 };
 
-                debug!("Pixel size changed: {}x{}", width, height);
                 let presentation_parameters = presentation::Parameters {
                     width: requested_w,
                     height: requested_h,

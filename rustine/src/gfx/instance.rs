@@ -108,22 +108,17 @@ impl Instance {
         let mut enabled_extensions: Vec<std::ffi::CString> = Vec::new();
 
         // 2. Add platform-specific surface extensions
-        warning!("Enabling VK_KHR_surface");
         enabled_extensions.push(std::ffi::CString::new("VK_KHR_surface").unwrap());
 
         match parameters.platform {
             Platform::Windows => {
-                warning!("Enabling VK_KHR_win32_surface");
                 enabled_extensions.push(std::ffi::CString::new("VK_KHR_win32_surface").unwrap());
             }
             Platform::X11 => {
-                warning!("Enabling VK_KHR_xlib_surface");
-                warning!("Enabling VK_KHR_xcb_surface");
                 enabled_extensions.push(std::ffi::CString::new("VK_KHR_xlib_surface").unwrap());
                 enabled_extensions.push(std::ffi::CString::new("VK_KHR_xcb_surface").unwrap());
             }
             Platform::Wayland => {
-                warning!("Enabling VK_KHR_wayland_surface");
                 enabled_extensions.push(std::ffi::CString::new("VK_KHR_wayland_surface").unwrap());
             }
             // Error if unsupported platform
@@ -140,8 +135,6 @@ impl Instance {
 
         let enable_debugging = parameters.debugging && validation_present && debug_utils_present;
         if enable_debugging {
-            warning!("Enabling VK_LAYER_KHRONOS_validation");
-            warning!("Enabling VK_EXT_debug_utils");
             enabled_layers.push(validation_name.to_owned());
             enabled_extensions.push(debug_utils_name.to_owned());
         }
