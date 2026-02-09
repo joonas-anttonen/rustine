@@ -20,7 +20,7 @@ static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 fn main() {
     log::set_current_thread_name("main");
     log::add_listener(log::ConsoleListener::new(true));
-
+ 
     let mut discovered_devices: Vec<GigEDevice> = Vec::new();
 
     let adapters: Vec<IPAdapter> = IPAdapter::get_adapters();

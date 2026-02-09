@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
+use std::fs;
 use std::net::{SocketAddrV4, UdpSocket};
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex, atomic};
@@ -216,6 +217,34 @@ impl GigEClient {
             Self::read_enumeration(control_connection, gain_auto)?
         );*/
 
+        let user_set_selector = genicam
+            .get_enumeration_by_name("UserSetSelector")
+            .ok_or_else(|| not_found_err("UserSetSelector"))?;
+        Self::write_enumeration(control_connection, user_set_selector, "Default")?;
+        let user_set_load = genicam
+            .get_command_by_name("UserSetLoad")
+            .ok_or_else(|| not_found_err("UserSetLoad"))?;
+        Self::issue_command(control_connection, user_set_load)?;
+
+        let hardware_trigger = genicam
+            .get_boolean_by_name("HardwareTrigger")
+            .ok_or_else(|| not_found_err("HardwareTrigger"))?;
+        Self::write_boolean(control_connection, hardware_trigger, false)?;
+
+        let trigger_source = genicam
+            .get_enumeration_by_name("TriggerSource")
+            .ok_or_else(|| not_found_err("TriggerSource"))?;
+        Self::write_enumeration(control_connection, trigger_source, "Software")?;
+
+        let camera_only_mode = genicam
+            .get_boolean_by_name("CameraOnlyMode")
+            .ok_or_else(|| not_found_err("CameraOnlyMode"))?;
+        Self::write_boolean(control_connection, camera_only_mode, false)?;
+
+        /*let trigger_software = genicam
+        .get_command_by_name("TriggerSoftware")
+        .ok_or_else(|| not_found_err("TriggerSoftware"))?;*/
+
         let laser_power = genicam
             .get_feature_by_name("LaserPower")
             .ok_or_else(|| not_found_err("LaserPower"))?;
@@ -224,7 +253,11 @@ impl GigEClient {
         let texture_source = genicam
             .get_enumeration_by_name("TextureSource")
             .ok_or_else(|| not_found_err("TextureSource"))?;
-        Self::write_enumeration(control_connection, texture_source, "LED")?;
+        Self::write_enumeration(control_connection, texture_source, "Laser")?;
+        let cam_texture_source = genicam
+            .get_enumeration_by_name("CameraTextureSource")
+            .ok_or_else(|| not_found_err("CameraTextureSource"))?;
+        Self::write_enumeration(control_connection, cam_texture_source, "Laser")?;
 
         let operation_mode = genicam
             .get_enumeration_by_name("OperationMode")
@@ -238,14 +271,36 @@ impl GigEClient {
             .get_boolean_by_name("ComponentEnable")
             .ok_or_else(|| not_found_err("ComponentEnable"))?;
 
+        let output_mode = genicam
+            .get_enumeration_by_name("Scan3dOutputMode")
+            .ok_or_else(|| not_found_err("Scan3dOutputMode"))?;
+
+        Self::write_enumeration(control_connection, component_selection, "Intensity")?;
+        Self::write_boolean(control_connection, component_enable, false)?;
+        Self::write_enumeration(control_connection, component_selection, "CoordinateMapA")?;
+        Self::write_boolean(control_connection, component_enable, false)?;
+        Self::write_enumeration(control_connection, component_selection, "CoordinateMapB")?;
+        Self::write_boolean(control_connection, component_enable, false)?;
+        Self::write_enumeration(control_connection, component_selection, "Normal")?;
+        Self::write_boolean(control_connection, component_enable, false)?;
+        Self::write_enumeration(control_connection, component_selection, "Event")?;
+        Self::write_boolean(control_connection, component_enable, false)?;
         Self::write_enumeration(control_connection, component_selection, "Range")?;
         Self::write_boolean(control_connection, component_enable, true)?;
+
+        Self::write_enumeration(control_connection, output_mode, "CalibratedABC_Grid")?;
+        //Self::write_enumeration(control_connection, output_mode, "ProjectedC")?;
+
+        /*log::warning!(
+            "Scan3dOutputMode {:?}",
+            Self::read_enumeration(control_connection, output_mode)?
+        );
 
         log::warning!(
             "Component Selection: {:?} Enable: {:?}",
             Self::read_enumeration(control_connection, component_selection)?,
             Self::read_boolean(control_connection, component_enable)?
-        );
+        );*/
         // Intensity = Texture
         // Range = Depth map
         // CoordinateMapA = Point cloud
@@ -278,6 +333,7 @@ impl GigEClient {
             )?;
         }
         Self::issue_command(control_connection, acquisition_start_cmd)?;
+        //Self::issue_command(control_connection, trigger_software)?;
         Self::run_acquisition(
             image,
             image_mailbox,
@@ -525,6 +581,39 @@ impl GigEClient {
         let rffmpeg_format = Self::map_to_rffmpeg_pixel_format(in_format).ok_or_else(|| {
             std::io::Error::other(format!("Unsupported pixel format: {:?}", in_format))
         })?;
+
+        if in_format == GVSPPixelFormat::MONO_16 || in_format == GVSPPixelFormat::MONO_10 {
+            let path = "/tmp/rustine_depth.txt";
+            let mut file = fs::File::create(path)?;
+            let bytes_per_pixel = 2usize;
+            let row_stride = in_width.saturating_mul(bytes_per_pixel);
+
+            for row in 0..in_height {
+                let row_start = row.saturating_mul(row_stride);
+                let row_end = row_start.saturating_add(row_stride).min(in_buf.len());
+                if row_start >= row_end {
+                    break;
+                }
+
+                let mut line = String::new();
+                let mut col = 0usize;
+                let mut idx = row_start;
+                while idx + 1 < row_end {
+                    if col > 0 {
+                        line.push('\t');
+                    }
+                    let value = u16::from_be_bytes([in_buf[idx], in_buf[idx + 1]]);
+                    //let value = value as f32 / u16::MAX as f32;
+                    line.push_str(&value.to_string());
+                    idx += bytes_per_pixel;
+                    col += 1;
+                }
+                line.push('\n');
+                std::io::Write::write_all(&mut file, line.as_bytes())?;
+            }
+
+            //panic!("Wrote MONO_16/10 depth data to {path}");
+        }
 
         rustine::io::ffmpeg::demosaic_to_rgba(
             in_buf,
