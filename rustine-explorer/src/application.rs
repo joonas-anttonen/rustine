@@ -28,6 +28,7 @@ struct MyApplicationState {
     folder_selection_map: HashMap<PathBuf, String>,
     password_mode: bool,
     password_buffer: String,
+    files_list_open: bool,
     files_preview_fit: gfx::Fit,
     files_preview_ratio: f32,
     files_preview_open: bool,
@@ -58,6 +59,7 @@ impl MyApplication {
                 folder_selection_map: HashMap::new(),
                 password_mode: false,
                 password_buffer: String::new(),
+                files_list_open: true,
                 files_preview_fit: gfx::Fit::FILL_KEEP_ASPECT,
                 files_preview_ratio: 0.5,
                 files_preview_open: false,
@@ -305,6 +307,8 @@ impl rustine::gui::Application for MyApplication {
                     if state.files_preview_ratio > 0.8 {
                         state.files_preview_ratio = 0.2;
                     }
+                } else if event.mods.contains(gui::Mods::CONTROL) {
+                    state.files_list_open = !state.files_list_open;
                 } else {
                     state.files_preview_open = !state.files_preview_open;
                     // Update preview entry based on current selection
@@ -566,20 +570,12 @@ impl rustine::gui::Application for MyApplication {
         state.files_list.update_scroll(line_height, content_h);
         state.files_list.count = state.files_entries.len();
 
-        // Calculate layout based on preview panel state
-        let preview_width = if state.files_preview_open && state.selected_tab == Tab::Files {
-            content_w * state.files_preview_ratio
-        } else {
-            0.0
-        };
-        let list_width = content_w - preview_width;
-
         match state.selected_tab {
             Tab::Drives => {
                 let content = gfx::Rectangle {
                     x: content_x,
                     y: content_y,
-                    w: list_width,
+                    w: content_w,
                     h: content_h,
                 };
                 list::render_list(
@@ -663,54 +659,67 @@ impl rustine::gui::Application for MyApplication {
                 }
             }
             Tab::Files => {
-                let content = gfx::Rectangle {
-                    x: content_x,
-                    y: content_y,
-                    w: list_width,
-                    h: content_h,
+                // Calculate layout based on preview panel state
+                let preview_width = if state.files_preview_open && state.files_list_open {
+                    content_w * state.files_preview_ratio
+                } else if state.files_preview_open && !state.files_list_open {
+                    content_w
+                } else {
+                    0.0
                 };
 
-                // Render the file list
-                list::render_list(
-                    frame,
-                    content,
-                    line_height,
-                    highlight_color,
-                    &state.files_list,
-                    |frame, index, y, _is_selected| {
-                        if let Some(entry) = state.files_entries.get(index) {
-                            let status_color = match entry.entry_type {
-                                files::EntryType::Directory => unmounted_color,
-                                files::EntryType::File => text_color,
-                                files::EntryType::Symlink => mounted_color,
-                                files::EntryType::Other => 0x8B949EFFu32,
-                            };
+                let files_width = content_w - preview_width;
 
-                            frame.fill_rectangle(
-                                &gfx::Rectangle {
-                                    x: content_x + STATUS_LIGHT_MARGIN,
-                                    y: y + 2.0,
-                                    w: STATUS_LIGHT_WIDTH,
-                                    h: status_light_height,
-                                },
-                                status_color,
-                            );
+                if state.files_list_open {
+                    let content = gfx::Rectangle {
+                        x: content_x,
+                        y: content_y,
+                        w: files_width,
+                        h: content_h,
+                    };
 
-                            frame.push_text(
-                                &entry.name,
-                                content_x + TEXT_START_X,
-                                y + text_font_metrics.ascender,
-                                1.0,
-                                text_color,
-                                gfx::fonts::CASKAYDIAMONO_FONT_ID,
-                            );
-                        }
-                    },
-                );
+                    // Render the file list
+                    list::render_list(
+                        frame,
+                        content,
+                        line_height,
+                        highlight_color,
+                        &state.files_list,
+                        |frame, index, y, _is_selected| {
+                            if let Some(entry) = state.files_entries.get(index) {
+                                let status_color = match entry.entry_type {
+                                    files::EntryType::Directory => unmounted_color,
+                                    files::EntryType::File => text_color,
+                                    files::EntryType::Symlink => mounted_color,
+                                    files::EntryType::Other => 0x8B949EFFu32,
+                                };
+
+                                frame.fill_rectangle(
+                                    &gfx::Rectangle {
+                                        x: content_x + STATUS_LIGHT_MARGIN,
+                                        y: y + 2.0,
+                                        w: STATUS_LIGHT_WIDTH,
+                                        h: status_light_height,
+                                    },
+                                    status_color,
+                                );
+
+                                frame.push_text(
+                                    &entry.name,
+                                    content_x + TEXT_START_X,
+                                    y + text_font_metrics.ascender,
+                                    1.0,
+                                    text_color,
+                                    gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                                );
+                            }
+                        },
+                    )
+                };
 
                 // Render the preview panel if open
                 if state.files_preview_open {
-                    let preview_x = content_x + list_width;
+                    let preview_x = content_x + files_width;
                     let preview_border_color = 0x30363DFFu32;
 
                     // Draw preview panel border (left edge)
@@ -769,7 +778,7 @@ impl rustine::gui::Application for MyApplication {
             &gfx::Rectangle {
                 x: 0.0,
                 y: status_y,
-                w: list_width,
+                w: content_w,
                 h: STATUS_BAR_HEIGHT,
             },
             bg_color,
