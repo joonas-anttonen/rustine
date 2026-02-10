@@ -162,6 +162,20 @@ impl GigEClient {
         let acquisition_stop_cmd = genicam
             .get_command_by_name("AcquisitionStop")
             .ok_or_else(|| not_found_err("AcquisitionStop"))?;
+        let acquisition_arm_cmd = genicam
+            .get_command_by_name("AcquisitionArm")
+            .ok_or_else(|| not_found_err("AcquisitionArm"))?;
+
+        /*let exposure_time = genicam
+            .get_feature_by_name("ExposureTime")
+            .ok_or_else(|| not_found_err("ExposureTime"))?;
+        Self::write_number(control_connection, exposure_time, 100.0)?;
+
+        log::warning!(
+            "Exposure Time: {:?} {}",
+            Self::read_number(control_connection, exposure_time)?,
+            exposure_time.get_unit().unwrap_or("")
+        );*/
 
         /*let frame_rate = genicam
             .get_feature_by_name("AcquisitionFrameRate")
@@ -226,7 +240,7 @@ impl GigEClient {
             .ok_or_else(|| not_found_err("UserSetLoad"))?;
         Self::issue_command(control_connection, user_set_load)?;
 
-        let hardware_trigger = genicam
+        /*let hardware_trigger = genicam
             .get_boolean_by_name("HardwareTrigger")
             .ok_or_else(|| not_found_err("HardwareTrigger"))?;
         Self::write_boolean(control_connection, hardware_trigger, false)?;
@@ -234,35 +248,44 @@ impl GigEClient {
         let trigger_source = genicam
             .get_enumeration_by_name("TriggerSource")
             .ok_or_else(|| not_found_err("TriggerSource"))?;
-        Self::write_enumeration(control_connection, trigger_source, "Software")?;
+        Self::write_enumeration(control_connection, trigger_source, "Software")?;*/
 
-        let camera_only_mode = genicam
+        /*let trigger_selector = genicam
+            .get_enumeration_by_name("TriggerSelector")
+            .ok_or_else(|| not_found_err("TriggerSelector"))?;
+        Self::write_enumeration(control_connection, trigger_selector, "FrameStart")?;
+        let trigger_mode = genicam
+            .get_enumeration_by_name("TriggerMode")
+            .ok_or_else(|| not_found_err("TriggerMode"))?;
+        Self::write_enumeration(control_connection, trigger_mode, "On")?;*/
+
+        /*let camera_only_mode = genicam
             .get_boolean_by_name("CameraOnlyMode")
             .ok_or_else(|| not_found_err("CameraOnlyMode"))?;
-        Self::write_boolean(control_connection, camera_only_mode, false)?;
+        Self::write_boolean(control_connection, camera_only_mode, false)?;*/
 
         /*let trigger_software = genicam
         .get_command_by_name("TriggerSoftware")
         .ok_or_else(|| not_found_err("TriggerSoftware"))?;*/
 
-        let laser_power = genicam
+        /*let laser_power = genicam
             .get_feature_by_name("LaserPower")
             .ok_or_else(|| not_found_err("LaserPower"))?;
-        Self::write_number(control_connection, laser_power, 512.0)?;
+        Self::write_number(control_connection, laser_power, 512.0)?;*/
 
-        let texture_source = genicam
+        /*let texture_source = genicam
             .get_enumeration_by_name("TextureSource")
             .ok_or_else(|| not_found_err("TextureSource"))?;
         Self::write_enumeration(control_connection, texture_source, "Laser")?;
         let cam_texture_source = genicam
             .get_enumeration_by_name("CameraTextureSource")
             .ok_or_else(|| not_found_err("CameraTextureSource"))?;
-        Self::write_enumeration(control_connection, cam_texture_source, "Laser")?;
+        Self::write_enumeration(control_connection, cam_texture_source, "Laser")?;*/
 
         let operation_mode = genicam
             .get_enumeration_by_name("OperationMode")
             .ok_or_else(|| not_found_err("OperationMode"))?;
-        Self::write_enumeration(control_connection, operation_mode, "Camera")?;
+        Self::write_enumeration(control_connection, operation_mode, "Scanner")?;
 
         let component_selection = genicam
             .get_enumeration_by_name("ComponentSelector")
@@ -271,9 +294,24 @@ impl GigEClient {
             .get_boolean_by_name("ComponentEnable")
             .ok_or_else(|| not_found_err("ComponentEnable"))?;
 
-        let output_mode = genicam
-            .get_enumeration_by_name("Scan3dOutputMode")
-            .ok_or_else(|| not_found_err("Scan3dOutputMode"))?;
+        /*let maximum_fps = genicam
+            .get_feature_by_name("MaximumFPS")
+            .ok_or_else(|| not_found_err("MaximumFPS"))?;
+        Self::write_number(control_connection, maximum_fps, 1.0)?;*/
+
+        /*let output_topology = genicam
+            .get_enumeration_by_name("OutputTopology")
+            .ok_or_else(|| not_found_err("OutputTopology"))?;
+        Self::write_enumeration(control_connection, output_topology, "Raw")?;
+
+        let coding_quality = genicam
+            .get_enumeration_by_name("CodingQuality")
+            .ok_or_else(|| not_found_err("CodingQuality"))?;
+        Self::write_enumeration(control_connection, coding_quality, "Fast")?;
+        let coding_strategy = genicam
+            .get_enumeration_by_name("CodingStrategy")
+            .ok_or_else(|| not_found_err("CodingStrategy"))?;
+        Self::write_enumeration(control_connection, coding_strategy, "Interreflections")?;*/
 
         Self::write_enumeration(control_connection, component_selection, "Intensity")?;
         Self::write_boolean(control_connection, component_enable, false)?;
@@ -288,7 +326,10 @@ impl GigEClient {
         Self::write_enumeration(control_connection, component_selection, "Range")?;
         Self::write_boolean(control_connection, component_enable, true)?;
 
-        Self::write_enumeration(control_connection, output_mode, "CalibratedABC_Grid")?;
+        /*let output_mode = genicam
+            .get_enumeration_by_name("Scan3dOutputMode")
+            .ok_or_else(|| not_found_err("Scan3dOutputMode"))?;
+        Self::write_enumeration(control_connection, output_mode, "CalibratedABC_Grid")?;*/
         //Self::write_enumeration(control_connection, output_mode, "ProjectedC")?;
 
         /*log::warning!(
@@ -332,6 +373,7 @@ impl GigEClient {
                 stream_connection.local_address.port().into(),
             )?;
         }
+        Self::issue_command(control_connection, acquisition_arm_cmd)?;
         Self::issue_command(control_connection, acquisition_start_cmd)?;
         //Self::issue_command(control_connection, trigger_software)?;
         Self::run_acquisition(
@@ -770,6 +812,26 @@ impl GigEClient {
         Ok(read_buffer)
     }
 
+    fn write_memory(connection: &Connection, address: u32, memory: &[u8]) -> std::io::Result<()> {
+        // CAUTION: Assuming its pretty much the same as read_memory
+
+        let mut request_packet_data = Vec::with_capacity(4 + memory.len());
+        request_packet_data.extend_from_slice(&address.to_be_bytes());
+        request_packet_data.extend_from_slice(&memory);
+        let request_packet = GigEPacket::new(
+            GigEPacketType::CMD,
+            GigEPacketFlags::ACK_REQUIRED,
+            GigECommand::WRITE_MEMORY_CMD,
+            REQUEST_ID.fetch_add(1, atomic::Ordering::Relaxed),
+            &request_packet_data,
+        );
+
+        let mut io_buffer = [0u8; 1500];
+        let _ = Self::send_cmd_recv_ack(connection, &request_packet, &mut io_buffer)?;
+
+        Ok(())
+    }
+
     fn read_register(connection: &Connection, address: u32) -> std::io::Result<u32> {
         let request_packet_data = address.to_be_bytes();
         let request_packet = GigEPacket::new(
@@ -874,7 +936,7 @@ impl GigEClient {
         let stream_local_address =
             SocketAddrV4::new(adapter.address, stream_socket.local_addr()?.port());
         stream_socket.connect(stream_remote_address)?;
-        stream_socket.set_read_timeout(Some(std::time::Duration::from_millis(1000)))?;
+        stream_socket.set_read_timeout(Some(std::time::Duration::from_millis(10000)))?;
         let stream_connection = Connection {
             socket: stream_socket,
             remote_address: stream_remote_address,
@@ -986,6 +1048,38 @@ impl GigEClient {
         }
     }
 
+    fn write_float_reg(
+        connection: &Connection,
+        float_reg_type: &genicam::GenIFloatReg,
+        value: f64,
+    ) -> std::io::Result<()> {
+        let length = if let genicam::GenIType::Variable(ref length) = *float_reg_type.length {
+            length.get()
+        } else {
+            return unsupported("Unsupported FloatReg length");
+        };
+
+        let address = match *float_reg_type.address {
+            genicam::GenIType::Variable(ref addr) => addr.get() as u32,
+            _ => {
+                log::error!(
+                    "Unsupported address type in FloatReg: {:#?}",
+                    float_reg_type.address
+                );
+                return unsupported("Unsupported FloatReg address type");
+            }
+        };
+
+        if length == 4.0 {
+            unsupported("Unsupported FloatReg length")
+        } else if length == 8.0 {
+            let bytes = f64::to_be_bytes(value);
+            Self::write_memory(connection, address, &bytes)
+        } else {
+            unsupported("Unsupported FloatReg length")
+        }
+    }
+
     fn read_int_reg(
         connection: &Connection,
         int_reg_type: &genicam::GenIIntReg,
@@ -1081,6 +1175,7 @@ impl GigEClient {
         value: f64,
     ) -> std::io::Result<()> {
         match &*float_type.value {
+            &genicam::GenIType::FloatReg(ref fg) => Self::write_float_reg(connection, fg, value),
             genicam::GenIType::Converter(conv) => Self::write_converter(connection, conv, value),
             _ => unsupported("Unsupported float type value"),
         }

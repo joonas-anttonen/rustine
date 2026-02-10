@@ -439,6 +439,7 @@ impl GigEPacketType {
             0x00 => GigEPacketType::ACK,
             0x42 => GigEPacketType::CMD,
             0x80 => GigEPacketType::ERROR,
+            0x8f => GigEPacketType::ERROR,
             _ => panic!("Unknown GigEPacketType: {}", u),
         }
     }
