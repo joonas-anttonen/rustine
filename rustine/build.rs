@@ -1,6 +1,11 @@
 use fontdue::Font;
 use rustinesc::Compiler;
-use std::{collections::HashMap, env, fs, path::Path, path::PathBuf};
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 /// Parse codepoint specification strings like "0x1234-0x5678" or "0xabcd"
 fn parse_codepoint_spec(spec: &str, codepoints: &mut Vec<char>) {
@@ -77,6 +82,28 @@ fn main() {
     build_rustine_webp(&project_dir, &out_dir, generator);
     build_rustine_ffmpeg(&project_dir, &out_dir, generator);
     build_rustine_wl(&project_dir, &out_dir, generator);
+
+    build_luajit(&project_dir, &out_dir, generator);
+}
+
+fn build_luajit(project_dir: &Path, _out_dir: &Path, _generator: &'static str) {
+    let source_dir = project_dir.join("ext").join("luajit").join("src");
+
+    let status = Command::new("make")
+        .current_dir(&source_dir)
+        .arg("BUILDMODE=static")
+        .arg("-j4")
+        .status()
+        .expect("Failed to build LuaJIT");
+
+    if !status.success() {
+        panic!("LuaJIT build failed");
+    }
+
+    link_search(&source_dir);
+    link_static("luajit");
+
+    rerun_if_changed(source_dir);
 }
 
 fn build_rustine_webp(project_dir: &Path, out_dir: &Path, generator: &'static str) {
@@ -99,7 +126,6 @@ fn build_rustine_webp(project_dir: &Path, out_dir: &Path, generator: &'static st
     rerun_if_changed(rustine_webp_dir.join("CMakeLists.txt"));
     rerun_if_changed(rustine_webp_dir.join("rustine-webp.cpp"));
     rerun_if_changed(rustine_webp_dir.join("rustine-webp.hpp"));
-
 }
 
 fn build_rustine_ffmpeg(project_dir: &Path, out_dir: &Path, generator: &'static str) {

@@ -752,6 +752,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustine-mech"
+version = "0.1.0"
+dependencies = [
+ "rustine",
+]
+
+[[package]]
 name = "rustine-sc"
 version = "0.1.0"
 dependencies = [

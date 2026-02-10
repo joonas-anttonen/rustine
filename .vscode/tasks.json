@@ -72,9 +72,7 @@
 			"problemMatcher": [
 				"$rustc"
 			]
-		}
-
-		,
+		},
 		{
 			"label": "Run rustine-cc",
 			"detail": "Run rustine-cc (Debug)",
@@ -101,6 +99,37 @@
 			],
 			"options": {
 				"cwd": "${workspaceFolder}/rustine-cc"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Run rustine-mech",
+			"detail": "Run rustine-mech (Debug)",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run",
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-mech"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Run rustine-mech (Release)",
+			"detail": "Run rustine-mech (Release)",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run",
+				"--release"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-mech"
 			},
 			"problemMatcher": [
 				"$rustc"

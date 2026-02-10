@@ -13,6 +13,7 @@ pub use version::Version;
 mod numerics;
 pub use numerics::*;
 pub mod model;
+pub mod lua;
 
 use std::{
     collections::VecDeque,
