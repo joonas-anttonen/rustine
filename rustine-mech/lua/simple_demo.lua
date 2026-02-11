@@ -1,6 +1,10 @@
--- Simple Demo UI - Minimal example without mouse input
--- This demonstrates basic Lua UI rendering
+-- Simple Demo UI - Now with optional DOM mode
+-- This demonstrates both immediate-mode and DOM-based rendering
 
+-- Mode selection: "immediate" or "dom"
+local UI_MODE = "immediate"  -- Change to "dom" to test DOM mode
+
+-- Immediate mode render function (original)
 function render_ui()
     local w, h = ui.get_window_size()
     
@@ -10,9 +14,18 @@ function render_ui()
     -- Title
     ui.text("Rustine Mech - Lua UI System", 20, 40, 1.2, 0xFFFFFFFF, FONT_CASKAYDIA_MONO)
     ui.text("Press R to reload this script, Q to quit", 20, 70, 1.0, 0x8B949EFF, FONT_CASKAYDIA_MONO)
+    ui.text("Mode: Immediate (Legacy)", 20, 100, 1.0, 0x79C0FFFF, FONT_CASKAYDIA_MONO)
     
     -- Draw some UI elements to demonstrate capabilities
     draw_demo_panels(w, h)
+end
+
+-- DOM mode build function (new - will be called by Rust)
+function build_ui()
+    -- This is a placeholder - Rust will use hardcoded DOM for now
+    -- In future, we'll parse a table structure returned from here
+    log("build_ui() called - DOM mode (hardcoded in Rust for now)")
+    return {}  -- Return empty table for now
 end
 
 function draw_demo_panels(w, h)
@@ -92,6 +105,11 @@ function draw_demo_panels(w, h)
     local status_y = h - 40
     ui.rect(0, status_y, w, 40, bg_tertiary)
     ui.text("Ready - Edit lua/simple_demo.lua to customize this UI", 20, status_y + 25, 1.0, text_secondary, FONT_CASKAYDIA_MONO)
+end
+
+-- Callback for DOM mode button click
+function on_test_click()
+    log("Test button was clicked!")
 end
 
 -- Initialize

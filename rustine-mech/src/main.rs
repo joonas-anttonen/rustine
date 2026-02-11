@@ -1,4 +1,4 @@
-use rustine::{Platform, RunMode, Version, gfx, gui, log, lua::LuaEngine, lua_ui, scene::Scene};
+use rustine::{Platform, RunMode, Version, gfx, gui, log, lua::LuaEngine, lua_ui, scene::Scene, ui_dom};
 use std::{
     fs,
     path::Path,
@@ -9,10 +9,18 @@ use std::{
     thread,
 };
 
+enum UiMode {
+    Immediate,
+    Dom,
+}
+
 struct LuaMechApplication {
     lua_engine: std::cell::RefCell<LuaEngine>,
     ui_script_path: std::path::PathBuf,
     mouse_state: std::cell::RefCell<MouseState>,
+    ui_mode: std::cell::RefCell<UiMode>,
+    dom: std::cell::RefCell<Option<ui_dom::UiDom>>,
+    dom_dirty: std::cell::RefCell<bool>,
 }
 
 #[derive(Default)]
@@ -72,6 +80,9 @@ impl LuaMechApplication {
             lua_engine: std::cell::RefCell::new(lua_engine),
             ui_script_path: script_path.to_path_buf(),
             mouse_state: std::cell::RefCell::new(MouseState::default()),
+            ui_mode: std::cell::RefCell::new(UiMode::Immediate),
+            dom: std::cell::RefCell::new(None),
+            dom_dirty: std::cell::RefCell::new(true),
         }
     }
 
@@ -82,6 +93,25 @@ impl LuaMechApplication {
                 log::error!("Failed to reload UI script: {}", e);
             } else {
                 log::info!("Reloaded UI script");
+                *self.dom_dirty.borrow_mut() = true;
+            }
+        }
+    }
+
+    fn rebuild_dom_if_needed(&self, window_width: f32, window_height: f32) {
+        if *self.dom_dirty.borrow() {
+            log::info!("Rebuilding DOM...");
+            let mut lua = self.lua_engine.borrow_mut();
+            match lua_ui::build_dom_from_lua(&mut lua) {
+                Ok(mut new_dom) => {
+                    new_dom.compute_layout(window_width, window_height);
+                    *self.dom.borrow_mut() = Some(new_dom);
+                    *self.dom_dirty.borrow_mut() = false;
+                    log::info!("DOM rebuilt successfully");
+                }
+                Err(e) => {
+                    log::error!("Failed to build DOM: {}", e);
+                }
             }
         }
     }
@@ -107,13 +137,32 @@ impl gui::Application for LuaMechApplication {
                     self.reload_ui_script();
                     gui.mark_damaged();
                 }
+                Key::D => {
+                    // Toggle DOM mode
+                    let new_mode = match *self.ui_mode.borrow() {
+                        UiMode::Immediate => {
+                            log::info!("Switching to DOM mode");
+                            *self.dom_dirty.borrow_mut() = true;
+                            UiMode::Dom
+                        }
+                        UiMode::Dom => {
+                            log::info!("Switching to Immediate mode");
+                            UiMode::Immediate
+                        }
+                    };
+                    *self.ui_mode.borrow_mut() = new_mode;
+                    gui.mark_damaged();
+                }
                 _ => {}
             }
         }
     }
 
     fn render(&self, _gui: &gui::Gui, frame: &mut gfx::RenderFrame) {
-        // Update mouse state for Lua
+        let window_w = frame.size.x as f32;
+        let window_h = frame.size.y as f32;
+
+        // Update mouse state
         let mut mouse = self.mouse_state.borrow_mut();
         lua_ui::update_input_state(lua_ui::UiInputState {
             mouse_x: mouse.x,
@@ -122,46 +171,102 @@ impl gui::Application for LuaMechApplication {
             mouse_left_pressed: mouse.left_pressed_this_frame,
             mouse_left_released: mouse.left_released_this_frame,
         });
+        drop(mouse);
 
-        // Set current frame for Lua drawing
-        lua_ui::set_current_frame(frame);
+        // Render based on mode
+        match *self.ui_mode.borrow() {
+            UiMode::Immediate => {
+                // Set current frame for Lua drawing
+                lua_ui::set_current_frame(frame);
 
-        // Call Lua render function
-        let mut lua = self.lua_engine.borrow_mut();
-        if let Err(e) = lua.call_function("render_ui", &[]) {
-            log::error!("Error calling render_ui: {}", e);
-            // Render error message
-            frame.fill_rectangle(
-                &gfx::Rectangle {
-                    x: 0.0,
-                    y: 0.0,
-                    w: frame.size.x as f32,
-                    h: frame.size.y as f32,
-                },
-                0x0D1117FF,
-            );
-            frame.push_text(
-                "Lua Error:",
-                20.0,
-                40.0,
-                1.0,
-                0xFF7B72FF,
-                gfx::fonts::CASKAYDIAMONO_FONT_ID,
-            );
-            frame.push_text(
-                &e,
-                20.0,
-                70.0,
-                1.0,
-                0xFFFFFFFF,
-                gfx::fonts::CASKAYDIAMONO_FONT_ID,
-            );
+                // Call Lua render function
+                let mut lua = self.lua_engine.borrow_mut();
+                if let Err(e) = lua.call_function("render_ui", &[]) {
+                    log::error!("Error calling render_ui: {}", e);
+                    // Render error message
+                    frame.fill_rectangle(
+                        &gfx::Rectangle {
+                            x: 0.0,
+                            y: 0.0,
+                            w: window_w,
+                            h: window_h,
+                        },
+                        0x0D1117FF,
+                    );
+                    frame.push_text(
+                        "Lua Error:",
+                        20.0,
+                        40.0,
+                        1.0,
+                        0xFF7B72FF,
+                        gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                    );
+                    frame.push_text(
+                        &e,
+                        20.0,
+                        70.0,
+                        1.0,
+                        0xFFFFFFFF,
+                        gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                    );
+                }
+
+                // Clear frame reference
+                lua_ui::clear_current_frame();
+            }
+            UiMode::Dom => {
+                // Rebuild DOM if needed
+                self.rebuild_dom_if_needed(window_w, window_h);
+
+                // Update DOM with mouse state
+                if let Some(ref mut dom) = *self.dom.borrow_mut() {
+                    let mouse = self.mouse_state.borrow();
+                    dom.update_mouse(
+                        mouse.x,
+                        mouse.y,
+                        mouse.left_down,
+                        mouse.left_pressed_this_frame,
+                    );
+                    drop(mouse);
+
+                    // Render DOM
+                    dom.render(frame);
+
+                    // Check for button clicks and call callbacks
+                    if dom.was_clicked("test_button") {
+                        log::info!("Test button clicked via DOM!");
+                        // Call Lua callback if defined
+                        drop(dom);
+                        let mut lua = self.lua_engine.borrow_mut();
+                        if let Err(e) = lua.call_function("on_test_click", &[]) {
+                            log::warning!("Callback error: {}", e);
+                        }
+                    }
+                } else {
+                    // No DOM yet, show loading message
+                    frame.fill_rectangle(
+                        &gfx::Rectangle {
+                            x: 0.0,
+                            y: 0.0,
+                            w: window_w,
+                            h: window_h,
+                        },
+                        0x0D1117FF,
+                    );
+                    frame.push_text(
+                        "Building DOM...",
+                        20.0,
+                        40.0,
+                        1.0,
+                        0xFFFFFFFF,
+                        gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                    );
+                }
+            }
         }
 
-        // Clear frame reference
-        lua_ui::clear_current_frame();
-
         // Reset per-frame mouse states
+        let mut mouse = self.mouse_state.borrow_mut();
         mouse.left_pressed_this_frame = false;
         mouse.left_released_this_frame = false;
     }
