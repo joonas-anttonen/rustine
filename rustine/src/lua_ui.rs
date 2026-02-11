@@ -142,6 +142,12 @@ pub struct UiInputState {
     pub mouse_left_released: bool,
 }
 
+impl UiInputState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 thread_local! {
     static UI_INPUT: RefCell<UiInputState> = RefCell::new(UiInputState::default());
 }
@@ -151,6 +157,11 @@ pub fn update_input_state(state: UiInputState) {
     UI_INPUT.with(|ui| {
         *ui.borrow_mut() = state;
     });
+}
+
+/// Gets the current UI input state
+pub fn get_input_state() -> UiInputState {
+    UI_INPUT.with(|ui| ui.borrow().clone())
 }
 
 /// Lua API: ui.get_mouse_pos()
