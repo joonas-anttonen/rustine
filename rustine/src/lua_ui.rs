@@ -116,7 +116,7 @@ extern "C" fn lua_ui_push_scissor(l: *mut crate::lua::ffi::lua_State) -> c_int {
 
 /// Lua API: ui.pop_scissor()
 /// Pops the current scissor rectangle
-extern "C" fn lua_ui_pop_scissor(l: *mut crate::lua::ffi::lua_State) -> c_int {
+extern "C" fn lua_ui_pop_scissor(_l: *mut crate::lua::ffi::lua_State) -> c_int {
     with_current_frame(|frame| {
         frame.pop_scissor();
     });
@@ -249,10 +249,10 @@ pub fn register_ui_functions(lua: &mut LuaEngine) {
     lua.execute(
         r#"
         -- Font constants
-        FONT_PROGGY_CLEAN = 0
-        FONT_DEPARTURE_MONO = 1
-        FONT_CASKAYDIA_MONO = 2
-        FONT_NERD_SYMBOLS = 3
+        FONT_PROGGY_CLEAN = 4294967290
+        FONT_DEPARTURE_MONO = 4294967292
+        FONT_CASKAYDIA_MONO = 4294967293
+        FONT_NERD_SYMBOLS = 4294967291
 
         -- UI namespace
         ui = {

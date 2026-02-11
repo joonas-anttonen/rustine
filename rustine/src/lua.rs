@@ -214,7 +214,7 @@ extern "C" fn lua_global_log(l: *mut ffi::lua_State) -> c_int {
     }
 }
 
-mod ffi {
+pub mod ffi {
     #![allow(non_camel_case_types, non_snake_case)]
 
     use std::os::raw::{c_char, c_int, c_void};

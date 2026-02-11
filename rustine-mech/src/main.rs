@@ -1,16 +1,10 @@
-use rustine::{
-    gfx, gui, log,
-    lua::LuaEngine,
-    lua_ui,
-    scene::Scene,
-    AutoResetEvent, Mailbox, Platform, RunMode, Version,
-};
+use rustine::{Platform, RunMode, Version, gfx, gui, log, lua::LuaEngine, lua_ui, scene::Scene};
 use std::{
     fs,
     path::Path,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
 };
@@ -120,7 +114,7 @@ impl gui::Application for LuaMechApplication {
 
     fn render(&self, _gui: &gui::Gui, frame: &mut gfx::RenderFrame) {
         // Update mouse state for Lua
-        let mouse = self.mouse_state.borrow();
+        let mut mouse = self.mouse_state.borrow_mut();
         lua_ui::update_input_state(lua_ui::UiInputState {
             mouse_x: mouse.x,
             mouse_y: mouse.y,
@@ -152,7 +146,7 @@ impl gui::Application for LuaMechApplication {
                 40.0,
                 1.0,
                 0xFF7B72FF,
-                gfx::fonts::CASKAYDIA_MONO_FONT_ID,
+                gfx::fonts::CASKAYDIAMONO_FONT_ID,
             );
             frame.push_text(
                 &e,
@@ -160,7 +154,7 @@ impl gui::Application for LuaMechApplication {
                 70.0,
                 1.0,
                 0xFFFFFFFF,
-                gfx::fonts::CASKAYDIA_MONO_FONT_ID,
+                gfx::fonts::CASKAYDIAMONO_FONT_ID,
             );
         }
 
@@ -168,7 +162,6 @@ impl gui::Application for LuaMechApplication {
         lua_ui::clear_current_frame();
 
         // Reset per-frame mouse states
-        let mut mouse = self.mouse_state.borrow_mut();
         mouse.left_pressed_this_frame = false;
         mouse.left_released_this_frame = false;
     }
@@ -182,12 +175,12 @@ fn main() {
     let exit_flag = Arc::new(AtomicBool::new(false));
 
     // Initialize graphics
-    let gfx = gfx::Gfx::builder()
+    let gfx = gfx::Gfx::builder(Platform::Wayland)
         .app_name("Rustine Mech")
         .app_version(Version::new(0, 1, 0))
         .debugging(true)
-        .platform(Platform::Wayland)
-        .build();
+        .build()
+        .unwrap();
 
     let am_gfx = Arc::new(Mutex::new(gfx));
 
