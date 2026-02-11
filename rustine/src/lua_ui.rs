@@ -278,6 +278,7 @@ pub fn register_ui_functions(lua: &mut LuaEngine) {
 
 use crate::ui_dom::{UiNode, Style, StatefulStyle, Layout, LayoutMode};
 use std::cell::RefCell;
+use std::rc::Rc;
 
 thread_local! {
     static CURRENT_DOM: RefCell<Option<crate::ui_dom::UiDom>> = RefCell::new(None);
@@ -360,7 +361,7 @@ pub fn build_dom_from_lua(lua: &mut LuaEngine) -> Result<crate::ui_dom::UiDom, S
         },
         layout_mode: LayoutMode::Vertical,
         children: vec![
-            UiNode::Text {
+            Rc::new(RefCell::new(UiNode::Text {
                 id: Some("title".to_string()),
                 text: "DOM UI System".to_string(),
                 style: StatefulStyle::new(Style {
@@ -376,8 +377,8 @@ pub fn build_dom_from_lua(lua: &mut LuaEngine) -> Result<crate::ui_dom::UiDom, S
                     height: Some(40.0),
                     ..Default::default()
                 },
-            },
-            UiNode::Button {
+            })),
+            Rc::new(RefCell::new(UiNode::Button {
                 id: Some("test_button".to_string()),
                 text: "Click Me".to_string(),
                 style: StatefulStyle {
@@ -407,7 +408,7 @@ pub fn build_dom_from_lua(lua: &mut LuaEngine) -> Result<crate::ui_dom::UiDom, S
                     ..Default::default()
                 },
                 on_click: Some("on_test_click".to_string()),
-            },
+            })),
         ],
     };
     

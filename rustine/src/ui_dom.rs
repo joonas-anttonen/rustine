@@ -7,6 +7,8 @@
 
 use crate::gfx;
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 /// Unique identifier for UI elements
 pub type ElementId = String;
@@ -159,7 +161,7 @@ pub enum UiNode {
         style: StatefulStyle,
         layout: Layout,
         layout_mode: LayoutMode,
-        children: Vec<UiNode>,
+        children: Vec<Rc<RefCell<UiNode>>>,
     },
     /// Text element
     Text {
@@ -203,17 +205,17 @@ impl UiNode {
         }
     }
 
-    pub fn children(&self) -> &[UiNode] {
+    pub fn children(&self) -> Vec<Rc<RefCell<UiNode>>> {
         match self {
-            UiNode::Panel { children, .. } => children,
-            _ => &[],
+            UiNode::Panel { children, .. } => children.clone(),
+            _ => vec![],
         }
     }
 
-    pub fn children_mut(&mut self) -> Option<&mut Vec<UiNode>> {
+    pub fn has_children(&self) -> bool {
         match self {
-            UiNode::Panel { children, .. } => Some(children),
-            _ => None,
+            UiNode::Panel { children, .. } => !children.is_empty(),
+            _ => false,
         }
     }
 }
@@ -273,15 +275,15 @@ impl UiDom {
     pub fn compute_layout(&mut self, window_width: f32, window_height: f32) {
         self.computed_layouts.clear();
         
-        if let Some(ref mut root) = self.root {
-            self.compute_node_layout(root, 0.0, 0.0, window_width, window_height);
+        if let Some(ref root) = self.root {
+            self.compute_node_layout_recursive(root, 0.0, 0.0, window_width, window_height);
         }
     }
 
     /// Recursively compute layout for a node and its children
-    fn compute_node_layout(
+    fn compute_node_layout_recursive(
         &mut self,
-        node: &mut UiNode,
+        node: &UiNode,
         parent_x: f32,
         parent_y: f32,
         available_width: f32,
@@ -312,13 +314,20 @@ impl UiDom {
             match layout_mode {
                 LayoutMode::Vertical => {
                     let mut current_y = 0.0;
-                    for child in children.iter_mut() {
+                    for child_rc in children {
+                        let mut child = child_rc.borrow_mut();
                         child.layout_mut().y = current_y;
-                        self.compute_node_layout(child, x, y, width, height - current_y);
+                        
+                        // Need to drop the mutable borrow before recursive call
+                        let child_id = child.id().map(|s| s.to_string());
+                        drop(child);
+                        
+                        // Now we can recursively compute without holding the borrow
+                        self.compute_node_layout_recursive(&child_rc.borrow(), x, y, width, height - current_y);
                         
                         // Get child's computed height
-                        if let Some(child_id) = child.id() {
-                            if let Some(computed) = self.computed_layouts.get(child_id) {
+                        if let Some(child_id) = child_id {
+                            if let Some(computed) = self.computed_layouts.get(&child_id) {
                                 current_y += computed.height;
                             }
                         }
@@ -326,21 +335,28 @@ impl UiDom {
                 }
                 LayoutMode::Horizontal => {
                     let mut current_x = 0.0;
-                    for child in children.iter_mut() {
+                    for child_rc in children {
+                        let mut child = child_rc.borrow_mut();
                         child.layout_mut().x = current_x;
-                        self.compute_node_layout(child, x, y, width - current_x, height);
+                        
+                        // Need to drop the mutable borrow before recursive call
+                        let child_id = child.id().map(|s| s.to_string());
+                        drop(child);
+                        
+                        // Now we can recursively compute without holding the borrow
+                        self.compute_node_layout_recursive(&child_rc.borrow(), x, y, width - current_x, height);
                         
                         // Get child's computed width
-                        if let Some(child_id) = child.id() {
-                            if let Some(computed) = self.computed_layouts.get(child_id) {
+                        if let Some(child_id) = child_id {
+                            if let Some(computed) = self.computed_layouts.get(&child_id) {
                                 current_x += computed.width;
                             }
                         }
                     }
                 }
                 LayoutMode::Absolute => {
-                    for child in children.iter_mut() {
-                        self.compute_node_layout(child, x, y, width, height);
+                    for child_rc in children {
+                        self.compute_node_layout_recursive(&child_rc.borrow(), x, y, width, height);
                     }
                 }
             }
@@ -379,8 +395,8 @@ impl UiDom {
         }
 
         // Recurse into children
-        for child in node.children() {
-            self.update_node_hover_state(child);
+        for child_rc in node.children() {
+            self.update_node_hover_state(&child_rc.borrow());
         }
     }
 
@@ -447,8 +463,8 @@ impl UiDom {
                     }
 
                     // Render children
-                    for child in children {
-                        self.render_node(child, frame);
+                    for child_rc in children {
+                        self.render_node(&child_rc.borrow(), frame);
                     }
                 }
                 UiNode::Text { text, style, .. } => {
