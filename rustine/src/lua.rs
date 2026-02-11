@@ -4,6 +4,14 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_int;
 
+#[derive(Debug, Clone)]
+pub enum LuaValue {
+    Nil,
+    Number(f64),
+    String(String),
+    Boolean(bool),
+}
+
 pub struct LuaEngine {
     state: *mut ffi::lua_State,
 }
@@ -54,6 +62,115 @@ impl LuaEngine {
             let c_name = CString::new(name).unwrap();
             ffi::lua_pushnumber(self.state, value);
             ffi::lua_setfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
+        }
+    }
+
+    pub fn get_global_string(&mut self, name: &str) -> Option<String> {
+        unsafe {
+            let c_name = CString::new(name).unwrap();
+            ffi::lua_getfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
+
+            if ffi::lua_type(self.state, -1) == ffi::LUA_TSTRING {
+                let value_ptr = ffi::lua_tolstring(self.state, -1, std::ptr::null_mut());
+                let value = CStr::from_ptr(value_ptr).to_string_lossy().into_owned();
+                ffi::lua_pop(self.state, 1);
+                Some(value)
+            } else {
+                ffi::lua_pop(self.state, 1);
+                None
+            }
+        }
+    }
+
+    pub fn set_global_string(&mut self, name: &str, value: &str) {
+        unsafe {
+            let c_name = CString::new(name).unwrap();
+            let c_value = CString::new(value).unwrap();
+            ffi::lua_pushstring(self.state, c_value.as_ptr());
+            ffi::lua_setfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
+        }
+    }
+
+    pub fn get_global_bool(&mut self, name: &str) -> Option<bool> {
+        unsafe {
+            let c_name = CString::new(name).unwrap();
+            ffi::lua_getfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
+
+            if ffi::lua_type(self.state, -1) == ffi::LUA_TBOOLEAN {
+                let value = ffi::lua_toboolean(self.state, -1) != 0;
+                ffi::lua_pop(self.state, 1);
+                Some(value)
+            } else {
+                ffi::lua_pop(self.state, 1);
+                None
+            }
+        }
+    }
+
+    pub fn set_global_bool(&mut self, name: &str, value: bool) {
+        unsafe {
+            let c_name = CString::new(name).unwrap();
+            ffi::lua_pushboolean(self.state, if value { 1 } else { 0 });
+            ffi::lua_setfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
+        }
+    }
+
+    pub fn call_function(&mut self, name: &str, args: &[LuaValue]) -> Result<Vec<LuaValue>, String> {
+        unsafe {
+            let c_name = CString::new(name).unwrap();
+            ffi::lua_getfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
+
+            if ffi::lua_type(self.state, -1) != ffi::LUA_TFUNCTION {
+                ffi::lua_pop(self.state, 1);
+                return Err(format!("'{}' is not a function", name));
+            }
+
+            for arg in args {
+                match arg {
+                    LuaValue::Number(n) => ffi::lua_pushnumber(self.state, *n),
+                    LuaValue::String(s) => {
+                        let c_str = CString::new(s.as_str()).unwrap();
+                        ffi::lua_pushstring(self.state, c_str.as_ptr());
+                    }
+                    LuaValue::Boolean(b) => ffi::lua_pushboolean(self.state, if *b { 1 } else { 0 }),
+                    LuaValue::Nil => ffi::lua_pushnil(self.state),
+                }
+            }
+
+            let nargs = args.len() as c_int;
+            let nresults = ffi::LUA_MULTRET;
+
+            let top_before = ffi::lua_gettop(self.state);
+            if ffi::lua_pcall(self.state, nargs, nresults, 0) != 0 {
+                return Err(self.get_error());
+            }
+            let top_after = ffi::lua_gettop(self.state);
+            let result_count = top_after - top_before + nargs + 1;
+
+            let mut results = Vec::new();
+            for i in 0..result_count {
+                let idx = -result_count + i;
+                let lua_type = ffi::lua_type(self.state, idx);
+                match lua_type {
+                    ffi::LUA_TNUMBER => {
+                        results.push(LuaValue::Number(ffi::lua_tonumber(self.state, idx)));
+                    }
+                    ffi::LUA_TSTRING => {
+                        let value_ptr = ffi::lua_tolstring(self.state, idx, std::ptr::null_mut());
+                        let value = CStr::from_ptr(value_ptr).to_string_lossy().into_owned();
+                        results.push(LuaValue::String(value));
+                    }
+                    ffi::LUA_TBOOLEAN => {
+                        results.push(LuaValue::Boolean(ffi::lua_toboolean(self.state, idx) != 0));
+                    }
+                    _ => {
+                        results.push(LuaValue::Nil);
+                    }
+                }
+            }
+
+            ffi::lua_pop(self.state, result_count);
+            Ok(results)
         }
     }
 
@@ -119,6 +236,9 @@ mod ffi {
     // Pseudo-indices
     pub const LUA_REGISTRYINDEX: c_int = -10000;
     pub const LUA_GLOBALSINDEX: c_int = -10002;
+
+    // Special values
+    pub const LUA_MULTRET: c_int = -1;
 
     #[link(name = "luajit")]
     unsafe extern "C" {
