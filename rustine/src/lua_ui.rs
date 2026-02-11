@@ -245,6 +245,11 @@ pub fn register_ui_functions(lua: &mut LuaEngine) {
     lua.register_function("ui_is_mouse_released", lua_ui_is_mouse_released);
     lua.register_function("ui_is_rect_hovered", lua_ui_is_rect_hovered);
 
+    // DOM building functions
+    lua.register_function("ui_dom_panel", lua_ui_dom_panel);
+    lua.register_function("ui_dom_text", lua_ui_dom_text);
+    lua.register_function("ui_dom_button", lua_ui_dom_button);
+
     // Register font IDs as constants
     lua.execute(
         r#"
@@ -254,7 +259,7 @@ pub fn register_ui_functions(lua: &mut LuaEngine) {
         FONT_CASKAYDIA_MONO = 4294967293
         FONT_NERD_SYMBOLS = 4294967291
 
-        -- UI namespace
+        -- UI namespace (immediate mode - legacy)
         ui = {
             rect = ui_rect,
             text = ui_text,
@@ -267,7 +272,369 @@ pub fn register_ui_functions(lua: &mut LuaEngine) {
             is_mouse_released = ui_is_mouse_released,
             is_rect_hovered = ui_is_rect_hovered,
         }
+
+        -- DOM builder helpers (new retained mode API)
+        dom = {
+            _panel = ui_dom_panel,
+            _text = ui_dom_text,
+            _button = ui_dom_button,
+        }
+
+        -- Helper to extract style properties from Lua table
+        function dom._extract_style(style_table)
+            if not style_table then return nil end
+            return {
+                bg_color = style_table.bg_color,
+                text_color = style_table.text_color,
+                border_color = style_table.border_color,
+                border_width = style_table.border_width,
+                padding = style_table.padding,
+                margin = style_table.margin,
+                font_size = style_table.font_size,
+                font_id = style_table.font_id,
+            }
+        end
+
+        -- Panel element builder
+        function dom.panel(props)
+            props = props or {}
+            local normal_style = dom._extract_style(props.style and props.style.normal or props.style)
+            local hover_style = dom._extract_style(props.style and props.style.hover)
+            local pressed_style = dom._extract_style(props.style and props.style.pressed)
+            
+            return dom._panel(
+                props.id,
+                normal_style,
+                hover_style,
+                pressed_style,
+                props.x or 0,
+                props.y or 0,
+                props.width,
+                props.height,
+                props.layout or "vertical",
+                props.children or {}
+            )
+        end
+
+        -- Text element builder
+        function dom.text(props)
+            props = props or {}
+            local normal_style = dom._extract_style(props.style and props.style.normal or props.style)
+            local hover_style = dom._extract_style(props.style and props.style.hover)
+            local pressed_style = dom._extract_style(props.style and props.style.pressed)
+            
+            return dom._text(
+                props.id,
+                props.text or "",
+                normal_style,
+                hover_style,
+                pressed_style,
+                props.x or 0,
+                props.y or 0,
+                props.width,
+                props.height
+            )
+        end
+
+        -- Button element builder
+        function dom.button(props)
+            props = props or {}
+            local normal_style = dom._extract_style(props.style and props.style.normal or props.style)
+            local hover_style = dom._extract_style(props.style and props.style.hover)
+            local pressed_style = dom._extract_style(props.style and props.style.pressed)
+            
+            return dom._button(
+                props.id,
+                props.text or "",
+                normal_style,
+                hover_style,
+                pressed_style,
+                props.x or 0,
+                props.y or 0,
+                props.width,
+                props.height,
+                props.on_click
+            )
+        end
         "#,
     )
     .expect("Failed to setup UI namespace");
+}
+
+//
+// DOM Building API
+//
+
+use crate::ui_dom::{UiNode, Style, StatefulStyle, Layout, LayoutMode};
+
+thread_local! {
+    static DOM_BUILDER: RefCell<Vec<UiNode>> = RefCell::new(Vec::new());
+}
+
+/// Helper to parse style table from Lua
+unsafe fn parse_style_from_lua(l: *mut crate::lua::ffi::lua_State, index: c_int) -> Option<Style> {
+    use crate::lua::ffi::*;
+    
+    if lua_type(l, index) != LUA_TTABLE {
+        return None;
+    }
+
+    let mut style = Style::default();
+
+    // bg_color
+    lua_getfield(l, index, b"bg_color\0".as_ptr() as *const i8);
+    if lua_type(l, -1) == LUA_TNUMBER {
+        style.bg_color = Some(lua_tonumber(l, -1) as u32);
+    }
+    lua_pop(l, 1);
+
+    // text_color
+    lua_getfield(l, index, b"text_color\0".as_ptr() as *const i8);
+    if lua_type(l, -1) == LUA_TNUMBER {
+        style.text_color = Some(lua_tonumber(l, -1) as u32);
+    }
+    lua_pop(l, 1);
+
+    // border_color
+    lua_getfield(l, index, b"border_color\0".as_ptr() as *const i8);
+    if lua_type(l, -1) == LUA_TNUMBER {
+        style.border_color = Some(lua_tonumber(l, -1) as u32);
+    }
+    lua_pop(l, 1);
+
+    // border_width
+    lua_getfield(l, index, b"border_width\0".as_ptr() as *const i8);
+    if lua_type(l, -1) == LUA_TNUMBER {
+        style.border_width = Some(lua_tonumber(l, -1) as f32);
+    }
+    lua_pop(l, 1);
+
+    // font_size
+    lua_getfield(l, index, b"font_size\0".as_ptr() as *const i8);
+    if lua_type(l, -1) == LUA_TNUMBER {
+        style.font_size = Some(lua_tonumber(l, -1) as f32);
+    }
+    lua_pop(l, 1);
+
+    // font_id
+    lua_getfield(l, index, b"font_id\0".as_ptr() as *const i8);
+    if lua_type(l, -1) == LUA_TNUMBER {
+        style.font_id = Some(lua_tonumber(l, -1) as u32);
+    }
+    lua_pop(l, 1);
+
+    Some(style)
+}
+
+/// Lua API: dom._panel(id, normal_style, hover_style, pressed_style, x, y, width, height, layout, children)
+extern "C" fn lua_ui_dom_panel(l: *mut crate::lua::ffi::lua_State) -> c_int {
+    unsafe {
+        use crate::lua::ffi::*;
+
+        // Parse arguments
+        let id = if lua_type(l, 1) == LUA_TSTRING {
+            let id_ptr = lua_tolstring(l, 1, std::ptr::null_mut());
+            Some(CStr::from_ptr(id_ptr).to_string_lossy().to_string())
+        } else {
+            None
+        };
+
+        let normal_style = parse_style_from_lua(l, 2).unwrap_or_default();
+        let hover_style = parse_style_from_lua(l, 3);
+        let pressed_style = parse_style_from_lua(l, 4);
+
+        let x = lua_tonumber(l, 5) as f32;
+        let y = lua_tonumber(l, 6) as f32;
+        let width = if lua_type(l, 7) == LUA_TNUMBER {
+            Some(lua_tonumber(l, 7) as f32)
+        } else {
+            None
+        };
+        let height = if lua_type(l, 8) == LUA_TNUMBER {
+            Some(lua_tonumber(l, 8) as f32)
+        } else {
+            None
+        };
+
+        let layout_mode = if lua_type(l, 9) == LUA_TSTRING {
+            let mode_ptr = lua_tolstring(l, 9, std::ptr::null_mut());
+            let mode_str = CStr::from_ptr(mode_ptr).to_string_lossy();
+            match mode_str.as_ref() {
+                "horizontal" => LayoutMode::Horizontal,
+                "absolute" => LayoutMode::Absolute,
+                _ => LayoutMode::Vertical,
+            }
+        } else {
+            LayoutMode::Vertical
+        };
+
+        // Parse children array
+        let mut children = Vec::new();
+        if lua_type(l, 10) == LUA_TTABLE {
+            let len = lua_objlen(l, 10) as i32;
+            for i in 1..=len {
+                lua_rawgeti(l, 10, i);
+                // Child should be a userdata or light userdata
+                // For now, we'll skip this - children will be added separately
+                lua_pop(l, 1);
+            }
+        }
+
+        let node = UiNode::Panel {
+            id,
+            style: StatefulStyle {
+                normal: normal_style,
+                hover: hover_style,
+                pressed: pressed_style,
+            },
+            layout: Layout {
+                x,
+                y,
+                width,
+                height,
+                ..Default::default()
+            },
+            layout_mode,
+            children,
+        };
+
+        // Return a light userdata representing the node
+        // Store it in thread-local for now
+        DOM_BUILDER.with(|builder| {
+            let mut nodes = builder.borrow_mut();
+            nodes.push(node);
+            let index = nodes.len() - 1;
+            lua_pushlightuserdata(l, index as *mut std::ffi::c_void);
+        });
+
+        1
+    }
+}
+
+/// Lua API: dom._text(id, text, normal_style, hover_style, pressed_style, x, y, width, height)
+extern "C" fn lua_ui_dom_text(l: *mut crate::lua::ffi::lua_State) -> c_int {
+    unsafe {
+        use crate::lua::ffi::*;
+
+        let id = if lua_type(l, 1) == LUA_TSTRING {
+            let id_ptr = lua_tolstring(l, 1, std::ptr::null_mut());
+            Some(CStr::from_ptr(id_ptr).to_string_lossy().to_string())
+        } else {
+            None
+        };
+
+        let text_ptr = lua_tolstring(l, 2, std::ptr::null_mut());
+        let text = CStr::from_ptr(text_ptr).to_string_lossy().to_string();
+
+        let normal_style = parse_style_from_lua(l, 3).unwrap_or_default();
+        let hover_style = parse_style_from_lua(l, 4);
+        let pressed_style = parse_style_from_lua(l, 5);
+
+        let x = lua_tonumber(l, 6) as f32;
+        let y = lua_tonumber(l, 7) as f32;
+        let width = if lua_type(l, 8) == LUA_TNUMBER {
+            Some(lua_tonumber(l, 8) as f32)
+        } else {
+            None
+        };
+        let height = if lua_type(l, 9) == LUA_TNUMBER {
+            Some(lua_tonumber(l, 9) as f32)
+        } else {
+            Some(30.0) // Default text height
+        };
+
+        let node = UiNode::Text {
+            id,
+            text,
+            style: StatefulStyle {
+                normal: normal_style,
+                hover: hover_style,
+                pressed: pressed_style,
+            },
+            layout: Layout {
+                x,
+                y,
+                width,
+                height,
+                ..Default::default()
+            },
+        };
+
+        DOM_BUILDER.with(|builder| {
+            let mut nodes = builder.borrow_mut();
+            nodes.push(node);
+            let index = nodes.len() - 1;
+            lua_pushlightuserdata(l, index as *mut std::ffi::c_void);
+        });
+
+        1
+    }
+}
+
+/// Lua API: dom._button(id, text, normal_style, hover_style, pressed_style, x, y, width, height, on_click)
+extern "C" fn lua_ui_dom_button(l: *mut crate::lua::ffi::lua_State) -> c_int {
+    unsafe {
+        use crate::lua::ffi::*;
+
+        let id = if lua_type(l, 1) == LUA_TSTRING {
+            let id_ptr = lua_tolstring(l, 1, std::ptr::null_mut());
+            Some(CStr::from_ptr(id_ptr).to_string_lossy().to_string())
+        } else {
+            None
+        };
+
+        let text_ptr = lua_tolstring(l, 2, std::ptr::null_mut());
+        let text = CStr::from_ptr(text_ptr).to_string_lossy().to_string();
+
+        let normal_style = parse_style_from_lua(l, 3).unwrap_or_default();
+        let hover_style = parse_style_from_lua(l, 4);
+        let pressed_style = parse_style_from_lua(l, 5);
+
+        let x = lua_tonumber(l, 6) as f32;
+        let y = lua_tonumber(l, 7) as f32;
+        let width = if lua_type(l, 8) == LUA_TNUMBER {
+            Some(lua_tonumber(l, 8) as f32)
+        } else {
+            Some(150.0) // Default button width
+        };
+        let height = if lua_type(l, 9) == LUA_TNUMBER {
+            Some(lua_tonumber(l, 9) as f32)
+        } else {
+            Some(40.0) // Default button height
+        };
+
+        let on_click = if lua_type(l, 10) == LUA_TSTRING {
+            let callback_ptr = lua_tolstring(l, 10, std::ptr::null_mut());
+            Some(CStr::from_ptr(callback_ptr).to_string_lossy().to_string())
+        } else {
+            None
+        };
+
+        let node = UiNode::Button {
+            id,
+            text,
+            style: StatefulStyle {
+                normal: normal_style,
+                hover: hover_style,
+                pressed: pressed_style,
+            },
+            layout: Layout {
+                x,
+                y,
+                width,
+                height,
+                ..Default::default()
+            },
+            on_click,
+        };
+
+        DOM_BUILDER.with(|builder| {
+            let mut nodes = builder.borrow_mut();
+            nodes.push(node);
+            let index = nodes.len() - 1;
+            lua_pushlightuserdata(l, index as *mut std::ffi::c_void);
+        });
+
+        1
+    }
 }

@@ -15,6 +15,7 @@ pub use numerics::*;
 pub mod model;
 pub mod lua;
 pub mod lua_ui;
+pub mod ui_dom;
 
 use std::{
     collections::VecDeque,

@@ -273,6 +273,9 @@ pub mod ffi {
         pub fn lua_settable(L: *mut lua_State, idx: c_int);
         pub fn lua_getfield(L: *mut lua_State, idx: c_int, k: *const c_char);
         pub fn lua_setfield(L: *mut lua_State, idx: c_int, k: *const c_char);
+        pub fn lua_rawgeti(L: *mut lua_State, idx: c_int, n: c_int);
+        pub fn lua_objlen(L: *mut lua_State, idx: c_int) -> usize;
+        pub fn lua_pushlightuserdata(L: *mut lua_State, p: *mut c_void);
 
         // Load and call
         pub fn luaL_loadstring(L: *mut lua_State, s: *const c_char) -> c_int;
