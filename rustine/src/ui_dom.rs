@@ -313,6 +313,9 @@ impl UiDom {
         if let UiNode::Panel { layout_mode, children, .. } = node {
             match layout_mode {
                 LayoutMode::Vertical => {
+                    // Take temporary ownership of computed_layouts to avoid borrow conflicts
+                    let mut layouts = std::mem::take(&mut self.computed_layouts);
+                    
                     let mut current_y = 0.0;
                     for child_rc in children {
                         let mut child = child_rc.borrow_mut();
@@ -323,17 +326,28 @@ impl UiDom {
                         drop(child);
                         
                         // Now we can recursively compute without holding the borrow
+                        // computed_layouts is temporarily empty in self, but we have it in layouts
                         self.compute_node_layout_recursive(&child_rc.borrow(), x, y, width, height - current_y);
                         
-                        // Get child's computed height
+                        // Get child's computed height from our temporary HashMap
                         if let Some(child_id) = child_id {
                             if let Some(computed) = self.computed_layouts.get(&child_id) {
                                 current_y += computed.height;
                             }
                         }
                     }
+                    
+                    // Restore ownership - merge our old layouts back in
+                    // Since we cleared at the start of compute_layout, layouts should be empty
+                    // and self.computed_layouts has all the new values
+                    for (k, v) in layouts {
+                        self.computed_layouts.entry(k).or_insert(v);
+                    }
                 }
                 LayoutMode::Horizontal => {
+                    // Take temporary ownership of computed_layouts to avoid borrow conflicts
+                    let mut layouts = std::mem::take(&mut self.computed_layouts);
+                    
                     let mut current_x = 0.0;
                     for child_rc in children {
                         let mut child = child_rc.borrow_mut();
@@ -346,12 +360,17 @@ impl UiDom {
                         // Now we can recursively compute without holding the borrow
                         self.compute_node_layout_recursive(&child_rc.borrow(), x, y, width - current_x, height);
                         
-                        // Get child's computed width
+                        // Get child's computed width from self (which now has the recursive results)
                         if let Some(child_id) = child_id {
                             if let Some(computed) = self.computed_layouts.get(&child_id) {
                                 current_x += computed.width;
                             }
                         }
+                    }
+                    
+                    // Restore ownership - merge our old layouts back in
+                    for (k, v) in layouts {
+                        self.computed_layouts.entry(k).or_insert(v);
                     }
                 }
                 LayoutMode::Absolute => {
@@ -395,8 +414,16 @@ impl UiDom {
         }
 
         // Recurse into children
+        // Take temporary ownership of element_states to avoid borrow conflicts
+        let mut states = std::mem::take(&mut self.element_states);
+        
         for child_rc in node.children() {
             self.update_node_hover_state(&child_rc.borrow());
+        }
+        
+        // Restore ownership - merge our old states back in
+        for (k, v) in states {
+            self.element_states.entry(k).or_insert(v);
         }
     }
 
