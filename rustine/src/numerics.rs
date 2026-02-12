@@ -358,6 +358,11 @@ impl Color {
         Self { r, g, b, a }
     }
 
+    /// Creates a fully transparent color.
+    pub fn transparent() -> Self {
+        Self::new(0.0, 0.0, 0.0, 0.0)
+    }
+
     /// Returns a new `Color` with the specified alpha value.
     pub fn with_alpha(&self, alpha: f32) -> Self {
         Self {

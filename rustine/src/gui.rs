@@ -3,6 +3,8 @@
 mod input;
 pub use input::*;
 
+pub mod dom;
+
 use crate::gfx::{self, presentation, vulkan as vk};
 use crate::*;
 use crate::{debug, warning};
