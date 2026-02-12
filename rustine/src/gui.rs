@@ -4,6 +4,7 @@ mod input;
 pub use input::*;
 
 pub mod dom;
+pub mod style;
 
 use crate::gfx::{self, presentation, vulkan as vk};
 use crate::*;

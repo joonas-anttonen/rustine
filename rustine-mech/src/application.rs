@@ -73,7 +73,7 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
         gap: 16.0,
     };
     root_style.padding = edge_all(16.0);
-    root_style.background = Color::from_u32(0x101418FF);
+    root_style.background = Color::from_u32(0x0D1117FF);
     root_style.size = dom::Size2::fill();
 
     let top_bar = add_div(dom, root, |style| {
@@ -88,9 +88,9 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             height: dom::Length::Px(72.0),
         };
         style.padding = edge_all(12.0);
-        style.background = Color::from_u32(0x1A2128FF);
+        style.background = Color::from_u32(0x161B22FF);
         style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x2B3640FF);
+        style.border_color = Color::from_u32(0x30363DFF);
     });
 
     let title_block = add_div(dom, top_bar, |style| {
@@ -109,7 +109,7 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
 
     add_text(dom, title_block, "MECH OPS", 1.4, |style| {
         style.size = dom::Size2::auto();
-        style.foreground = Color::from_u32(0xE6EDF3FF);
+        style.foreground = Color::from_u32(0xF0F6FCFF);
     });
 
     let economy_row = add_div(dom, top_bar, |style| {
@@ -132,15 +132,15 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
                 height: dom::Length::Fill,
             };
             style.padding = edge_all(10.0);
-            style.background = Color::from_u32(0x232C35FF);
+            style.background = Color::from_u32(0x21262DFF);
             style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x36424EFF);
+            style.border_color = Color::from_u32(0x30363DFF);
         });
 
         let text = format!("{} {}", idx + 1, label);
         add_text(dom, card, text, 1.0, |style| {
             style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xC8D1DAFF);
+            style.foreground = Color::from_u32(0xC9D1D9FF);
         });
     }
 
@@ -177,14 +177,14 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
                 height: dom::Length::Px(36.0),
             };
             style.padding = edge_all(6.0);
-            style.background = Color::from_u32(0x32404BFF);
+            style.background = Color::from_u32(0x5d6c80FF); // #5d6c80
             style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x4A5B67FF);
+            style.border_color = Color::from_u32(0x30363DFF);
         });
 
         add_text(dom, button, label, 1.0, |style| {
-            style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xF1F5F9FF);
+            style.size = dom::Size2::auto(); 
+            style.foreground = Color::from_u32(0xF0F6FCFF); // #F0F6FCFF
         });
     }
 
@@ -213,9 +213,9 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             height: dom::Length::Fill,
         };
         style.padding = edge_all(12.0);
-        style.background = Color::from_u32(0x171D22FF);
+        style.background = Color::from_u32(0x161B22FF);
         style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x2B343DFF);
+        style.border_color = Color::from_u32(0x30363DFF);
     });
 
     let left_header = add_div(dom, left_panel, |style| {
@@ -224,12 +224,12 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             height: dom::Length::Px(20.0),
         };
         style.padding = edge_all(4.0);
-        style.background = Color::from_u32(0x2C3842FF);
+        style.background = Color::from_u32(0x21262DFF);
     });
 
     add_text(dom, left_header, "Inventory", 1.1, |style| {
         style.size = dom::Size2::auto();
-        style.foreground = Color::from_u32(0xE2E8F0FF);
+        style.foreground = Color::from_u32(0xF0F6FCFF);
     });
 
     for label in [
@@ -255,14 +255,14 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
                 height: dom::Length::Px(36.0),
             };
             style.padding = edge_all(8.0);
-            style.background = Color::from_u32(0x1F2931FF);
+            style.background = Color::from_u32(0x0D1117FF);
             style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x2C3842FF);
+            style.border_color = Color::from_u32(0x30363DFF);
         });
 
         add_text(dom, row, label, 1.0, |style| {
             style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xCBD5E1FF);
+            style.foreground = Color::from_u32(0xC9D1D9FF);
         });
     }
 
@@ -278,9 +278,9 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             height: dom::Length::Fill,
         };
         style.padding = edge_all(12.0);
-        style.background = Color::from_u32(0x1A2128FF);
+        style.background = Color::from_u32(0x161B22FF);
         style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x2B3640FF);
+        style.border_color = Color::from_u32(0x30363DFF);
     });
 
     let right_header = add_div(dom, right_panel, |style| {
@@ -289,12 +289,12 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             height: dom::Length::Px(20.0),
         };
         style.padding = edge_all(4.0);
-        style.background = Color::from_u32(0x2C3842FF);
+        style.background = Color::from_u32(0x21262DFF);
     });
 
     add_text(dom, right_header, "Telemetry", 1.1, |style| {
         style.size = dom::Size2::auto();
-        style.foreground = Color::from_u32(0xE2E8F0FF);
+        style.foreground = Color::from_u32(0xF0F6FCFF);
     });
 
     for (idx, progress) in [0.25, 0.6, 0.85].iter().copied().enumerate() {
@@ -310,9 +310,9 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
                 height: dom::Length::Px(64.0),
             };
             style.padding = edge_all(8.0);
-            style.background = Color::from_u32(0x212A33FF);
+            style.background = Color::from_u32(0x0D1117FF);
             style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x2F3B46FF);
+            style.border_color = Color::from_u32(0x30363DFF);
         });
 
         let label = match idx {
@@ -322,7 +322,7 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
         };
         add_text(dom, item, label, 1.0, |style| {
             style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xD0D7DEFF);
+            style.foreground = Color::from_u32(0xC9D1D9FF);
         });
 
         add_div(dom, item, |style| {
@@ -331,7 +331,7 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
                 width: dom::Length::Percent(width),
                 height: dom::Length::Px(10.0),
             };
-            style.background = Color::from_u32(0x3B4753FF);
+            style.background = Color::from_u32(0x30363DFF);
         });
 
         let bar = add_div(dom, item, |style| {
@@ -339,9 +339,9 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
                 width: dom::Length::Fill,
                 height: dom::Length::Px(14.0),
             };
-            style.background = Color::from_u32(0x2B3640FF);
+            style.background = Color::from_u32(0x21262DFF);
             style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x3A4652FF);
+            style.border_color = Color::from_u32(0x30363DFF);
         });
 
         add_div(dom, bar, |style| {
@@ -359,7 +359,7 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
                 height: dom::Length::Px(1.0),
             };
             style.margin = edge_all(1.0);
-            style.background = Color::from_u32(0x6BCB77FF);
+            style.background = Color::from_u32(0x238636FF);
         });
     }
 
@@ -375,9 +375,9 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             height: dom::Length::Px(160.0),
         };
         style.padding = edge_all(12.0);
-        style.background = Color::from_u32(0x1A2128FF);
+        style.background = Color::from_u32(0x161B22FF);
         style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x2B3640FF);
+        style.border_color = Color::from_u32(0x30363DFF);
     });
 
     let build_list = add_div(dom, bottom_bar, |style| {
@@ -395,7 +395,7 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
 
     add_text(dom, build_list, "Build Queue", 1.2, |style| {
         style.size = dom::Size2::auto();
-        style.foreground = Color::from_u32(0xE6EDF3FF);
+        style.foreground = Color::from_u32(0xF0F6FCFF);
     });
 
     for label in ["Atlas Frame", "Artemis Core", "Helios Array", "Raptor Gear"]
@@ -414,14 +414,14 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
                 height: dom::Length::Px(36.0),
             };
             style.padding = edge_all(8.0);
-            style.background = Color::from_u32(0x32404BFF);
+            style.background = Color::from_u32(0x21262DFF);
             style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x4A5B67FF);
+            style.border_color = Color::from_u32(0x30363DFF);
         });
 
         add_text(dom, row, label, 1.0, |style| {
             style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xF8FAFCFF);
+            style.foreground = Color::from_u32(0xF0F6FCFF);
         });
     }
 
@@ -430,9 +430,9 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             width: dom::Length::Fill,
             height: dom::Length::Fill,
         };
-        style.background = Color::from_u32(0x202831FF);
+        style.background = Color::from_u32(0x161B22FF);
         style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x2C3842FF);
+        style.border_color = Color::from_u32(0x30363DFF);
     });
 }
 

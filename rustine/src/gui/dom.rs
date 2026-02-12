@@ -781,6 +781,95 @@ impl Style {
         self.position.anchors = anchors;
         self
     }
+
+    pub fn apply_override(&mut self, override_style: &StyleOverride) {
+        if let Some(layout) = override_style.layout {
+            self.layout = layout;
+        }
+        if let Some(size) = override_style.size {
+            self.size = size;
+        }
+        if let Some(min_size) = override_style.min_size {
+            self.min_size = min_size;
+        }
+        if let Some(max_size) = override_style.max_size {
+            self.max_size = max_size;
+        }
+        if let Some(position) = override_style.position {
+            self.position = position;
+        }
+        if let Some(padding) = override_style.padding {
+            self.padding = padding;
+        }
+        if let Some(margin) = override_style.margin {
+            self.margin = margin;
+        }
+        if let Some(foreground) = override_style.foreground {
+            self.foreground = foreground;
+        }
+        if let Some(background) = override_style.background {
+            self.background = background;
+        }
+        if let Some(border_color) = override_style.border_color {
+            self.border_color = border_color;
+        }
+        if let Some(border) = override_style.border {
+            self.border = border;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StyleOverride {
+    pub layout: Option<LayoutStyle>,
+    pub size: Option<Size2>,
+    pub min_size: Option<Size2>,
+    pub max_size: Option<Size2>,
+    pub position: Option<PositionStyle>,
+    pub padding: Option<EdgeSizes>,
+    pub margin: Option<EdgeSizes>,
+    pub foreground: Option<Color>,
+    pub background: Option<Color>,
+    pub border_color: Option<Color>,
+    pub border: Option<EdgeSizes>,
+}
+
+impl StyleOverride {
+    pub fn merge_from(&mut self, other: &StyleOverride) {
+        if other.layout.is_some() {
+            self.layout = other.layout;
+        }
+        if other.size.is_some() {
+            self.size = other.size;
+        }
+        if other.min_size.is_some() {
+            self.min_size = other.min_size;
+        }
+        if other.max_size.is_some() {
+            self.max_size = other.max_size;
+        }
+        if other.position.is_some() {
+            self.position = other.position;
+        }
+        if other.padding.is_some() {
+            self.padding = other.padding;
+        }
+        if other.margin.is_some() {
+            self.margin = other.margin;
+        }
+        if other.foreground.is_some() {
+            self.foreground = other.foreground;
+        }
+        if other.background.is_some() {
+            self.background = other.background;
+        }
+        if other.border_color.is_some() {
+            self.border_color = other.border_color;
+        }
+        if other.border.is_some() {
+            self.border = other.border;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
