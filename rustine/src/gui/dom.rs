@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{gfx, Color, Vector2f};
+use crate::{Color, Vector2f, gfx};
 
 pub type NodeId = usize;
 
@@ -518,35 +518,13 @@ impl Dom {
     ) -> LayoutRect {
         let size = Self::resolve_size(parent_rect, style, content_size, 0.0);
         let margin = &style.margin;
-        let anchors = style.position.anchors;
         let mut pos = parent_rect.position;
-        let mut actual_size = size;
-
-        if anchors.left && anchors.right {
-            actual_size.x = (parent_rect.size.x - margin.left - margin.right).max(0.0);
-            pos.x = parent_rect.position.x + margin.left;
-        } else if anchors.left {
-            pos.x = parent_rect.position.x + margin.left;
-        } else if anchors.right {
-            pos.x = parent_rect.position.x + parent_rect.size.x - margin.right - actual_size.x;
-        } else {
-            pos.x = parent_rect.position.x + margin.left;
-        }
-
-        if anchors.top && anchors.bottom {
-            actual_size.y = (parent_rect.size.y - margin.top - margin.bottom).max(0.0);
-            pos.y = parent_rect.position.y + margin.top;
-        } else if anchors.top {
-            pos.y = parent_rect.position.y + margin.top;
-        } else if anchors.bottom {
-            pos.y = parent_rect.position.y + parent_rect.size.y - margin.bottom - actual_size.y;
-        } else {
-            pos.y = parent_rect.position.y + margin.top;
-        }
+        pos.x = parent_rect.position.x + margin.left;
+        pos.y = parent_rect.position.y + margin.top;
 
         LayoutRect {
             position: pos,
-            size: actual_size,
+            size: size,
         }
     }
 
@@ -869,12 +847,6 @@ impl Default for Style {
 }
 
 impl Style {
-    pub fn anchored(mut self, anchors: Anchors) -> Self {
-        self.position.mode = PositionMode::Absolute;
-        self.position.anchors = anchors;
-        self
-    }
-
     pub fn apply_override(&mut self, override_style: &StyleOverride) {
         if let Some(layout) = override_style.layout {
             self.layout = layout;
@@ -1015,60 +987,12 @@ impl Default for Size2 {
 #[derive(Debug, Clone, Copy)]
 pub struct PositionStyle {
     pub mode: PositionMode,
-    pub anchors: Anchors,
 }
 
 impl Default for PositionStyle {
     fn default() -> Self {
         Self {
             mode: PositionMode::Flow,
-            anchors: Anchors::none(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Anchors {
-    pub left: bool,
-    pub right: bool,
-    pub top: bool,
-    pub bottom: bool,
-}
-
-impl Anchors {
-    pub fn none() -> Self {
-        Self {
-            left: false,
-            right: false,
-            top: false,
-            bottom: false,
-        }
-    }
-
-    pub fn fill() -> Self {
-        Self {
-            left: true,
-            right: true,
-            top: true,
-            bottom: true,
-        }
-    }
-
-    pub fn horizontal() -> Self {
-        Self {
-            left: true,
-            right: true,
-            top: false,
-            bottom: false,
-        }
-    }
-
-    pub fn vertical() -> Self {
-        Self {
-            left: false,
-            right: false,
-            top: true,
-            bottom: true,
         }
     }
 }
@@ -1197,16 +1121,6 @@ mod tests {
         assert_eq!(style.max_size.width, expected.max_size.width);
         assert_eq!(style.max_size.height, expected.max_size.height);
         assert_eq!(style.position.mode, expected.position.mode);
-        assert_eq!(style.position.anchors.left, expected.position.anchors.left);
-        assert_eq!(
-            style.position.anchors.right,
-            expected.position.anchors.right
-        );
-        assert_eq!(style.position.anchors.top, expected.position.anchors.top);
-        assert_eq!(
-            style.position.anchors.bottom,
-            expected.position.anchors.bottom
-        );
         assert_eq!(style.padding.left, expected.padding.left);
         assert_eq!(style.padding.right, expected.padding.right);
         assert_eq!(style.padding.top, expected.padding.top);
@@ -1286,12 +1200,7 @@ mod tests {
                     let mut chunk = String::new();
                     for ch in word.chars() {
                         let candidate = format!("{}{}", chunk, ch);
-                        if gfx::measure_text(
-                            &candidate,
-                            scale,
-                            gfx::fonts::CASKAYDIAMONO_FONT_ID,
-                        )
-                        .x
+                        if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
                             <= max_width
                         {
                             chunk = candidate;
@@ -1534,21 +1443,9 @@ mod tests {
         let panel = dom.create_div();
         assert!(dom.append_child(root, panel));
 
-        let text_a = dom.create_text(
-            "Status: OK",
-            gfx::fonts::CASKAYDIAMONO_FONT_ID,
-            1.0,
-        );
-        let text_b = dom.create_text(
-            "Subsystem: GREEN",
-            gfx::fonts::CASKAYDIAMONO_FONT_ID,
-            1.0,
-        );
-        let text_c = dom.create_text(
-            "Temp: 72C",
-            gfx::fonts::CASKAYDIAMONO_FONT_ID,
-            1.0,
-        );
+        let text_a = dom.create_text("Status: OK", gfx::fonts::CASKAYDIAMONO_FONT_ID, 1.0);
+        let text_b = dom.create_text("Subsystem: GREEN", gfx::fonts::CASKAYDIAMONO_FONT_ID, 1.0);
+        let text_c = dom.create_text("Temp: 72C", gfx::fonts::CASKAYDIAMONO_FONT_ID, 1.0);
 
         assert!(dom.append_child(panel, text_a));
         assert!(dom.append_child(panel, text_b));
@@ -1627,42 +1524,6 @@ mod tests {
         let child_node = dom.node(child).unwrap();
         assert_eq!(child_node.layout.size.x, 120.0);
         assert_eq!(child_node.layout.size.y, 80.0);
-    }
-
-    #[test]
-    fn absolute_anchor_fill_respects_margins() {
-        let mut dom = Dom::new();
-        let root = dom.root();
-        let child = dom.create_div();
-        assert!(dom.append_child(root, child));
-
-        {
-            let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
-            root_style.layout.direction = LayoutDirection::Column;
-            root_style.layout.align_items = AlignItems::Start;
-        }
-
-        {
-            let child_style = dom.node_mut(child).unwrap().style_mut().unwrap();
-            child_style.position = PositionStyle {
-                mode: PositionMode::Absolute,
-                anchors: Anchors::fill(),
-            };
-            child_style.margin = EdgeSizes {
-                left: 10.0,
-                right: 20.0,
-                top: 5.0,
-                bottom: 15.0,
-            };
-        }
-
-        dom.layout(Vector2f::new(200.0, 100.0));
-
-        let child_node = dom.node(child).unwrap();
-        assert_eq!(child_node.layout.position.x, 10.0);
-        assert_eq!(child_node.layout.position.y, 5.0);
-        assert_eq!(child_node.layout.size.x, 200.0 - 10.0 - 20.0);
-        assert_eq!(child_node.layout.size.y, 100.0 - 5.0 - 15.0);
     }
 
     #[test]
@@ -1877,7 +1738,6 @@ mod tests {
             max_size: Size2::auto(),
             position: PositionStyle {
                 mode: PositionMode::Absolute,
-                anchors: Anchors::horizontal(),
             },
             padding: EdgeSizes::zero(),
             margin: EdgeSizes::zero(),

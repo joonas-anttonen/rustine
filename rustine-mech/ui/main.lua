@@ -1,6 +1,7 @@
+--[[
 -- Style definitions
 local button_base = {
-    layout = { direction = "row", align_items = "center", justify_content = "center", gap = 6 },
+    layout = { direction = "row", align = "center", justify = "center", gap = 6 },
     size = { width = 120, height = 36 },
     padding = 6,
     background = "#5D6C80",
@@ -16,7 +17,7 @@ local button_style = {
 
 local card_style = {
     normal = {
-        layout = { direction = "column", align_items = "stretch", justify_content = "start" },
+        layout = { direction = "column", align = "stretch", justify = "start" },
         padding = 12,
         background = "#161B22",
         border = 1,
@@ -39,15 +40,8 @@ local function button(label, on_click)
     })
 end
 
-local function card(children)
-    return ui.div({
-        style = card_style.normal,
-        children = children,
-    })
-end
-
 local header_style = ui.compose(card_style.normal, {
-    layout = { direction = "row", align_items = "center", justify_content = "start", gap = 12 },
+    layout = { direction = "row", align = "center", justify = "start", gap = 12 },
     size = { width = "fill", height = 72 },
 })
 
@@ -55,7 +49,7 @@ local header_label = ui.label("MECH OPS", { scale = 1.4, style = { foreground = 
 
 local root = ui.div({
     style = {
-        layout = { direction = "column", align_items = "stretch", justify_content = "start", gap = 16 },
+        layout = { direction = "column", align = "stretch", justify = "start", gap = 16 },
         size = { width = "fill", height = "fill" },
         padding = 16,
         background = "#0D1117",
@@ -77,7 +71,7 @@ local root = ui.div({
         }),
         ui.div({
             style = {
-                layout = { direction = "row", align_items = "stretch", justify_content = "start", gap = 16 },
+                layout = { direction = "row", align = "stretch", justify = "start", gap = 16 },
                 size = { width = "fill", height = "fill" },
             },
             children = {
@@ -90,7 +84,12 @@ local root = ui.div({
                 }),
                 ui.div({
                     style = {
-                        layout = { direction = "column", align_items = "stretch", justify_content = "start", gap = 12 },
+                        layout = {
+                            direction = "column",
+                            align = "stretch",
+                            justify = "start",
+                            gap = 12,
+                        },
                         size = { width = "fill", height = "fill" },
                         padding = 12,
                         background = "#0B0F14",
@@ -98,7 +97,8 @@ local root = ui.div({
                         border_color = "#21262D",
                     },
                     children = {
-                        ui.label("Telemetry feed online. Awaiting next command.", { style = { foreground = "#8B949E" } }),
+                        ui.label("Telemetry feed online. Awaiting next command.",
+                            { style = { foreground = "#8B949E" } }),
                     },
                 }),
             },
@@ -107,3 +107,31 @@ local root = ui.div({
 })
 
 ui.dom(root)
+]] --
+
+ui.dom(
+    ui.div({
+        style = {
+            layout = { direction = "column", align = "center", justify = "center", gap = 12 },
+            size = "fill",
+            background = "#1B232F",
+        },
+        children = {
+            ui.label("Lua UI", { scale = 1.5, style = { foreground = "#58A6FF" } }),
+            ui.button({
+                style = {
+                    background = "#2489db",
+                    border_color = "#30363D",
+                    hover = { background = "#2a9ae0" },
+                    press = { background = "#1f78c1" },
+                },
+                content = {
+                    ui.label("Click me!", { style = { foreground = "#F0F6FC" } }),
+                },
+                on_click = function()
+                    ui.log("Button clicked!")
+                end
+            }),
+        },
+    })
+)

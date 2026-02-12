@@ -1,26 +1,122 @@
 #![allow(dead_code)]
 
-// lua_engine.rs - Minimal safe wrapper
-use std::ffi as stdffi;
-use std::os::raw;
-use std::path::Path;
+use std::ffi::{CStr, CString};
 
-pub struct LuaEngine {
+extern "C" fn lua_global_log(l: *mut ffi::lua_State) -> core::ffi::c_int {
+    unsafe {
+        let msg = ffi::lua_tolstring(l, 1, std::ptr::null_mut());
+        let msg_str = CStr::from_ptr(msg).to_string_lossy();
+        crate::log::info!("[Lua]: {}", msg_str);
+        0 // Number of return values
+    }
+}
+
+pub struct LuaState {
     state: *mut ffi::lua_State,
 }
 
-impl LuaEngine {
+impl LuaState {
     pub fn new() -> Self {
         unsafe {
             let state = ffi::luaL_newstate();
-            ffi::luaL_openlibs(state); // Load standard libraries
+
+            // Load standard libraries
+            ffi::luaL_openlibs(state);
+
+            // Register global log function
+            let c_name = CString::new("log").unwrap();
+            ffi::lua_pushcfunction(state, lua_global_log);
+            ffi::lua_setfield(state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
+
             Self { state }
         }
     }
 
-    pub fn execute(&mut self, script: &str) -> Result<(), String> {
+    #[inline]
+    /// lua_pushlightuserdata
+    pub fn pushlightuserdata(&self, data: *mut core::ffi::c_void) {
         unsafe {
-            let c_script = stdffi::CString::new(script).unwrap();
+            ffi::lua_pushlightuserdata(self.state, data);
+        }
+    }
+
+    #[inline]
+    /// lua_setfield
+    pub fn setfield(&self, index: i32, name: &CStr) {
+        unsafe {
+            ffi::lua_setfield(self.state, index, name.as_ptr());
+        }
+    }
+
+    #[inline]
+    /// lua_pushcfunction
+    pub fn pushcfunction(&self, func: ffi::lua_CFunction) {
+        unsafe {
+            ffi::lua_pushcfunction(self.state, func);
+        }
+    }
+
+    #[inline]
+    /// lua_pushinteger
+    pub fn pushinteger(&self, value: i64) {
+        unsafe {
+            ffi::lua_pushinteger(self.state, value);
+        }
+    }
+
+    #[inline]
+    /// lua_createtable
+    ///
+    /// `narr` is a hint for how many elements the table will have as a sequence,
+    /// `nrec` is a hint for how many other elements the table will have.
+    pub fn createtable(&self, narr: i32, nrec: i32) {
+        unsafe {
+            ffi::lua_createtable(self.state, narr, nrec);
+        }
+    }
+
+    #[inline]
+    /// lua_rawgeti
+    pub fn rawgeti(&self, index: i32, value: i64) {
+        unsafe {
+            ffi::lua_rawgeti(self.state, index, value);
+        }
+    }
+
+    #[inline]
+    /// lua_pop
+    pub fn pop(&self, count: i32) {
+        unsafe {
+            ffi::lua_pop(self.state, count);
+        }
+    }
+
+    #[inline]
+    /// luaL_loadstring
+    pub fn load_string(&self, string: &CStr) -> Result<(), String> {
+        unsafe {
+            if ffi::luaL_loadstring(self.state, string.as_ptr()) != 0 {
+                return Err(self.get_error());
+            }
+            Ok(())
+        }
+    }
+
+    #[inline]
+    /// lua_pcall
+    pub fn pcall(&self, nargs: i32, nresults: i32) -> Result<(), String> {
+        unsafe {
+            if ffi::lua_pcall(self.state, nargs, nresults, 0) != 0 {
+                return Err(self.get_error());
+            }
+            Ok(())
+        }
+    }
+
+    pub fn execute(&self, script: &str) -> Result<(), String> {
+        unsafe {
+            let c_script = CString::new(script)
+                .map_err(|err| format!("Failed to convert script to C string: {err}"))?;
 
             if ffi::luaL_loadstring(self.state, c_script.as_ptr()) != 0 {
                 return Err(self.get_error());
@@ -34,64 +130,36 @@ impl LuaEngine {
         }
     }
 
-    pub fn execute_file(&mut self, path: impl AsRef<Path>) -> Result<(), String> {
-        let path = path.as_ref();
-        let script = std::fs::read_to_string(path)
-            .map_err(|err| format!("Failed to read Lua file {}: {err}", path.display()))?;
-        self.execute(&script)
-    }
-
-    pub fn get_global_number(&mut self, name: &str) -> Option<f64> {
+    pub fn execute_cstr(&self, script: &CStr) -> Result<(), String> {
         unsafe {
-            let c_name = stdffi::CString::new(name).unwrap();
-            ffi::lua_getfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
-
-            if ffi::lua_type(self.state, -1) == ffi::LUA_TNUMBER {
-                let value = ffi::lua_tonumber(self.state, -1);
-                ffi::lua_pop(self.state, 1);
-                Some(value)
-            } else {
-                ffi::lua_pop(self.state, 1);
-                None
+            if ffi::luaL_loadstring(self.state, script.as_ptr()) != 0 {
+                return Err(self.get_error());
             }
+
+            if ffi::lua_pcall(self.state, 0, 0, 0) != 0 {
+                return Err(self.get_error());
+            }
+
+            Ok(())
         }
     }
 
-    pub fn set_global_number(&mut self, name: &str, value: f64) {
-        unsafe {
-            let c_name = stdffi::CString::new(name).unwrap();
-            ffi::lua_pushnumber(self.state, value);
-            ffi::lua_setfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
-        }
-    }
-
-    pub fn register_function(&mut self, name: &str, func: ffi::lua_CFunction) {
-        unsafe {
-            let c_name = stdffi::CString::new(name).unwrap();
-            ffi::lua_pushcfunction(self.state, func);
-            ffi::lua_setfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
-        }
-    }
-
-    pub fn register_log_function(&mut self) {
-        self.register_function("log", lua_global_log);
-    }
-
-    pub(crate) fn state(&mut self) -> *mut ffi::lua_State {
+    /// Returns a raw pointer to the Lua state.
+    pub(crate) fn as_raw(&self) -> *mut ffi::lua_State {
         self.state
     }
 
-    fn get_error(&mut self) -> String {
+    fn get_error(&self) -> String {
         unsafe {
             let err_ptr = ffi::lua_tolstring(self.state, -1, std::ptr::null_mut());
-            let err = stdffi::CStr::from_ptr(err_ptr).to_string_lossy().into_owned();
+            let err = CStr::from_ptr(err_ptr).to_string_lossy().into_owned();
             ffi::lua_pop(self.state, 1);
             err
         }
     }
 }
 
-impl Drop for LuaEngine {
+impl Drop for LuaState {
     fn drop(&mut self) {
         unsafe {
             ffi::lua_close(self.state);
@@ -99,20 +167,10 @@ impl Drop for LuaEngine {
     }
 }
 
-// Example: Register a Rust function callable from Lua
-extern "C" fn lua_global_log(l: *mut ffi::lua_State) -> raw::c_int {
-    unsafe {
-        let msg = ffi::lua_tolstring(l, 1, std::ptr::null_mut());
-        let msg_str = stdffi::CStr::from_ptr(msg).to_string_lossy();
-        crate::log::warning!("[Lua]: {}", msg_str);
-        0 // Number of return values
-    }
-}
-
 pub(crate) mod ffi {
     #![allow(non_camel_case_types, non_snake_case)]
 
-    use std::os::raw::{c_char, c_int, c_void};
+    use core::ffi::{c_char, c_int, c_void};
 
     pub type lua_State = c_void;
     pub type lua_CFunction = extern "C" fn(*mut lua_State) -> c_int;

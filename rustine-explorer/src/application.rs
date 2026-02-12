@@ -189,10 +189,6 @@ impl rustine::gui::Application for MyApplication {
             return;
         }
 
-        if event.key == Key::UNKNOWN {
-            log::warning!("Application::on_key: {:?} {:?}", event.key, event.action);
-        }
-
         if event.action != rustine::gui::Action::PRESS {
             return;
         }

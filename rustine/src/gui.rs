@@ -3,9 +3,9 @@
 mod input;
 pub use input::*;
 
+pub mod api;
 pub mod dom;
 pub mod style;
-pub mod lua;
 
 use crate::gfx::{self, presentation, vulkan as vk};
 use crate::*;
@@ -537,6 +537,10 @@ impl Gui {
                     mods: mods.to_input(),
                     scancode: scancode as u32,
                 };
+
+                if key_event.key == gui::Key::UNKNOWN {
+                    log::warning!("Application::on_key: {:?} {:?}", key_event.key, key_event.action);
+                }
 
                 let gui = &mut *gui_ptr;
 
