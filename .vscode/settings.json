@@ -78,5 +78,8 @@
         "typeindex": "cpp",
         "typeinfo": "cpp",
         "variant": "cpp"
-    }
+    },
+    "Lua.diagnostics.globals": [
+        "ui"
+    ]
 }

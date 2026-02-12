@@ -1,0 +1,98 @@
+-- Style definitions
+local button_base = {
+    layout = { direction = "row", align_items = "center", justify_content = "center", gap = 6 },
+    size = { width = 120, height = 36 },
+    padding = 6,
+    background = "#5D6C80",
+    border = 1,
+    border_color = "#30363D",
+}
+
+local button_style = {
+    normal = button_base,
+    hover = ui.compose(button_base, { background = "#6B7C93" }),
+    press = ui.compose(button_base, { background = "#4F5F74" }),
+}
+
+local card_style = {
+    normal = {
+        layout = { direction = "column", align_items = "stretch", justify_content = "start" },
+        padding = 12,
+        background = "#161B22",
+        border = 1,
+        border_color = "#30363D",
+    },
+}
+
+-- Widget helpers
+local function button(label)
+    return ui.div({
+        style = button_style,
+        children = {
+            ui.label(label, { style = { foreground = "#F0F6FC" } }),
+        },
+    })
+end
+
+local function card(children)
+    return ui.div({
+        style = card_style.normal,
+        children = children,
+    })
+end
+
+local header_style = ui.compose(card_style.normal, {
+    layout = { direction = "row", align_items = "center", justify_content = "start", gap = 12 },
+    size = { width = "fill", height = 72 },
+})
+
+local root = ui.div({
+    style = {
+        layout = { direction = "column", align_items = "stretch", justify_content = "start", gap = 16 },
+        size = { width = "fill", height = "fill" },
+        padding = 16,
+        background = "#0D1117",
+    },
+    children = {
+        ui.div({
+            style = header_style,
+            children = {
+                ui.label("MECH OPS", { scale = 1.4, style = { foreground = "#F0F6FC" } }),
+                ui.spacer(),
+                button("Launch"),
+                button("Diagnostics"),
+                button("Power"),
+            },
+        }),
+        ui.div({
+            style = {
+                layout = { direction = "row", align_items = "stretch", justify_content = "start", gap = 16 },
+                size = { width = "fill", height = "fill" },
+            },
+            children = {
+                ui.div({
+                    style = card_style.normal,
+                    children = {
+                        ui.label("SYSTEM STATUS", { style = { foreground = "#C9D1D9" } }),
+                        ui.label("ONLINE", { scale = 1.2, style = { foreground = "#58A6FF" } }),
+                    },
+                }),
+                ui.div({
+                    style = {
+                        layout = { direction = "column", align_items = "stretch", justify_content = "start", gap = 12 },
+                        size = { width = "fill", height = "fill" },
+                        padding = 12,
+                        background = "#0B0F14",
+                        border = 1,
+                        border_color = "#21262D",
+                    },
+                    children = {
+                        ui.label("Telemetry feed online. Awaiting next command.", { style = { foreground = "#8B949E" } }),
+                    },
+                }),
+            },
+        }),
+    },
+})
+
+ui.dom(root)

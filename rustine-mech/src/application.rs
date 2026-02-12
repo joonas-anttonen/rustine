@@ -16,10 +16,17 @@ pub struct MyApplication {
 
 impl MyApplication {
     pub fn new() -> Self {
-        let mut dom = dom::Dom::new();
-        let root = dom.root();
-        let mut style = StyleComputer::new();
-        build_mock_ui(&mut dom, root, &mut style);
+        let (dom, root, style) = match gui::lua::load_dom_from_file("ui/main.lua") {
+            Ok(lua_dom) => (lua_dom.dom, lua_dom.root, lua_dom.style),
+            Err(err) => {
+                log::warning!("Failed to load Lua UI: {err}");
+                let mut dom = dom::Dom::new();
+                let root = dom.root();
+                let mut style = StyleComputer::new();
+                build_mock_ui(&mut dom, root, &mut style);
+                (dom, root, style)
+            }
+        };
 
         MyApplication {
             state: std::cell::RefCell::new(MyApplicationState { dom, root, style }),

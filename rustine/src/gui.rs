@@ -5,6 +5,7 @@ pub use input::*;
 
 pub mod dom;
 pub mod style;
+pub mod lua;
 
 use crate::gfx::{self, presentation, vulkan as vk};
 use crate::*;

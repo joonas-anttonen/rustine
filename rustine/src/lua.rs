@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
 // lua_engine.rs - Minimal safe wrapper
-use std::ffi::{CStr, CString};
-use std::os::raw::c_int;
+use std::ffi as stdffi;
+use std::os::raw;
+use std::path::Path;
 
 pub struct LuaEngine {
     state: *mut ffi::lua_State,
@@ -19,7 +20,7 @@ impl LuaEngine {
 
     pub fn execute(&mut self, script: &str) -> Result<(), String> {
         unsafe {
-            let c_script = CString::new(script).unwrap();
+            let c_script = stdffi::CString::new(script).unwrap();
 
             if ffi::luaL_loadstring(self.state, c_script.as_ptr()) != 0 {
                 return Err(self.get_error());
@@ -33,9 +34,16 @@ impl LuaEngine {
         }
     }
 
+    pub fn execute_file(&mut self, path: impl AsRef<Path>) -> Result<(), String> {
+        let path = path.as_ref();
+        let script = std::fs::read_to_string(path)
+            .map_err(|err| format!("Failed to read Lua file {}: {err}", path.display()))?;
+        self.execute(&script)
+    }
+
     pub fn get_global_number(&mut self, name: &str) -> Option<f64> {
         unsafe {
-            let c_name = CString::new(name).unwrap();
+            let c_name = stdffi::CString::new(name).unwrap();
             ffi::lua_getfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
 
             if ffi::lua_type(self.state, -1) == ffi::LUA_TNUMBER {
@@ -51,7 +59,7 @@ impl LuaEngine {
 
     pub fn set_global_number(&mut self, name: &str, value: f64) {
         unsafe {
-            let c_name = CString::new(name).unwrap();
+            let c_name = stdffi::CString::new(name).unwrap();
             ffi::lua_pushnumber(self.state, value);
             ffi::lua_setfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
         }
@@ -59,7 +67,7 @@ impl LuaEngine {
 
     pub fn register_function(&mut self, name: &str, func: ffi::lua_CFunction) {
         unsafe {
-            let c_name = CString::new(name).unwrap();
+            let c_name = stdffi::CString::new(name).unwrap();
             ffi::lua_pushcfunction(self.state, func);
             ffi::lua_setfield(self.state, ffi::LUA_GLOBALSINDEX, c_name.as_ptr());
         }
@@ -69,10 +77,14 @@ impl LuaEngine {
         self.register_function("log", lua_global_log);
     }
 
+    pub(crate) fn state(&mut self) -> *mut ffi::lua_State {
+        self.state
+    }
+
     fn get_error(&mut self) -> String {
         unsafe {
             let err_ptr = ffi::lua_tolstring(self.state, -1, std::ptr::null_mut());
-            let err = CStr::from_ptr(err_ptr).to_string_lossy().into_owned();
+            let err = stdffi::CStr::from_ptr(err_ptr).to_string_lossy().into_owned();
             ffi::lua_pop(self.state, 1);
             err
         }
@@ -88,16 +100,16 @@ impl Drop for LuaEngine {
 }
 
 // Example: Register a Rust function callable from Lua
-extern "C" fn lua_global_log(l: *mut ffi::lua_State) -> c_int {
+extern "C" fn lua_global_log(l: *mut ffi::lua_State) -> raw::c_int {
     unsafe {
         let msg = ffi::lua_tolstring(l, 1, std::ptr::null_mut());
-        let msg_str = CStr::from_ptr(msg).to_string_lossy();
+        let msg_str = stdffi::CStr::from_ptr(msg).to_string_lossy();
         crate::log::warning!("[Lua]: {}", msg_str);
         0 // Number of return values
     }
 }
 
-mod ffi {
+pub(crate) mod ffi {
     #![allow(non_camel_case_types, non_snake_case)]
 
     use std::os::raw::{c_char, c_int, c_void};
@@ -153,6 +165,13 @@ mod ffi {
         pub fn lua_settable(L: *mut lua_State, idx: c_int);
         pub fn lua_getfield(L: *mut lua_State, idx: c_int, k: *const c_char);
         pub fn lua_setfield(L: *mut lua_State, idx: c_int, k: *const c_char);
+        pub fn lua_objlen(L: *mut lua_State, idx: c_int) -> usize;
+        pub fn lua_rawgeti(L: *mut lua_State, idx: c_int, n: lua_Integer);
+        pub fn lua_next(L: *mut lua_State, idx: c_int) -> c_int;
+
+        // Userdata
+        pub fn lua_pushlightuserdata(L: *mut lua_State, p: *mut c_void);
+        pub fn lua_touserdata(L: *mut lua_State, idx: c_int) -> *mut c_void;
 
         // Load and call
         pub fn luaL_loadstring(L: *mut lua_State, s: *const c_char) -> c_int;
