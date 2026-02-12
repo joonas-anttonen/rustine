@@ -41,6 +41,28 @@ pub fn load_dom_from_file(path: impl AsRef<path::Path>) -> Result<LuaDom, String
     })
 }
 
+pub fn load_dom_from_string(code: &str) -> Result<LuaDom, String> {
+    let mut engine = lua::LuaEngine::new();
+    engine.register_log_function();
+
+    let mut context = LuaUiContext::new();
+    unsafe {
+        register_ui_api(engine.state(), &mut context)?;
+    }
+
+    engine.execute(code)?;
+
+    unsafe {
+        clear_context(engine.state());
+    }
+
+    Ok(LuaDom {
+        dom: context.dom,
+        root: context.root,
+        style: context.style,
+    })
+}
+
 struct LuaUiContext {
     dom: dom::Dom,
     root: dom::NodeId,
@@ -1069,4 +1091,216 @@ unsafe fn lua_field_bool(
     };
     lua::ffi::lua_pop(state, 1);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lua_simple_div_creation() {
+        let code = r###"
+local div = ui.div({
+    style = { background = "#FF0000FF" },
+})
+ui.dom(div)
+"###;
+        let lua_dom = load_dom_from_string(code).expect("Failed to load DOM");
+
+        let root = lua_dom.dom.node(lua_dom.root).expect("Root should exist");
+        assert_eq!(root.children.len(), 1, "Root should have 1 child");
+
+        let child_id = root.children[0];
+        let child = lua_dom
+            .dom
+            .node(child_id)
+            .expect("Child should exist");
+        assert!(
+            child.as_div().is_some(),
+            "Child should be a div, got {:?}",
+            child.kind
+        );
+    }
+
+    #[test]
+    fn lua_text_node_creation() {
+        let code = r###"
+local text = ui.text({
+    text = "Hello World",
+    font_scale = 1.5,
+})
+ui.dom(text)
+"###;
+        let lua_dom = load_dom_from_string(code).expect("Failed to load DOM");
+
+        let root = lua_dom.dom.node(lua_dom.root).expect("Root should exist");
+        assert_eq!(root.children.len(), 1, "Root should have 1 child");
+
+        let child_id = root.children[0];
+        let child = lua_dom
+            .dom
+            .node(child_id)
+            .expect("Child should exist");
+        let text_node = child.as_text().expect("Should be a text node");
+        assert_eq!(text_node.content, "Hello World");
+        assert_eq!(text_node.scale, 1.5);
+    }
+
+    #[test]
+    fn lua_nested_children() {
+        let code = r###"
+local parent = ui.div({
+    children = {
+        ui.text({ text = "Child 1" }),
+        ui.text({ text = "Child 2" }),
+        ui.div({ children = { ui.text({ text = "Grandchild" }) } }),
+    },
+})
+ui.dom(parent)
+"###;
+        let lua_dom = load_dom_from_string(code).expect("Failed to load DOM");
+
+        let root = lua_dom.dom.node(lua_dom.root).expect("Root should exist");
+        assert_eq!(root.children.len(), 1);
+
+        let parent_id = root.children[0];
+        let parent = lua_dom
+            .dom
+            .node(parent_id)
+            .expect("Parent should exist");
+        assert_eq!(parent.children.len(), 3, "Parent should have 3 children");
+
+        let grandchild_parent_id = parent.children[2];
+        let grandchild_parent = lua_dom
+            .dom
+            .node(grandchild_parent_id)
+            .expect("Grandchild parent should exist");
+        assert_eq!(
+            grandchild_parent.children.len(),
+            1,
+            "Grandchild parent should have 1 child"
+        );
+
+        let grandchild_id = grandchild_parent.children[0];
+        let grandchild = lua_dom
+            .dom
+            .node(grandchild_id)
+            .expect("Grandchild should exist");
+        let grandchild_text = grandchild.as_text().expect("Should be text");
+        assert_eq!(grandchild_text.content, "Grandchild");
+    }
+
+    #[test]
+    fn lua_style_application() {
+        let code = r###"
+local div = ui.div({
+    style = {
+        background = "#AABBCCFF",
+        padding = 10,
+        margin = { left = 5, right = 5, top = 2, bottom = 2 },
+    },
+})
+ui.dom(div)
+"###;
+        let lua_dom = load_dom_from_string(code).expect("Failed to load DOM");
+
+        let root = lua_dom.dom.node(lua_dom.root).expect("Root should exist");
+        let child_id = root.children[0];
+        let child = lua_dom
+            .dom
+            .node(child_id)
+            .expect("Child should exist");
+        let style = child.style().expect("Should have style");
+
+        assert_eq!(style.background, crate::Color::from_u32(0xAABBCCFF));
+        assert_eq!(style.padding.left, 10.0);
+        assert_eq!(style.padding.right, 10.0);
+        assert_eq!(style.margin.left, 5.0);
+        assert_eq!(style.margin.right, 5.0);
+        assert_eq!(style.margin.top, 2.0);
+        assert_eq!(style.margin.bottom, 2.0);
+    }
+
+    #[test]
+    fn lua_compose_helper() {
+        let code = r###"
+local base = { background = "#FF0000FF", padding = 10 }
+local override = ui.compose(base, { background = "#00FF00FF" })
+
+local div = ui.div({ style = override })
+ui.dom(div)
+"###;
+        let lua_dom = load_dom_from_string(code).expect("Failed to load DOM");
+
+        let root = lua_dom.dom.node(lua_dom.root).expect("Root should exist");
+        let child_id = root.children[0];
+        let child = lua_dom
+            .dom
+            .node(child_id)
+            .expect("Child should exist");
+        let style = child.style().expect("Should have style");
+
+        assert_eq!(style.background, crate::Color::from_u32(0x00FF00FF), "Override should win");
+        assert_eq!(style.padding.left, 10.0, "Base padding should persist");
+    }
+
+    #[test]
+    fn lua_label_helper() {
+        let code = r###"
+local label = ui.label("Test Label", { scale = 2.0 })
+ui.dom(label)
+"###;
+        let lua_dom = load_dom_from_string(code).expect("Failed to load DOM");
+
+        let root = lua_dom.dom.node(lua_dom.root).expect("Root should exist");
+        let child_id = root.children[0];
+        let child = lua_dom
+            .dom
+            .node(child_id)
+            .expect("Child should exist");
+        let text = child.as_text().expect("Should be text");
+        assert_eq!(text.content, "Test Label");
+        assert_eq!(text.scale, 2.0);
+    }
+
+    #[test]
+    fn lua_error_handling() {
+        let code = r#"
+local invalid = ui.div_does_not_exist({
+    children = {}
+})
+"#;
+        let result = load_dom_from_string(code);
+        assert!(result.is_err(), "Should fail with undefined function");
+    }
+
+    #[test]
+    fn lua_color_parsing() {
+        let code = r###"
+local div1 = ui.div({ style = { background = "#FF0000FF" } })
+local div2 = ui.div({ style = { background = "red" } })
+local div3 = ui.div({ style = { background = 0xFF0000FF } })
+ui.dom(div1)
+ui.dom(div2)
+ui.dom(div3)
+"###;
+        let lua_dom = load_dom_from_string(code).expect("Failed to load DOM");
+
+        let root = lua_dom.dom.node(lua_dom.root).expect("Root should exist");
+        assert_eq!(root.children.len(), 3, "Should have 3 children");
+
+        for i in 0..3 {
+            let child = lua_dom
+                .dom
+                .node(root.children[i])
+                .expect("Child should exist");
+            let style = child.style().expect("Should have style");
+            assert_eq!(
+                style.background,
+                crate::Color::from_u32(0xFF0000FF),
+                "Color {} should be red",
+                i
+            );
+        }
+    }
 }

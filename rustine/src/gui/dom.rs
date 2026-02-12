@@ -215,15 +215,16 @@ impl Dom {
     }
 
     fn layout_node(&mut self, id: NodeId, rect: LayoutRect) {
-        let (children, style) = match self.nodes.get_mut(id) {
+        let (children, style, prior_content_size) = match self.nodes.get_mut(id) {
             Some(node) => {
                 if let NodeKind::Text(text) = &node.kind {
                     node.content_size = Self::measure_text_size(text);
                 }
+                let prior_content_size = node.content_size;
                 node.layout = rect;
                 let children = std::mem::take(&mut node.children);
                 let style = node.style_mut().map(std::mem::take);
-                (children, style)
+                (children, style, prior_content_size)
             }
             None => return,
         };
@@ -237,6 +238,8 @@ impl Dom {
 
         let content_rect = rect.inset(style.border.add(style.padding));
         let mut flow_children = Vec::new();
+        let mut needs_flow_relayout = false;
+        let mut absolute_children = Vec::new();
 
         for child_id in children.iter().copied() {
             let (child_style, position_mode, child_content_size) = {
@@ -253,8 +256,16 @@ impl Dom {
             };
 
             match position_mode {
-                PositionMode::Flow => flow_children.push(child_id),
+                PositionMode::Flow => {
+                    if matches!(child_style.size.width, Length::Auto)
+                        || matches!(child_style.size.height, Length::Auto)
+                    {
+                        needs_flow_relayout = true;
+                    }
+                    flow_children.push(child_id)
+                }
                 PositionMode::Absolute => {
+                    absolute_children.push(child_id);
                     let child_rect =
                         Self::layout_absolute(&content_rect, &child_style, child_content_size);
                     self.layout_node(child_id, child_rect);
@@ -263,6 +274,87 @@ impl Dom {
         }
 
         self.layout_flow_children(&content_rect, &style.layout, &flow_children);
+        if needs_flow_relayout {
+            self.layout_flow_children(&content_rect, &style.layout, &flow_children);
+        }
+
+        let mut updated_rect = rect;
+        if matches!(style.size.width, Length::Auto) || matches!(style.size.height, Length::Auto) {
+            let edge = style.border.add(style.padding);
+            let mut max_right = rect.position.x + edge.left;
+            let mut max_bottom = rect.position.y + edge.top;
+
+            for child_id in children.iter().copied() {
+                if let Some(child) = self.nodes.get(child_id) {
+                    let extent_x = child.layout.size.x.max(child.content_size.x);
+                    let extent_y = child.layout.size.y.max(child.content_size.y);
+                    max_right = max_right.max(child.layout.position.x + extent_x);
+                    max_bottom = max_bottom.max(child.layout.position.y + extent_y);
+                }
+            }
+
+            let required_w = (max_right - rect.position.x + edge.right).max(0.0);
+            let required_h = (max_bottom - rect.position.y + edge.bottom).max(0.0);
+
+            if matches!(style.size.width, Length::Auto) {
+                updated_rect.size.x = updated_rect.size.x.max(required_w);
+            }
+            if matches!(style.size.height, Length::Auto) {
+                updated_rect.size.y = updated_rect.size.y.max(required_h);
+            }
+        }
+
+        if updated_rect.size.x != rect.size.x || updated_rect.size.y != rect.size.y {
+            let updated_content = updated_rect.inset(style.border.add(style.padding));
+
+            for child_id in absolute_children.iter().copied() {
+                let (child_style, child_content_size) = {
+                    let Some(node) = self.nodes.get_mut(child_id) else {
+                        continue;
+                    };
+                    if let NodeKind::Text(text) = &node.kind {
+                        node.content_size = Self::measure_text_size(text);
+                    }
+                    let Some(style) = node.style() else {
+                        continue;
+                    };
+                    (style.clone(), node.content_size)
+                };
+                let child_rect =
+                    Self::layout_absolute(&updated_content, &child_style, child_content_size);
+                self.layout_node(child_id, child_rect);
+            }
+
+            self.layout_flow_children(&updated_content, &style.layout, &flow_children);
+            if needs_flow_relayout {
+                self.layout_flow_children(&updated_content, &style.layout, &flow_children);
+            }
+        }
+
+        if matches!(style.size.width, Length::Auto) || matches!(style.size.height, Length::Auto) {
+            let edge = style.border.add(style.padding);
+            let mut max_right = updated_rect.position.x + edge.left;
+            let mut max_bottom = updated_rect.position.y + edge.top;
+
+            for child_id in children.iter().copied() {
+                if let Some(child) = self.nodes.get(child_id) {
+                    let extent_x = child.layout.size.x.max(child.content_size.x);
+                    let extent_y = child.layout.size.y.max(child.content_size.y);
+                    max_right = max_right.max(child.layout.position.x + extent_x);
+                    max_bottom = max_bottom.max(child.layout.position.y + extent_y);
+                }
+            }
+
+            if let Some(node) = self.nodes.get_mut(id) {
+                if let NodeKind::Div(_) = node.kind {
+                    let content_w = (max_right - (updated_rect.position.x + edge.left)).max(0.0);
+                    let content_h = (max_bottom - (updated_rect.position.y + edge.top)).max(0.0);
+                    let merged_w = content_w.max(prior_content_size.x);
+                    let merged_h = content_h.max(prior_content_size.y);
+                    node.content_size = Vector2f::new(merged_w, merged_h);
+                }
+            }
+        }
 
         if let Some(node) = self.nodes.get_mut(id) {
             match &mut node.kind {
@@ -274,6 +366,7 @@ impl Dom {
                 }
             }
             node.children = children;
+            node.layout = updated_rect;
         }
     }
 
@@ -1135,6 +1228,167 @@ mod tests {
         assert_eq!(node.layout.size.y, size.y);
     }
 
+    fn edge_all(value: f32) -> EdgeSizes {
+        EdgeSizes {
+            left: value,
+            right: value,
+            top: value,
+            bottom: value,
+        }
+    }
+
+    fn add_div(dom: &mut Dom, parent: NodeId, f: impl FnOnce(&mut Style)) -> NodeId {
+        let id = dom.create_div();
+        if let Some(node) = dom.node_mut(id) {
+            if let Some(div) = node.as_div_mut() {
+                f(&mut div.style);
+            }
+        }
+        dom.append_child(parent, id);
+        id
+    }
+
+    fn add_text(
+        dom: &mut Dom,
+        parent: NodeId,
+        content: impl Into<String>,
+        scale: f32,
+        f: impl FnOnce(&mut Style),
+    ) -> NodeId {
+        let id = dom.create_text(content, gfx::fonts::CASKAYDIAMONO_FONT_ID, scale);
+        if let Some(node) = dom.node_mut(id) {
+            if let Some(text) = node.as_text_mut() {
+                f(&mut text.style);
+            }
+        }
+        dom.append_child(parent, id);
+        id
+    }
+
+    fn wrap_text_lines(content: &str, max_width: f32, scale: f32) -> Vec<String> {
+        let mut lines = Vec::new();
+        for raw_line in content.lines() {
+            if raw_line.trim().is_empty() {
+                lines.push(String::new());
+                continue;
+            }
+
+            let mut current = String::new();
+            for word in raw_line.split_whitespace() {
+                if current.is_empty() {
+                    if gfx::measure_text(word, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
+                        <= max_width
+                    {
+                        current.push_str(word);
+                        continue;
+                    }
+
+                    let mut chunk = String::new();
+                    for ch in word.chars() {
+                        let candidate = format!("{}{}", chunk, ch);
+                        if gfx::measure_text(
+                            &candidate,
+                            scale,
+                            gfx::fonts::CASKAYDIAMONO_FONT_ID,
+                        )
+                        .x
+                            <= max_width
+                        {
+                            chunk = candidate;
+                        } else {
+                            if !chunk.is_empty() {
+                                lines.push(chunk);
+                            }
+                            chunk = ch.to_string();
+                        }
+                    }
+                    current = chunk;
+                    continue;
+                }
+
+                let candidate = format!("{} {}", current, word);
+                if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
+                    <= max_width
+                {
+                    current = candidate;
+                } else {
+                    lines.push(current);
+                    current = word.to_string();
+                }
+            }
+
+            if !current.is_empty() {
+                lines.push(current);
+            }
+        }
+
+        lines
+    }
+
+    fn build_error_dom(dom: &mut Dom, root: NodeId, error: &str) -> NodeId {
+        let panel_width = 600.0;
+        let panel_padding = 16.0;
+        let error_scale = 0.95;
+        let error_wrap_width = panel_width - panel_padding * 2.0;
+        let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
+        root_style.layout = LayoutStyle {
+            direction: LayoutDirection::Column,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            gap: 12.0,
+        };
+        root_style.padding = edge_all(24.0);
+        root_style.background = Color::from_u32(0x0E1117FF);
+        root_style.size = Size2::fill();
+
+        let panel = add_div(dom, root, |style| {
+            style.layout = LayoutStyle {
+                direction: LayoutDirection::Column,
+                align_items: AlignItems::Stretch,
+                justify_content: JustifyContent::Start,
+                gap: 8.0,
+            };
+            style.size = Size2 {
+                width: Length::Auto,
+                height: Length::Auto,
+            };
+            style.padding = edge_all(panel_padding);
+            style.background = Color::from_u32(0x161B22FF);
+            style.border = edge_all(1.0);
+            style.border_color = Color::from_u32(0x30363DFF);
+        });
+
+        add_text(dom, panel, "Lua UI failed to load", 1.3, |style| {
+            style.size = Size2::auto();
+            style.foreground = Color::from_u32(0xF85149FF);
+        });
+
+        add_text(dom, panel, "Check ui/main.lua and reload.", 1.0, |style| {
+            style.size = Size2::auto();
+            style.foreground = Color::from_u32(0xC9D1D9FF);
+        });
+
+        let error_block = add_div(dom, panel, |style| {
+            style.layout = LayoutStyle {
+                direction: LayoutDirection::Column,
+                align_items: AlignItems::Stretch,
+                justify_content: JustifyContent::Start,
+                gap: 4.0,
+            };
+            style.size = Size2::auto();
+        });
+
+        for line in wrap_text_lines(error, error_wrap_width, error_scale) {
+            let content = if line.is_empty() { " " } else { line.as_str() };
+            add_text(dom, error_block, content, error_scale, |style| {
+                style.size = Size2::auto();
+                style.foreground = Color::from_u32(0x8B949EFF);
+            });
+        }
+
+        panel
+    }
+
     #[test]
     fn auto_size_uses_content_measurement() {
         let mut dom = Dom::new();
@@ -1171,6 +1425,174 @@ mod tests {
         let child_node = dom.node(child).unwrap();
         assert_eq!(child_node.layout.size.x, 30.0 + 10.0 + 4.0);
         assert_eq!(child_node.layout.size.y, 40.0 + 10.0 + 4.0);
+    }
+
+    #[test]
+    fn error_panel_centers_in_window() {
+        let mut dom = Dom::new();
+        let root = dom.root();
+        let error = r#"Failed to load Lua UI: [string "-- Style definitions..."]:17: '=' expected near 'misspelled'"#;
+        let panel = build_error_dom(&mut dom, root, error);
+
+        dom.layout(Vector2f::new(1280.0, 720.0));
+
+        let root_node = dom.node(root).unwrap();
+        let root_style = root_node.style().unwrap();
+        let content_rect = root_node
+            .layout
+            .inset(root_style.border.add(root_style.padding));
+        let panel_node = dom.node(panel).unwrap();
+        let expected_x =
+            content_rect.position.x + (content_rect.size.x - panel_node.layout.size.x) * 0.5;
+        let expected_y =
+            content_rect.position.y + (content_rect.size.y - panel_node.layout.size.y) * 0.5;
+        let epsilon = 0.5;
+
+        assert!((panel_node.layout.position.x - expected_x).abs() <= epsilon);
+        assert!((panel_node.layout.position.y - expected_y).abs() <= epsilon);
+    }
+
+    #[test]
+    fn text_children_overflow_parent() {
+        let mut dom = Dom::new();
+        let root = dom.root();
+        let panel = dom.create_div();
+        assert!(dom.append_child(root, panel));
+
+        let text_a = dom.create_text(
+            "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+            gfx::fonts::CASKAYDIAMONO_FONT_ID,
+            1.0,
+        );
+        let text_b = dom.create_text(
+            "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+            gfx::fonts::CASKAYDIAMONO_FONT_ID,
+            1.0,
+        );
+        let text_c = dom.create_text(
+            "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+            gfx::fonts::CASKAYDIAMONO_FONT_ID,
+            1.0,
+        );
+
+        assert!(dom.append_child(panel, text_a));
+        assert!(dom.append_child(panel, text_b));
+        assert!(dom.append_child(panel, text_c));
+
+        for text_id in [text_a, text_b, text_c] {
+            let text_style = dom.node_mut(text_id).unwrap().style_mut().unwrap();
+            text_style.size = Size2::auto();
+        }
+
+        {
+            let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
+            root_style.layout.direction = LayoutDirection::Column;
+            root_style.layout.align_items = AlignItems::Start;
+            root_style.layout.justify_content = JustifyContent::Start;
+        }
+
+        {
+            let panel_style = dom.node_mut(panel).unwrap().style_mut().unwrap();
+            panel_style.layout.direction = LayoutDirection::Column;
+            panel_style.layout.align_items = AlignItems::Start;
+            panel_style.layout.justify_content = JustifyContent::Start;
+            panel_style.size = Size2 {
+                width: Length::Px(200.0),
+                height: Length::Px(60.0),
+            };
+            panel_style.padding = EdgeSizes::zero();
+            panel_style.border = EdgeSizes::zero();
+        }
+
+        dom.layout(Vector2f::new(400.0, 200.0));
+
+        let panel_node = dom.node(panel).unwrap();
+        let panel_left = panel_node.layout.position.x;
+        let panel_top = panel_node.layout.position.y;
+        let panel_right = panel_left + panel_node.layout.size.x;
+        let panel_bottom = panel_top + panel_node.layout.size.y;
+        let epsilon = 0.01;
+
+        let mut overflowed = false;
+        for child_id in [text_a, text_b, text_c] {
+            let child = dom.node(child_id).unwrap();
+            let child_right = child.layout.position.x + child.content_size.x;
+            let child_bottom = child.layout.position.y + child.content_size.y;
+            if child_right > panel_right + epsilon || child_bottom > panel_bottom + epsilon {
+                overflowed = true;
+                break;
+            }
+        }
+
+        assert!(overflowed);
+    }
+
+    #[test]
+    fn text_children_fit_auto_parent() {
+        let mut dom = Dom::new();
+        let root = dom.root();
+        let panel = dom.create_div();
+        assert!(dom.append_child(root, panel));
+
+        let text_a = dom.create_text(
+            "Status: OK",
+            gfx::fonts::CASKAYDIAMONO_FONT_ID,
+            1.0,
+        );
+        let text_b = dom.create_text(
+            "Subsystem: GREEN",
+            gfx::fonts::CASKAYDIAMONO_FONT_ID,
+            1.0,
+        );
+        let text_c = dom.create_text(
+            "Temp: 72C",
+            gfx::fonts::CASKAYDIAMONO_FONT_ID,
+            1.0,
+        );
+
+        assert!(dom.append_child(panel, text_a));
+        assert!(dom.append_child(panel, text_b));
+        assert!(dom.append_child(panel, text_c));
+
+        for text_id in [text_a, text_b, text_c] {
+            let text_style = dom.node_mut(text_id).unwrap().style_mut().unwrap();
+            text_style.size = Size2::auto();
+        }
+
+        {
+            let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
+            root_style.layout.direction = LayoutDirection::Column;
+            root_style.layout.align_items = AlignItems::Start;
+            root_style.layout.justify_content = JustifyContent::Start;
+        }
+
+        {
+            let panel_style = dom.node_mut(panel).unwrap().style_mut().unwrap();
+            panel_style.layout.direction = LayoutDirection::Column;
+            panel_style.layout.align_items = AlignItems::Start;
+            panel_style.layout.justify_content = JustifyContent::Start;
+            panel_style.layout.gap = 4.0;
+            panel_style.size = Size2::auto();
+            panel_style.padding = EdgeSizes::zero();
+            panel_style.border = EdgeSizes::zero();
+        }
+
+        dom.layout(Vector2f::new(400.0, 200.0));
+
+        let panel_node = dom.node(panel).unwrap();
+        let panel_left = panel_node.layout.position.x;
+        let panel_top = panel_node.layout.position.y;
+        let panel_right = panel_left + panel_node.layout.size.x;
+        let panel_bottom = panel_top + panel_node.layout.size.y;
+        let epsilon = 0.01;
+
+        for child_id in [text_a, text_b, text_c] {
+            let child = dom.node(child_id).unwrap();
+            let child_right = child.layout.position.x + child.content_size.x;
+            let child_bottom = child.layout.position.y + child.content_size.y;
+            assert!(child_right <= panel_right + epsilon);
+            assert!(child_bottom <= panel_bottom + epsilon);
+        }
     }
 
     #[test]
@@ -1512,13 +1934,13 @@ mod tests {
         assert_eq!(b_node.parent, Some(a));
         assert_eq!(b_node.children, vec![c, b1]);
         assert_style(b_node, &expected_b);
-        assert_layout(b_node, Vector2f::new(8.0, 67.5), Vector2f::new(154.0, 4.0));
+        assert_layout(b_node, Vector2f::new(8.0, 43.5), Vector2f::new(154.0, 52.0));
 
         let c_node = dom.node(c).unwrap();
         assert_eq!(c_node.parent, Some(b));
         assert_eq!(c_node.children, vec![d]);
         assert_style(c_node, &expected_c);
-        assert_layout(c_node, Vector2f::new(96.0, 69.5), Vector2f::new(64.0, 48.0));
+        assert_layout(c_node, Vector2f::new(96.0, 45.5), Vector2f::new(64.0, 48.0));
 
         let d_node = dom.node(d).unwrap();
         assert_eq!(d_node.parent, Some(c));
@@ -1536,7 +1958,7 @@ mod tests {
         assert_style(b1_node, &expected_b1);
         assert_layout(
             b1_node,
-            Vector2f::new(10.0, 69.5),
+            Vector2f::new(10.0, 45.5),
             Vector2f::new(150.0, 10.0),
         );
 

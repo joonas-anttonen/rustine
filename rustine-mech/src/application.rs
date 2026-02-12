@@ -1,6 +1,6 @@
 use rustine::{
     Color, Vector2f, gfx,
-    gui::{self, dom, style::{StyleComputer, StyleRules}},
+    gui::{self, dom, style::StyleComputer},
     log,
 };
 
@@ -22,8 +22,8 @@ impl MyApplication {
                 log::warning!("Failed to load Lua UI: {err}");
                 let mut dom = dom::Dom::new();
                 let root = dom.root();
-                let mut style = StyleComputer::new();
-                build_mock_ui(&mut dom, root, &mut style);
+                let style = StyleComputer::new();
+                build_error_ui(&mut dom, root, err.to_string());
                 (dom, root, style)
             }
         };
@@ -117,337 +117,23 @@ impl gui::Application for MyApplication {
     }
 }
 
-fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId, style: &mut StyleComputer) {
+fn build_error_ui(dom: &mut dom::Dom, root: dom::NodeId, error: String) {
+    let panel_width = 600.0;
+    let panel_padding = 16.0;
+    let error_scale = 0.95;
+    let error_wrap_width = panel_width - panel_padding * 2.0;
     let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
     root_style.layout = dom::LayoutStyle {
         direction: dom::LayoutDirection::Column,
-        align_items: dom::AlignItems::Stretch,
-        justify_content: dom::JustifyContent::Start,
-        gap: 16.0,
+        align_items: dom::AlignItems::Center,
+        justify_content: dom::JustifyContent::Center,
+        gap: 12.0,
     };
-    root_style.padding = edge_all(16.0);
-    root_style.background = Color::from_u32(0x0D1117FF);
+    root_style.padding = edge_all(24.0);
+    root_style.background = Color::from_u32(0x0E1117FF);
     root_style.size = dom::Size2::fill();
 
-    let top_bar = add_div(dom, root, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Row,
-            align_items: dom::AlignItems::Center,
-            justify_content: dom::JustifyContent::Start,
-            gap: 12.0,
-        };
-        style.size = dom::Size2 {
-            width: dom::Length::Fill,
-            height: dom::Length::Px(72.0),
-        };
-        style.padding = edge_all(12.0);
-        style.background = Color::from_u32(0x161B22FF);
-        style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x30363DFF);
-    });
-
-    let title_block = add_div(dom, top_bar, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Row,
-            align_items: dom::AlignItems::Center,
-            justify_content: dom::JustifyContent::Start,
-            gap: 8.0,
-        };
-        style.size = dom::Size2 {
-            width: dom::Length::Px(180.0),
-            height: dom::Length::Fill,
-        };
-        style.padding = edge_all(8.0);
-    });
-
-    add_text(dom, title_block, "MECH OPS", 1.4, |style| {
-        style.size = dom::Size2::auto();
-        style.foreground = Color::from_u32(0xF0F6FCFF);
-    });
-
-    let economy_row = add_div(dom, top_bar, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Row,
-            align_items: dom::AlignItems::Center,
-            justify_content: dom::JustifyContent::Start,
-            gap: 8.0,
-        };
-        style.size = dom::Size2 {
-            width: dom::Length::Px(520.0),
-            height: dom::Length::Fill,
-        };
-    });
-
-    for (idx, label) in ["ECO GRID", "SUPPLY", "SALVAGE"].iter().copied().enumerate() {
-        let card = add_div(dom, economy_row, |style| {
-            style.size = dom::Size2 {
-                width: dom::Length::Px(160.0),
-                height: dom::Length::Fill,
-            };
-            style.padding = edge_all(10.0);
-            style.background = Color::from_u32(0x21262DFF);
-            style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x30363DFF);
-        });
-
-        let text = format!("{} {}", idx + 1, label);
-        add_text(dom, card, text, 1.0, |style| {
-            style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xC9D1D9FF);
-        });
-    }
-
-    add_div(dom, top_bar, |style| {
-        style.size = dom::Size2 {
-            width: dom::Length::Fill,
-            height: dom::Length::Fill,
-        };
-    });
-
-    let button_row = add_div(dom, top_bar, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Row,
-            align_items: dom::AlignItems::Center,
-            justify_content: dom::JustifyContent::End,
-            gap: 8.0,
-        };
-        style.size = dom::Size2 {
-            width: dom::Length::Px(420.0),
-            height: dom::Length::Fill,
-        };
-    });
-
-    for label in ["Launch", "Diagnostics", "Power"].iter().copied() {
-        let button = add_div(dom, button_row, |style| {
-            style.layout = dom::LayoutStyle {
-                direction: dom::LayoutDirection::Row,
-                align_items: dom::AlignItems::Center,
-                justify_content: dom::JustifyContent::Center,
-                gap: 6.0,
-            };
-            style.size = dom::Size2 {
-                width: dom::Length::Px(120.0),
-                height: dom::Length::Px(36.0),
-            };
-            style.padding = edge_all(6.0);
-            style.background = Color::from_u32(0x5d6c80FF); // #5d6c80
-            style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x30363DFF);
-        });
-
-        register_hover_active_background(
-            style,
-            button,
-            Color::from_u32(0x6B7C93FF),
-            Color::from_u32(0x4F5F74FF),
-        );
-
-        add_text(dom, button, label, 1.0, |style| {
-            style.size = dom::Size2::auto(); 
-            style.foreground = Color::from_u32(0xF0F6FCFF); // #F0F6FCFF
-        });
-    }
-
-    let main_row = add_div(dom, root, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Row,
-            align_items: dom::AlignItems::Stretch,
-            justify_content: dom::JustifyContent::Start,
-            gap: 16.0,
-        };
-        style.size = dom::Size2 {
-            width: dom::Length::Fill,
-            height: dom::Length::Fill,
-        };
-    });
-
-    let left_panel = add_div(dom, main_row, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Column,
-            align_items: dom::AlignItems::Stretch,
-            justify_content: dom::JustifyContent::Start,
-            gap: 10.0,
-        };
-        style.size = dom::Size2 {
-            width: dom::Length::Fill,
-            height: dom::Length::Fill,
-        };
-        style.padding = edge_all(12.0);
-        style.background = Color::from_u32(0x161B22FF);
-        style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x30363DFF);
-    });
-
-    let left_header = add_div(dom, left_panel, |style| {
-        style.size = dom::Size2 {
-            width: dom::Length::Px(240.0),
-            height: dom::Length::Px(20.0),
-        };
-        style.padding = edge_all(4.0);
-        style.background = Color::from_u32(0x21262DFF);
-    });
-
-    add_text(dom, left_header, "Inventory", 1.1, |style| {
-        style.size = dom::Size2::auto();
-        style.foreground = Color::from_u32(0xF0F6FCFF);
-    });
-
-    for label in [
-        "Hydraulic Core",
-        "Servo Array",
-        "Reactor Feed",
-        "Armor Plating",
-        "Sensor Suite",
-        "Cooling Loop",
-    ]
-    .iter()
-    .copied()
-    {
-        let row = add_div(dom, left_panel, |style| {
-            style.layout = dom::LayoutStyle {
-                direction: dom::LayoutDirection::Row,
-                align_items: dom::AlignItems::Center,
-                justify_content: dom::JustifyContent::Start,
-                gap: 8.0,
-            };
-            style.size = dom::Size2 {
-                width: dom::Length::Fill,
-                height: dom::Length::Px(36.0),
-            };
-            style.padding = edge_all(8.0);
-            style.background = Color::from_u32(0x0D1117FF);
-            style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x30363DFF);
-        });
-
-        register_hover_active_background(
-            style,
-            row,
-            Color::from_u32(0x161B22FF),
-            Color::from_u32(0x0B1016FF),
-        );
-
-        add_text(dom, row, label, 1.0, |style| {
-            style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xC9D1D9FF);
-        });
-    }
-
-    let right_panel = add_div(dom, main_row, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Column,
-            align_items: dom::AlignItems::Stretch,
-            justify_content: dom::JustifyContent::Start,
-            gap: 12.0,
-        };
-        style.size = dom::Size2 {
-            width: dom::Length::Px(320.0),
-            height: dom::Length::Fill,
-        };
-        style.padding = edge_all(12.0);
-        style.background = Color::from_u32(0x161B22FF);
-        style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x30363DFF);
-    });
-
-    let right_header = add_div(dom, right_panel, |style| {
-        style.size = dom::Size2 {
-            width: dom::Length::Px(180.0),
-            height: dom::Length::Px(20.0),
-        };
-        style.padding = edge_all(4.0);
-        style.background = Color::from_u32(0x21262DFF);
-    });
-
-    add_text(dom, right_header, "Telemetry", 1.1, |style| {
-        style.size = dom::Size2::auto();
-        style.foreground = Color::from_u32(0xF0F6FCFF);
-    });
-
-    for (idx, progress) in [0.25, 0.6, 0.85].iter().copied().enumerate() {
-        let item = add_div(dom, right_panel, |style| {
-            style.layout = dom::LayoutStyle {
-                direction: dom::LayoutDirection::Column,
-                align_items: dom::AlignItems::Stretch,
-                justify_content: dom::JustifyContent::Start,
-                gap: 6.0,
-            };
-            style.size = dom::Size2 {
-                width: dom::Length::Fill,
-                height: dom::Length::Px(64.0),
-            };
-            style.padding = edge_all(8.0);
-            style.background = Color::from_u32(0x0D1117FF);
-            style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x30363DFF);
-        });
-
-        let label = match idx {
-            0 => "Power Core",
-            1 => "Signal Link",
-            _ => "Reactor Flow",
-        };
-        add_text(dom, item, label, 1.0, |style| {
-            style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xC9D1D9FF);
-        });
-
-        add_div(dom, item, |style| {
-            let width = 0.55 + (idx as f32) * 0.1;
-            style.size = dom::Size2 {
-                width: dom::Length::Percent(width),
-                height: dom::Length::Px(10.0),
-            };
-            style.background = Color::from_u32(0x30363DFF);
-        });
-
-        let bar = add_div(dom, item, |style| {
-            style.size = dom::Size2 {
-                width: dom::Length::Fill,
-                height: dom::Length::Px(14.0),
-            };
-            style.background = Color::from_u32(0x21262DFF);
-            style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x30363DFF);
-        });
-
-        add_div(dom, bar, |style| {
-            style.position = dom::PositionStyle {
-                mode: dom::PositionMode::Absolute,
-                anchors: dom::Anchors {
-                    left: true,
-                    right: false,
-                    top: true,
-                    bottom: true,
-                },
-            };
-            style.size = dom::Size2 {
-                width: dom::Length::Percent(progress),
-                height: dom::Length::Px(1.0),
-            };
-            style.margin = edge_all(1.0);
-            style.background = Color::from_u32(0x238636FF);
-        });
-    }
-
-    let bottom_bar = add_div(dom, root, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Row,
-            align_items: dom::AlignItems::Stretch,
-            justify_content: dom::JustifyContent::Start,
-            gap: 12.0,
-        };
-        style.size = dom::Size2 {
-            width: dom::Length::Fill,
-            height: dom::Length::Px(160.0),
-        };
-        style.padding = edge_all(12.0);
-        style.background = Color::from_u32(0x161B22FF);
-        style.border = edge_all(1.0);
-        style.border_color = Color::from_u32(0x30363DFF);
-    });
-
-    let build_list = add_div(dom, bottom_bar, |style| {
+    let panel = add_div(dom, root, |style| {
         style.layout = dom::LayoutStyle {
             direction: dom::LayoutDirection::Column,
             align_items: dom::AlignItems::Stretch,
@@ -455,59 +141,42 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId, style: &mut StyleCompute
             gap: 8.0,
         };
         style.size = dom::Size2 {
-            width: dom::Length::Px(300.0),
-            height: dom::Length::Fill,
+            width: dom::Length::Auto,
+            height: dom::Length::Auto,
         };
-    });
-
-    add_text(dom, build_list, "Build Queue", 1.2, |style| {
-        style.size = dom::Size2::auto();
-        style.foreground = Color::from_u32(0xF0F6FCFF);
-    });
-
-    for label in ["Atlas Frame", "Artemis Core", "Helios Array", "Raptor Gear"]
-        .iter()
-        .copied()
-    {
-        let row = add_div(dom, build_list, |style| {
-            style.layout = dom::LayoutStyle {
-                direction: dom::LayoutDirection::Row,
-                align_items: dom::AlignItems::Center,
-                justify_content: dom::JustifyContent::Start,
-                gap: 8.0,
-            };
-            style.size = dom::Size2 {
-                width: dom::Length::Fill,
-                height: dom::Length::Px(36.0),
-            };
-            style.padding = edge_all(8.0);
-            style.background = Color::from_u32(0x21262DFF);
-            style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x30363DFF);
-        });
-
-        register_hover_active_background(
-            style,
-            row,
-            Color::from_u32(0x2A2F37FF),
-            Color::from_u32(0x1B1F25FF),
-        );
-
-        add_text(dom, row, label, 1.0, |style| {
-            style.size = dom::Size2::auto();
-            style.foreground = Color::from_u32(0xF0F6FCFF);
-        });
-    }
-
-    add_div(dom, bottom_bar, |style| {
-        style.size = dom::Size2 {
-            width: dom::Length::Fill,
-            height: dom::Length::Fill,
-        };
+        style.padding = edge_all(panel_padding);
         style.background = Color::from_u32(0x161B22FF);
         style.border = edge_all(1.0);
         style.border_color = Color::from_u32(0x30363DFF);
     });
+
+    add_text(dom, panel, "Lua UI failed to load", 1.3, |style| {
+        style.size = dom::Size2::auto();
+        style.foreground = Color::from_u32(0xF85149FF);
+    });
+
+    add_text(dom, panel, "Check ui/main.lua and reload.", 1.0, |style| {
+        style.size = dom::Size2::auto();
+        style.foreground = Color::from_u32(0xC9D1D9FF);
+    });
+
+    let error_block = add_div(dom, panel, |style| {
+        style.layout = dom::LayoutStyle {
+            direction: dom::LayoutDirection::Column,
+            align_items: dom::AlignItems::Stretch,
+            justify_content: dom::JustifyContent::Start,
+            gap: 4.0,
+        };
+        style.size = dom::Size2::auto();
+    });
+
+    for line in wrap_text_lines(&error, error_wrap_width, error_scale) {
+        let content = if line.is_empty() { " " } else { line.as_str() };
+        add_text(dom, error_block, content, error_scale, |style| {
+            style.size = dom::Size2::auto();
+            style.foreground = Color::from_u32(0x8B949EFF);
+        });
+    }
 }
 
 fn add_div(
@@ -551,6 +220,88 @@ fn edge_all(value: f32) -> dom::EdgeSizes {
     }
 }
 
+fn wrap_text_lines(content: &str, max_width: f32, scale: f32) -> Vec<String> {
+    let mut lines = Vec::new();
+    for raw_line in content.lines() {
+        if raw_line.trim().is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        for word in raw_line.split_whitespace() {
+            if current.is_empty() {
+                if gfx::measure_text(word, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
+                    <= max_width
+                {
+                    current.push_str(word);
+                    continue;
+                }
+
+                let mut chunk = String::new();
+                for ch in word.chars() {
+                    let candidate = format!("{}{}", chunk, ch);
+                    if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
+                        <= max_width
+                    {
+                        chunk = candidate;
+                    } else {
+                        if !chunk.is_empty() {
+                            lines.push(chunk);
+                        }
+                        chunk = ch.to_string();
+                    }
+                }
+                current = chunk;
+                continue;
+            }
+
+            let candidate = format!("{} {}", current, word);
+            if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
+                <= max_width
+            {
+                current = candidate;
+                continue;
+            }
+
+            lines.push(current);
+            current = String::new();
+
+            if gfx::measure_text(word, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x <= max_width
+            {
+                current.push_str(word);
+                continue;
+            }
+
+            let mut chunk = String::new();
+            for ch in word.chars() {
+                let candidate = format!("{}{}", chunk, ch);
+                if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
+                    <= max_width
+                {
+                    chunk = candidate;
+                } else {
+                    if !chunk.is_empty() {
+                        lines.push(chunk);
+                    }
+                    chunk = ch.to_string();
+                }
+            }
+            current = chunk;
+        }
+
+        if !current.is_empty() {
+            lines.push(current);
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+
+    lines
+}
+
 fn render_dom(
     dom: &dom::Dom,
     node_id: dom::NodeId,
@@ -582,28 +333,6 @@ fn render_dom(
     for child_id in node.children.iter().copied() {
         render_dom(dom, child_id, style, frame);
     }
-}
-
-fn register_hover_active_background(
-    style: &mut StyleComputer,
-    node_id: dom::NodeId,
-    hovered: Color,
-    active: Color,
-) {
-    let hovered = dom::StyleOverride {
-        background: Some(hovered),
-        ..Default::default()
-    };
-    let active = dom::StyleOverride {
-        background: Some(active),
-        ..Default::default()
-    };
-    style.set_rules(
-        node_id,
-        StyleRules::new(dom::StyleOverride::default())
-            .with_hovered(hovered)
-            .with_active(active),
-    );
 }
 
 fn draw_text(

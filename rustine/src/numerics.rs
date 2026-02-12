@@ -315,7 +315,7 @@ impl From<Color> for Vector4<f32> {
 ///
 /// Layout-compatible with `Vector4<f32>`.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
     pub r: f32,
     pub g: f32,
