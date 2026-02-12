@@ -4,6 +4,8 @@ use rustine::{
     log,
 };
 
+use std::path::Path;
+
 struct MyApplicationState {
     dom: dom::Dom,
     root: dom::NodeId,
@@ -16,17 +18,7 @@ pub struct MyApplication {
 
 impl MyApplication {
     pub fn new() -> Self {
-        let (dom, root, style) = match gui::lua::load_dom_from_file("ui/main.lua") {
-            Ok(lua_dom) => (lua_dom.dom, lua_dom.root, lua_dom.style),
-            Err(err) => {
-                log::warning!("Failed to load Lua UI: {err}");
-                let mut dom = dom::Dom::new();
-                let root = dom.root();
-                let style = StyleComputer::new();
-                build_error_ui(&mut dom, root, err.to_string());
-                (dom, root, style)
-            }
-        };
+        let (dom, root, style, _) = load_lua_ui(Path::new("ui/main.lua"));
 
         MyApplication {
             state: std::cell::RefCell::new(MyApplicationState { dom, root, style }),
@@ -44,13 +36,22 @@ impl gui::Application for MyApplication {
     }
 
     fn on_key(&self, gui: &gui::Gui, event: gui::KeyEvent) {
-        let mut _state = self.state.borrow_mut();
+        let mut state = self.state.borrow_mut();
 
         if event.key == gui::Key::UNKNOWN {
             log::warning!("Application::on_key: {:?} {:?}", event.key, event.action);
         }
 
         if event.action != gui::Action::PRESS {
+            return;
+        }
+
+        if event.key == gui::Key::R && event.mods.contains(gui::Mods::CONTROL) {
+            let loaded = reload_lua_ui(&mut state);
+            if loaded {
+                log::info!("Lua UI reloaded: ui/main.lua");
+            }
+            gui.mark_damaged();
             return;
         }
 
@@ -108,13 +109,35 @@ impl gui::Application for MyApplication {
 
     fn render(&self, gui: &gui::Gui, frame: &mut gfx::RenderFrame) {
         let mut state = self.state.borrow_mut();
-        let MyApplicationState { dom, root, style } = &mut *state;
+        let MyApplicationState { dom, root, style, .. } = &mut *state;
         let pixel_size = gui.pixel_size();
         let root_size = Vector2f::new(pixel_size.x as f32, pixel_size.y as f32);
 
         dom.layout(root_size);
         render_dom(dom, *root, style, frame);
     }
+}
+
+fn load_lua_ui(path: &Path) -> (dom::Dom, dom::NodeId, StyleComputer, bool) {
+    match gui::lua::load_dom_from_file(path) {
+        Ok(lua_dom) => (lua_dom.dom, lua_dom.root, lua_dom.style, true),
+        Err(err) => {
+            log::warning!("Failed to load Lua UI: {err}");
+            let mut dom = dom::Dom::new();
+            let root = dom.root();
+            let style = StyleComputer::new();
+            build_error_ui(&mut dom, root, err.to_string());
+            (dom, root, style, false)
+        }
+    }
+}
+
+fn reload_lua_ui(state: &mut MyApplicationState) -> bool {
+    let (dom, root, style, loaded) = load_lua_ui(Path::new("ui/main.lua"));
+    state.dom = dom;
+    state.root = root;
+    state.style = style;
+    loaded
 }
 
 fn build_error_ui(dom: &mut dom::Dom, root: dom::NodeId, error: String) {
