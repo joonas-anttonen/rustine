@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{Color, Vector2f};
+use crate::{gfx, Color, Vector2f};
 
 pub type NodeId = usize;
 
@@ -111,6 +111,46 @@ impl Dom {
         Self::alloc_node(&mut self.nodes, NodeKind::Div(Div::default()))
     }
 
+    pub fn create_text(&mut self, content: impl Into<String>, font_id: u32, scale: f32) -> NodeId {
+        Self::alloc_node(
+            &mut self.nodes,
+            NodeKind::Text(Text::new(content, font_id, scale)),
+        )
+    }
+
+    pub fn set_text(&mut self, id: NodeId, content: impl Into<String>) -> bool {
+        let Some(node) = self.nodes.get_mut(id) else {
+            return false;
+        };
+        let Some(text) = node.as_text_mut() else {
+            return false;
+        };
+        text.content = content.into();
+        true
+    }
+
+    pub fn set_text_font(&mut self, id: NodeId, font_id: u32) -> bool {
+        let Some(node) = self.nodes.get_mut(id) else {
+            return false;
+        };
+        let Some(text) = node.as_text_mut() else {
+            return false;
+        };
+        text.font_id = font_id;
+        true
+    }
+
+    pub fn set_text_scale(&mut self, id: NodeId, scale: f32) -> bool {
+        let Some(node) = self.nodes.get_mut(id) else {
+            return false;
+        };
+        let Some(text) = node.as_text_mut() else {
+            return false;
+        };
+        text.scale = scale;
+        true
+    }
+
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) -> bool {
         if parent == child {
             return false;
@@ -177,6 +217,9 @@ impl Dom {
     fn layout_node(&mut self, id: NodeId, rect: LayoutRect) {
         let (children, style) = match self.nodes.get_mut(id) {
             Some(node) => {
+                if let NodeKind::Text(text) = &node.kind {
+                    node.content_size = Self::measure_text_size(text);
+                }
                 node.layout = rect;
                 let children = std::mem::take(&mut node.children);
                 let style = node.style_mut().map(std::mem::take);
@@ -196,21 +239,24 @@ impl Dom {
         let mut flow_children = Vec::new();
 
         for child_id in children.iter().copied() {
-            let child_style = match self.nodes.get(child_id).and_then(|node| node.style()) {
-                Some(style) => style,
-                None => continue,
+            let (child_style, position_mode, child_content_size) = {
+                let Some(node) = self.nodes.get_mut(child_id) else {
+                    continue;
+                };
+                if let NodeKind::Text(text) = &node.kind {
+                    node.content_size = Self::measure_text_size(text);
+                }
+                let Some(style) = node.style() else {
+                    continue;
+                };
+                (style.clone(), style.position.mode, node.content_size)
             };
 
-            match child_style.position.mode {
+            match position_mode {
                 PositionMode::Flow => flow_children.push(child_id),
                 PositionMode::Absolute => {
-                    let child_content_size = self
-                        .nodes
-                        .get(child_id)
-                        .map(|node| node.content_size)
-                        .unwrap_or_default();
                     let child_rect =
-                        Self::layout_absolute(&content_rect, child_style, child_content_size);
+                        Self::layout_absolute(&content_rect, &child_style, child_content_size);
                     self.layout_node(child_id, child_rect);
                 }
             }
@@ -219,11 +265,21 @@ impl Dom {
         self.layout_flow_children(&content_rect, &style.layout, &flow_children);
 
         if let Some(node) = self.nodes.get_mut(id) {
-            if let Some(div) = node.as_div_mut() {
-                div.style = style;
+            match &mut node.kind {
+                NodeKind::Div(div) => {
+                    div.style = style;
+                }
+                NodeKind::Text(text) => {
+                    text.style = style;
+                }
             }
             node.children = children;
         }
+    }
+
+    fn measure_text_size(text: &Text) -> Vector2f {
+        let rect = gfx::measure_text(&text.content, text.scale, text.font_id);
+        Vector2f::new(rect.w, rect.h)
     }
 
     fn layout_flow_children(
@@ -608,27 +664,50 @@ impl Node {
     pub fn as_div(&self) -> Option<&Div> {
         match &self.kind {
             NodeKind::Div(div) => Some(div),
+            NodeKind::Text(_) => None,
         }
     }
 
     pub fn as_div_mut(&mut self) -> Option<&mut Div> {
         match &mut self.kind {
             NodeKind::Div(div) => Some(div),
+            NodeKind::Text(_) => None,
+        }
+    }
+
+    pub fn as_text(&self) -> Option<&Text> {
+        match &self.kind {
+            NodeKind::Text(text) => Some(text),
+            NodeKind::Div(_) => None,
+        }
+    }
+
+    pub fn as_text_mut(&mut self) -> Option<&mut Text> {
+        match &mut self.kind {
+            NodeKind::Text(text) => Some(text),
+            NodeKind::Div(_) => None,
         }
     }
 
     pub fn style(&self) -> Option<&Style> {
-        self.as_div().map(|div| &div.style)
+        match &self.kind {
+            NodeKind::Div(div) => Some(&div.style),
+            NodeKind::Text(text) => Some(&text.style),
+        }
     }
 
     pub fn style_mut(&mut self) -> Option<&mut Style> {
-        self.as_div_mut().map(|div| &mut div.style)
+        match &mut self.kind {
+            NodeKind::Div(div) => Some(&mut div.style),
+            NodeKind::Text(text) => Some(&mut text.style),
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     Div(Div),
+    Text(Text),
 }
 
 #[derive(Debug, Clone)]
@@ -639,6 +718,25 @@ pub struct Div {
 impl Default for Div {
     fn default() -> Self {
         Self {
+            style: Style::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Text {
+    pub content: String,
+    pub font_id: u32,
+    pub scale: f32,
+    pub style: Style,
+}
+
+impl Text {
+    pub fn new(content: impl Into<String>, font_id: u32, scale: f32) -> Self {
+        Self {
+            content: content.into(),
+            font_id,
+            scale,
             style: Style::default(),
         }
     }

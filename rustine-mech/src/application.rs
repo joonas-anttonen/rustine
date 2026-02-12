@@ -93,6 +93,25 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
         style.border_color = Color::from_u32(0x2B3640FF);
     });
 
+    let title_block = add_div(dom, top_bar, |style| {
+        style.layout = dom::LayoutStyle {
+            direction: dom::LayoutDirection::Row,
+            align_items: dom::AlignItems::Center,
+            justify_content: dom::JustifyContent::Start,
+            gap: 8.0,
+        };
+        style.size = dom::Size2 {
+            width: dom::Length::Px(180.0),
+            height: dom::Length::Fill,
+        };
+        style.padding = edge_all(8.0);
+    });
+
+    add_text(dom, title_block, "MECH OPS", 1.4, |style| {
+        style.size = dom::Size2::auto();
+        style.foreground = Color::from_u32(0xE6EDF3FF);
+    });
+
     let economy_row = add_div(dom, top_bar, |style| {
         style.layout = dom::LayoutStyle {
             direction: dom::LayoutDirection::Row,
@@ -106,8 +125,8 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
         };
     });
 
-    for _ in 0..3 {
-        add_div(dom, economy_row, |style| {
+    for (idx, label) in ["ECO GRID", "SUPPLY", "SALVAGE"].iter().copied().enumerate() {
+        let card = add_div(dom, economy_row, |style| {
             style.size = dom::Size2 {
                 width: dom::Length::Px(160.0),
                 height: dom::Length::Fill,
@@ -116,6 +135,12 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             style.background = Color::from_u32(0x232C35FF);
             style.border = edge_all(1.0);
             style.border_color = Color::from_u32(0x36424EFF);
+        });
+
+        let text = format!("{} {}", idx + 1, label);
+        add_text(dom, card, text, 1.0, |style| {
+            style.size = dom::Size2::auto();
+            style.foreground = Color::from_u32(0xC8D1DAFF);
         });
     }
 
@@ -139,15 +164,27 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
         };
     });
 
-    for _ in 0..3 {
-        add_div(dom, button_row, |style| {
+    for label in ["Launch", "Diagnostics", "Power"].iter().copied() {
+        let button = add_div(dom, button_row, |style| {
+            style.layout = dom::LayoutStyle {
+                direction: dom::LayoutDirection::Row,
+                align_items: dom::AlignItems::Center,
+                justify_content: dom::JustifyContent::Center,
+                gap: 6.0,
+            };
             style.size = dom::Size2 {
                 width: dom::Length::Px(120.0),
                 height: dom::Length::Px(36.0),
             };
+            style.padding = edge_all(6.0);
             style.background = Color::from_u32(0x32404BFF);
             style.border = edge_all(1.0);
             style.border_color = Color::from_u32(0x4A5B67FF);
+        });
+
+        add_text(dom, button, label, 1.0, |style| {
+            style.size = dom::Size2::auto();
+            style.foreground = Color::from_u32(0xF1F5F9FF);
         });
     }
 
@@ -181,23 +218,51 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
         style.border_color = Color::from_u32(0x2B343DFF);
     });
 
-    add_div(dom, left_panel, |style| {
+    let left_header = add_div(dom, left_panel, |style| {
         style.size = dom::Size2 {
             width: dom::Length::Px(240.0),
             height: dom::Length::Px(20.0),
         };
+        style.padding = edge_all(4.0);
         style.background = Color::from_u32(0x2C3842FF);
     });
 
-    for _ in 0..6 {
-        add_div(dom, left_panel, |style| {
+    add_text(dom, left_header, "Inventory", 1.1, |style| {
+        style.size = dom::Size2::auto();
+        style.foreground = Color::from_u32(0xE2E8F0FF);
+    });
+
+    for label in [
+        "Hydraulic Core",
+        "Servo Array",
+        "Reactor Feed",
+        "Armor Plating",
+        "Sensor Suite",
+        "Cooling Loop",
+    ]
+    .iter()
+    .copied()
+    {
+        let row = add_div(dom, left_panel, |style| {
+            style.layout = dom::LayoutStyle {
+                direction: dom::LayoutDirection::Row,
+                align_items: dom::AlignItems::Center,
+                justify_content: dom::JustifyContent::Start,
+                gap: 8.0,
+            };
             style.size = dom::Size2 {
                 width: dom::Length::Fill,
                 height: dom::Length::Px(36.0),
             };
+            style.padding = edge_all(8.0);
             style.background = Color::from_u32(0x1F2931FF);
             style.border = edge_all(1.0);
             style.border_color = Color::from_u32(0x2C3842FF);
+        });
+
+        add_text(dom, row, label, 1.0, |style| {
+            style.size = dom::Size2::auto();
+            style.foreground = Color::from_u32(0xCBD5E1FF);
         });
     }
 
@@ -218,12 +283,18 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
         style.border_color = Color::from_u32(0x2B3640FF);
     });
 
-    add_div(dom, right_panel, |style| {
+    let right_header = add_div(dom, right_panel, |style| {
         style.size = dom::Size2 {
             width: dom::Length::Px(180.0),
             height: dom::Length::Px(20.0),
         };
+        style.padding = edge_all(4.0);
         style.background = Color::from_u32(0x2C3842FF);
+    });
+
+    add_text(dom, right_header, "Telemetry", 1.1, |style| {
+        style.size = dom::Size2::auto();
+        style.foreground = Color::from_u32(0xE2E8F0FF);
     });
 
     for (idx, progress) in [0.25, 0.6, 0.85].iter().copied().enumerate() {
@@ -242,6 +313,16 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             style.background = Color::from_u32(0x212A33FF);
             style.border = edge_all(1.0);
             style.border_color = Color::from_u32(0x2F3B46FF);
+        });
+
+        let label = match idx {
+            0 => "Power Core",
+            1 => "Signal Link",
+            _ => "Reactor Flow",
+        };
+        add_text(dom, item, label, 1.0, |style| {
+            style.size = dom::Size2::auto();
+            style.foreground = Color::from_u32(0xD0D7DEFF);
         });
 
         add_div(dom, item, |style| {
@@ -312,15 +393,35 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
         };
     });
 
-    for _ in 0..4 {
-        add_div(dom, build_list, |style| {
+    add_text(dom, build_list, "Build Queue", 1.2, |style| {
+        style.size = dom::Size2::auto();
+        style.foreground = Color::from_u32(0xE6EDF3FF);
+    });
+
+    for label in ["Atlas Frame", "Artemis Core", "Helios Array", "Raptor Gear"]
+        .iter()
+        .copied()
+    {
+        let row = add_div(dom, build_list, |style| {
+            style.layout = dom::LayoutStyle {
+                direction: dom::LayoutDirection::Row,
+                align_items: dom::AlignItems::Center,
+                justify_content: dom::JustifyContent::Start,
+                gap: 8.0,
+            };
             style.size = dom::Size2 {
                 width: dom::Length::Fill,
                 height: dom::Length::Px(36.0),
             };
+            style.padding = edge_all(8.0);
             style.background = Color::from_u32(0x32404BFF);
             style.border = edge_all(1.0);
             style.border_color = Color::from_u32(0x4A5B67FF);
+        });
+
+        add_text(dom, row, label, 1.0, |style| {
+            style.size = dom::Size2::auto();
+            style.foreground = Color::from_u32(0xF8FAFCFF);
         });
     }
 
@@ -350,6 +451,23 @@ fn add_div(
     id
 }
 
+fn add_text(
+    dom: &mut dom::Dom,
+    parent: dom::NodeId,
+    content: impl Into<String>,
+    scale: f32,
+    f: impl FnOnce(&mut dom::Style),
+) -> dom::NodeId {
+    let id = dom.create_text(content, gfx::fonts::CASKAYDIAMONO_FONT_ID, scale);
+    if let Some(node) = dom.node_mut(id) {
+        if let Some(text) = node.as_text_mut() {
+            f(&mut text.style);
+        }
+    }
+    dom.append_child(parent, id);
+    id
+}
+
 fn edge_all(value: f32) -> dom::EdgeSizes {
     dom::EdgeSizes {
         left: value,
@@ -364,19 +482,49 @@ fn render_dom(dom: &dom::Dom, node_id: dom::NodeId, frame: &mut gfx::RenderFrame
         return;
     };
 
+    let rect = gfx::Rectangle {
+        x: node.layout.position.x,
+        y: node.layout.position.y,
+        w: node.layout.size.x,
+        h: node.layout.size.y,
+    };
+
     if let Some(style) = node.style() {
-        let rect = gfx::Rectangle {
-            x: node.layout.position.x,
-            y: node.layout.position.y,
-            w: node.layout.size.x,
-            h: node.layout.size.y,
-        };
         draw_style(frame, &rect, style);
+
+        if let Some(text) = node.as_text() {
+            draw_text(frame, &rect, style, text);
+        }
     }
 
     for child_id in node.children.iter().copied() {
         render_dom(dom, child_id, frame);
     }
+}
+
+fn draw_text(
+    frame: &mut gfx::RenderFrame,
+    rect: &gfx::Rectangle,
+    style: &dom::Style,
+    text: &dom::Text,
+) {
+    if style.foreground.a <= 0.0 || text.content.is_empty() {
+        return;
+    }
+
+    let inner = inset_rectangle(rect, style.border);
+    let content_rect = inset_rectangle(&inner, style.padding);
+    let bounds = gfx::measure_text(&text.content, text.scale, text.font_id);
+    let baseline_x = content_rect.x;
+    let baseline_y = content_rect.y - bounds.y;
+    frame.push_text(
+        &text.content,
+        baseline_x,
+        baseline_y,
+        text.scale,
+        style.foreground.to_u32(),
+        text.font_id,
+    );
 }
 
 fn draw_style(frame: &mut gfx::RenderFrame, rect: &gfx::Rectangle, style: &dom::Style) {

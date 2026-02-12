@@ -180,6 +180,70 @@ impl Rectangle {
     }
 }
 
+/// Measure text bounds using the embedded bitmap fonts.
+///
+/// The returned rectangle is relative to the baseline at (0, 0).
+pub fn measure_text(text: &str, scale: f32, font_id: u32) -> Rectangle {
+    let font_size = fonts::get_font_size(font_id);
+    let mut cursor_x: f32 = 0.0;
+    let mut cursor_y: f32 = 0.0;
+    let mut min_x: f32 = 0.0;
+    let mut max_x: f32 = 0.0;
+    let mut min_y: f32 = 0.0;
+    let mut max_y: f32 = 0.0;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            cursor_x = 0.0;
+            cursor_y += font_size * scale;
+            continue;
+        }
+
+        if let Some(metrics) = fonts::get_glyph_metrics(font_id, ch) {
+            let glyph_w = metrics.width as f32;
+            let glyph_h = metrics.height as f32;
+
+            let x0 = cursor_x + metrics.offset_x as f32 * scale;
+            let y1 = cursor_y - metrics.offset_y as f32 * scale;
+            let x1 = x0 + glyph_w * scale;
+            let y0 = y1 - glyph_h * scale;
+
+            min_x = min_x.min(x0);
+            max_x = max_x.max(x1);
+            min_y = min_y.min(y0);
+            max_y = max_y.max(y1);
+
+            cursor_x += metrics.advance_width as f32 * scale;
+        } else if let Some(all_metrics) = fonts::get_all_metrics(font_id)
+            && let Some((_, first_metrics)) = all_metrics.first()
+        {
+            let glyph_w = first_metrics.width as f32;
+            let glyph_h = first_metrics.height as f32;
+
+            let x0 = cursor_x + first_metrics.offset_x as f32 * scale;
+            let y1 = cursor_y - first_metrics.offset_y as f32 * scale;
+            let x1 = x0 + glyph_w * scale;
+            let y0 = y1 - glyph_h * scale;
+
+            min_x = min_x.min(x0);
+            max_x = max_x.max(x1);
+            min_y = min_y.min(y0);
+            max_y = max_y.max(y1);
+
+            cursor_x += first_metrics.advance_width as f32 * scale;
+        }
+    }
+
+    max_x = max_x.max(cursor_x);
+
+    Rectangle {
+        x: min_x,
+        y: min_y,
+        w: max_x - min_x,
+        h: max_y - min_y,
+    }
+}
+
 /// A single draw command: draw a range of indices from the vertex/index buffer with optional scissor.
 #[derive(Debug, Clone)]
 pub struct DrawCommand {
