@@ -90,3 +90,39 @@ pub struct KeyEvent {
     pub mods: Mods,
     pub scancode: u32,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MouseButton {
+    UNKNOWN,
+    LEFT,
+    RIGHT,
+    MIDDLE,
+    BACK,
+    FORWARD,
+}
+
+pub struct MouseMoveEvent {
+    pub position: crate::Vector2f,
+}
+
+pub struct MouseEnterEvent {
+    pub position: crate::Vector2f,
+}
+
+pub struct MouseLeaveEvent {
+    pub position: crate::Vector2f,
+}
+
+pub struct MouseButtonEvent {
+    pub position: crate::Vector2f,
+    pub button: MouseButton,
+    pub action: Action,
+    pub mods: Mods,
+}
+
+pub struct MouseScrollEvent {
+    pub position: crate::Vector2f,
+    pub delta: crate::Vector2f,
+    pub delta_discrete: crate::Vector2i,
+    pub mods: Mods,
+}

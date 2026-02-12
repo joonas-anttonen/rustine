@@ -83,6 +83,11 @@ pub trait Application {
     fn startup(&self, _gui: &Gui) {}
     fn on_key(&self, _gui: &Gui, _key: input::KeyEvent) {}
     fn on_char(&self, _gui: &Gui, _char: char) {}
+    fn on_mouse_enter(&self, _gui: &Gui, _event: input::MouseEnterEvent) {}
+    fn on_mouse_leave(&self, _gui: &Gui, _event: input::MouseLeaveEvent) {}
+    fn on_mouse_move(&self, _gui: &Gui, _event: input::MouseMoveEvent) {}
+    fn on_mouse_button(&self, _gui: &Gui, _event: input::MouseButtonEvent) {}
+    fn on_mouse_scroll(&self, _gui: &Gui, _event: input::MouseScrollEvent) {}
     fn render(&self, _gui: &Gui, _frame: &mut gfx::RenderFrame) {}
 }
 
@@ -95,6 +100,8 @@ pub struct Gui {
     damaged: AtomicBool,
 
     wanted_size: Vector2u,
+    logical_size: Vector2u,
+    mouse_position: Vector2f,
 }
 
 impl Drop for Gui {
@@ -307,6 +314,26 @@ impl Gui {
 
             ffi::panic_if_error(ffi::rwlSetKeyCallback(rwl_window, Self::rwl_key_callback));
             ffi::panic_if_error(ffi::rwlSetCharCallback(rwl_window, Self::rwl_char_callback));
+            ffi::panic_if_error(ffi::rwlSetPointerEnterCallback(
+                rwl_window,
+                Self::rwl_pointer_enter_callback,
+            ));
+            ffi::panic_if_error(ffi::rwlSetPointerLeaveCallback(
+                rwl_window,
+                Self::rwl_pointer_leave_callback,
+            ));
+            ffi::panic_if_error(ffi::rwlSetPointerMotionCallback(
+                rwl_window,
+                Self::rwl_pointer_motion_callback,
+            ));
+            ffi::panic_if_error(ffi::rwlSetPointerButtonCallback(
+                rwl_window,
+                Self::rwl_pointer_button_callback,
+            ));
+            ffi::panic_if_error(ffi::rwlSetPointerScrollCallback(
+                rwl_window,
+                Self::rwl_pointer_scroll_callback,
+            ));
 
             (
                 rwl_window,
@@ -330,6 +357,17 @@ impl Gui {
             .instance()
             .create_wayland_surface(wl_output as *const _, wl_surface as *const _);
 
+        let mut initial_logical_size = wanted_size;
+        unsafe {
+            let mut logical_width: u32 = 0;
+            let mut logical_height: u32 = 0;
+            if ffi::rwlGetLogicalSize(rwl_window, &mut logical_width, &mut logical_height)
+                == ffi::RwlStatus::Ok
+            {
+                initial_logical_size = Vector2u::new(logical_width, logical_height);
+            }
+        }
+
         let gui = Rc::new(Self {
             gfx,
             gfx_surface,
@@ -337,6 +375,8 @@ impl Gui {
             application,
             damaged: AtomicBool::new(true),
             wanted_size,
+            logical_size: initial_logical_size,
+            mouse_position: Vector2f::default(),
         });
 
         unsafe {
@@ -399,6 +439,34 @@ impl Gui {
         Vector2u::new(width, height)
     }
 
+    pub fn logical_size(&self) -> Vector2u {
+        self.logical_size
+    }
+
+    fn pointer_position_from_logical(&self, x: f64, y: f64) -> Vector2f {
+        let logical = self.logical_size;
+        if logical.x > 0 && logical.y > 0 {
+            let pixel = self.pixel_size();
+            let scale_x = pixel.x as f64 / logical.x as f64;
+            let scale_y = pixel.y as f64 / logical.y as f64;
+            Vector2f::new((x * scale_x) as f32, (y * scale_y) as f32)
+        } else {
+            Vector2f::new(x as f32, y as f32)
+        }
+    }
+
+    fn pointer_delta_from_logical(&self, dx: f64, dy: f64) -> Vector2f {
+        let logical = self.logical_size;
+        if logical.x > 0 && logical.y > 0 {
+            let pixel = self.pixel_size();
+            let scale_x = pixel.x as f64 / logical.x as f64;
+            let scale_y = pixel.y as f64 / logical.y as f64;
+            Vector2f::new((dx * scale_x) as f32, (dy * scale_y) as f32)
+        } else {
+            Vector2f::new(dx as f32, dy as f32)
+        }
+    }
+
     pub fn create_dynamic_image(&self) -> gfx::Image {
         let mut gfx = self.gfx.lock().unwrap();
         gfx.create_dynamic_image()
@@ -439,11 +507,17 @@ impl Gui {
     }
 
     unsafe extern "C" fn rwl_logical_size_callback(
-        _window: ffi::RwlWindow,
-        _width: u32,
-        _height: u32,
+        window: ffi::RwlWindow,
+        width: u32,
+        height: u32,
     ) {
-        // Implement when and if needed
+        unsafe {
+            let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                let gui = &mut *gui_ptr;
+                gui.logical_size = Vector2u::new(width, height);
+            }
+        }
     }
 
     unsafe extern "C" fn rwl_key_callback(
@@ -478,6 +552,111 @@ impl Gui {
             {
                 let gui = &mut *gui_ptr;
                 gui.application.on_char(gui, c);
+            }
+        }
+    }
+
+    unsafe extern "C" fn rwl_pointer_enter_callback(window: ffi::RwlWindow, x: f64, y: f64) {
+        unsafe {
+            let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                let gui = &mut *gui_ptr;
+                let position = gui.pointer_position_from_logical(x, y);
+                gui.mouse_position = position;
+
+                log::debug!("Mouse enter at logical position: {:?}", position);
+                let event = input::MouseEnterEvent { position };
+                gui.application.on_mouse_enter(gui, event);
+            }
+        }
+    }
+
+    unsafe extern "C" fn rwl_pointer_leave_callback(window: ffi::RwlWindow, x: f64, y: f64) {
+        unsafe {
+            let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                let gui = &mut *gui_ptr;
+                let position = gui.pointer_position_from_logical(x, y);
+                gui.mouse_position = position;
+
+                log::debug!("Mouse leave at logical position: {:?}", position);
+                let event = input::MouseLeaveEvent { position };
+                gui.application.on_mouse_leave(gui, event);
+            }
+        }
+    }
+
+    unsafe extern "C" fn rwl_pointer_motion_callback(window: ffi::RwlWindow, x: f64, y: f64) {
+        unsafe {
+            let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                let gui = &mut *gui_ptr;
+                let position = gui.pointer_position_from_logical(x, y);
+                gui.mouse_position = position;
+
+                log::debug!("Mouse move to logical position: {:?}", position);
+                let event = input::MouseMoveEvent { position };
+                gui.application.on_mouse_move(gui, event);
+            }
+        }
+    }
+
+    unsafe extern "C" fn rwl_pointer_button_callback(
+        window: ffi::RwlWindow,
+        x: f64,
+        y: f64,
+        button: ffi::RwlMouseButton,
+        action: ffi::RwlAction,
+        mods: ffi::RwlMod,
+    ) {
+        unsafe {
+            let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                let gui = &mut *gui_ptr;
+                let position = gui.pointer_position_from_logical(x, y);
+                gui.mouse_position = position;
+                log::debug!("Mouse button event at logical position: {:?}", position);
+                let event = input::MouseButtonEvent {
+                    position,
+                    button: button.to_input(),
+                    action: action.to_input(),
+                    mods: mods.to_input(),
+                };
+                gui.application.on_mouse_button(gui, event);
+            }
+        }
+    }
+
+    unsafe extern "C" fn rwl_pointer_scroll_callback(
+        window: ffi::RwlWindow,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        delta_discrete_x: i32,
+        delta_discrete_y: i32,
+        mods: ffi::RwlMod,
+    ) {
+        unsafe {
+            let gui_ptr = ffi::rwlGetWindowUserPointer(window) as *mut Gui;
+            if !gui_ptr.is_null() {
+                let gui = &mut *gui_ptr;
+                let position = gui.pointer_position_from_logical(x, y);
+                let delta = gui.pointer_delta_from_logical(delta_x, delta_y);
+                log::debug!(
+                    "Mouse scroll at logical position: {:?}, delta: {:?}, discrete delta: ({}, {})",
+                    position,
+                    delta,
+                    delta_discrete_x,
+                    delta_discrete_y
+                );
+                let event = input::MouseScrollEvent {
+                    position,
+                    delta,
+                    delta_discrete: Vector2i::new(delta_discrete_x, delta_discrete_y),
+                    mods: mods.to_input(),
+                };
+                gui.application.on_mouse_scroll(gui, event);
             }
         }
     }
@@ -753,6 +932,31 @@ mod ffi {
         }
     }
 
+    /// Mouse button codes
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(C)]
+    pub struct RwlMouseButton(i32);
+
+    impl RwlMouseButton {
+        pub const UNKNOWN: i32 = 0;
+        pub const LEFT: i32 = 1;
+        pub const RIGHT: i32 = 2;
+        pub const MIDDLE: i32 = 3;
+        pub const BACK: i32 = 4;
+        pub const FORWARD: i32 = 5;
+
+        pub fn to_input(self) -> crate::gui::input::MouseButton {
+            match self.0 {
+                Self::LEFT => crate::gui::input::MouseButton::LEFT,
+                Self::RIGHT => crate::gui::input::MouseButton::RIGHT,
+                Self::MIDDLE => crate::gui::input::MouseButton::MIDDLE,
+                Self::BACK => crate::gui::input::MouseButton::BACK,
+                Self::FORWARD => crate::gui::input::MouseButton::FORWARD,
+                _ => crate::gui::input::MouseButton::UNKNOWN,
+            }
+        }
+    }
+
     /// Output information structure
     #[derive(Debug, Clone)]
     #[repr(C)]
@@ -790,6 +994,37 @@ mod ffi {
 
     /// Callback for character input (UTF-32 codepoint)
     pub type RwlCharCallback = unsafe extern "C" fn(window: RwlWindow, codepoint: u32);
+
+    /// Callback for pointer enter events
+    pub type RwlPointerEnterCallback = unsafe extern "C" fn(window: RwlWindow, x: f64, y: f64);
+
+    /// Callback for pointer leave events
+    pub type RwlPointerLeaveCallback = unsafe extern "C" fn(window: RwlWindow, x: f64, y: f64);
+
+    /// Callback for pointer motion events
+    pub type RwlPointerMotionCallback = unsafe extern "C" fn(window: RwlWindow, x: f64, y: f64);
+
+    /// Callback for pointer button events
+    pub type RwlPointerButtonCallback = unsafe extern "C" fn(
+        window: RwlWindow,
+        x: f64,
+        y: f64,
+        button: RwlMouseButton,
+        action: RwlAction,
+        mods: RwlMod,
+    );
+
+    /// Callback for pointer scroll events
+    pub type RwlPointerScrollCallback = unsafe extern "C" fn(
+        window: RwlWindow,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        delta_discrete_x: i32,
+        delta_discrete_y: i32,
+        mods: RwlMod,
+    );
 
     /// Callback for logging messages from the library
     /// severity: 0=Debug, 1=Info, 2=Warning, 3=Error
@@ -868,6 +1103,27 @@ mod ffi {
 
         pub fn rwlSetKeyCallback(window: RwlWindow, callback: RwlKeyCallback) -> RwlStatus;
         pub fn rwlSetCharCallback(window: RwlWindow, callback: RwlCharCallback) -> RwlStatus;
+
+        pub fn rwlSetPointerEnterCallback(
+            window: RwlWindow,
+            callback: RwlPointerEnterCallback,
+        ) -> RwlStatus;
+        pub fn rwlSetPointerLeaveCallback(
+            window: RwlWindow,
+            callback: RwlPointerLeaveCallback,
+        ) -> RwlStatus;
+        pub fn rwlSetPointerMotionCallback(
+            window: RwlWindow,
+            callback: RwlPointerMotionCallback,
+        ) -> RwlStatus;
+        pub fn rwlSetPointerButtonCallback(
+            window: RwlWindow,
+            callback: RwlPointerButtonCallback,
+        ) -> RwlStatus;
+        pub fn rwlSetPointerScrollCallback(
+            window: RwlWindow,
+            callback: RwlPointerScrollCallback,
+        ) -> RwlStatus;
 
         pub fn rwlGetPixelSize(window: RwlWindow, width: *mut u32, height: *mut u32) -> RwlStatus;
         pub fn rwlGetLogicalSize(window: RwlWindow, width: *mut u32, height: *mut u32)

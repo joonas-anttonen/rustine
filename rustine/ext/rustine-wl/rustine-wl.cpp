@@ -23,6 +23,7 @@ static wl_registry* g_registry = nullptr;
 static wl_compositor* g_compositor = nullptr;
 static wl_seat* g_seat = nullptr;
 static wl_keyboard* g_keyboard = nullptr;
+static wl_pointer* g_pointer = nullptr;
 
 static zwlr_layer_shell_v1* g_layer_shell = nullptr;
 static wp_fractional_scale_manager_v1* g_fractional_scale_manager = nullptr;
@@ -192,6 +193,7 @@ static void rwl_log(rwl_log_severity severity, const char* message) {
 
 static std::vector<std::unique_ptr<struct rwl_window_internal>> g_windows;
 static rwl_window_internal* g_window_with_keyboard = nullptr;
+static rwl_window_internal* g_window_with_pointer = nullptr;
 
 // Output information structure
 struct rwl_output_info {
@@ -225,11 +227,26 @@ struct rwl_window_internal {
     rwl_logical_size_callback logical_size_callback;
     rwl_key_callback key_callback;
     rwl_char_callback char_callback;
+    rwl_pointer_enter_callback pointer_enter_callback;
+    rwl_pointer_leave_callback pointer_leave_callback;
+    rwl_pointer_motion_callback pointer_motion_callback;
+    rwl_pointer_button_callback pointer_button_callback;
+    rwl_pointer_scroll_callback pointer_scroll_callback;
 
     void* user_pointer;
 
     bool should_close;
     bool key_states[RWL_KEY_COUNT + 1];
+
+    double pointer_x;
+    double pointer_y;
+    bool pointer_inside;
+
+    double scroll_delta_x;
+    double scroll_delta_y;
+    int32_t scroll_discrete_x;
+    int32_t scroll_discrete_y;
+    bool scroll_pending;
 };
 
 static void rwl_cleanup_window(rwl_window_internal* window) {
@@ -239,6 +256,9 @@ static void rwl_cleanup_window(rwl_window_internal* window) {
 
     if (g_window_with_keyboard == window) {
         g_window_with_keyboard = nullptr;
+    }
+    if (g_window_with_pointer == window) {
+        g_window_with_pointer = nullptr;
     }
 
     if (window->xdg_toplevel) {
@@ -687,6 +707,220 @@ static const struct wl_keyboard_listener keyboard_listener{keyboard_handle_keyma
     keyboard_handle_modifiers,
     keyboard_handle_repeat_info};
 
+static rwl_mouse_button translate_mouse_button(uint32_t button) {
+    switch (button) {
+        case BTN_LEFT:
+            return RWL_MOUSE_BUTTON_LEFT;
+        case BTN_RIGHT:
+            return RWL_MOUSE_BUTTON_RIGHT;
+        case BTN_MIDDLE:
+            return RWL_MOUSE_BUTTON_MIDDLE;
+        case BTN_BACK:
+            return RWL_MOUSE_BUTTON_BACK;
+        case BTN_FORWARD:
+            return RWL_MOUSE_BUTTON_FORWARD;
+        default:
+            return RWL_MOUSE_BUTTON_UNKNOWN;
+    }
+}
+
+static void pointer_handle_enter(void* data,
+    struct wl_pointer* pointer,
+    uint32_t serial,
+    struct wl_surface* surface,
+    wl_fixed_t sx,
+    wl_fixed_t sy) {
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "pointer_handle_enter: serial=%u", serial);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
+    if (!surface) {
+        return;
+    }
+
+    rwl_window_internal* window =
+        reinterpret_cast<rwl_window_internal*>(wl_surface_get_user_data(surface));
+    if (!window || window->surface != surface) {
+        return;
+    }
+
+    g_window_with_pointer = window;
+    window->pointer_inside = true;
+    window->pointer_x = wl_fixed_to_double(sx);
+    window->pointer_y = wl_fixed_to_double(sy);
+
+    if (window->pointer_enter_callback) {
+        window->pointer_enter_callback(reinterpret_cast<rwl_window*>(window),
+            window->pointer_x,
+            window->pointer_y);
+    }
+}
+
+static void pointer_handle_leave(void* data,
+    struct wl_pointer* pointer,
+    uint32_t serial,
+    struct wl_surface* surface) {
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "pointer_handle_leave: serial=%u", serial);
+    rwl_log(RWL_LOG_DEBUG, buffer);
+
+    if (!surface) {
+        return;
+    }
+
+    rwl_window_internal* window =
+        reinterpret_cast<rwl_window_internal*>(wl_surface_get_user_data(surface));
+    if (!window || window->surface != surface) {
+        return;
+    }
+
+    window->pointer_inside = false;
+
+    if (window->pointer_leave_callback) {
+        window->pointer_leave_callback(reinterpret_cast<rwl_window*>(window),
+            window->pointer_x,
+            window->pointer_y);
+    }
+
+    if (g_window_with_pointer == window) {
+        g_window_with_pointer = nullptr;
+    }
+}
+
+static void pointer_handle_motion(
+    void* data, struct wl_pointer* pointer, uint32_t time, wl_fixed_t sx, wl_fixed_t sy) {
+    rwl_window_internal* window = g_window_with_pointer;
+    if (!window) {
+        return;
+    }
+
+    window->pointer_x = wl_fixed_to_double(sx);
+    window->pointer_y = wl_fixed_to_double(sy);
+
+    if (window->pointer_motion_callback) {
+        window->pointer_motion_callback(reinterpret_cast<rwl_window*>(window),
+            window->pointer_x,
+            window->pointer_y);
+    }
+}
+
+static void pointer_handle_button(void* data,
+    struct wl_pointer* pointer,
+    uint32_t serial,
+    uint32_t time,
+    uint32_t button,
+    uint32_t state) {
+    rwl_window_internal* window = g_window_with_pointer;
+    if (!window) {
+        return;
+    }
+
+    rwl_action action = (state == WL_POINTER_BUTTON_STATE_PRESSED) ? RWL_ACTION_PRESS
+                                                                    : RWL_ACTION_RELEASE;
+    rwl_mouse_button mouse_button = translate_mouse_button(button);
+
+    if (window->pointer_button_callback) {
+        window->pointer_button_callback(reinterpret_cast<rwl_window*>(window),
+            window->pointer_x,
+            window->pointer_y,
+            mouse_button,
+            action,
+            g_mods);
+    }
+}
+
+static void pointer_handle_axis(
+    void* data, struct wl_pointer* pointer, uint32_t time, uint32_t axis, wl_fixed_t value) {
+    rwl_window_internal* window = g_window_with_pointer;
+    if (!window) {
+        return;
+    }
+
+    double delta = wl_fixed_to_double(value);
+    if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL) {
+        window->scroll_delta_x += delta;
+    } else if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) {
+        window->scroll_delta_y += delta;
+    }
+    window->scroll_pending = true;
+
+    int version = wl_proxy_get_version(reinterpret_cast<wl_proxy*>(pointer));
+    if (version < WL_POINTER_FRAME_SINCE_VERSION) {
+        if (window->pointer_scroll_callback) {
+            window->pointer_scroll_callback(reinterpret_cast<rwl_window*>(window),
+                window->pointer_x,
+                window->pointer_y,
+                window->scroll_delta_x,
+                window->scroll_delta_y,
+                window->scroll_discrete_x,
+                window->scroll_discrete_y,
+                g_mods);
+        }
+        window->scroll_delta_x = 0.0;
+        window->scroll_delta_y = 0.0;
+        window->scroll_discrete_x = 0;
+        window->scroll_discrete_y = 0;
+        window->scroll_pending = false;
+    }
+}
+
+static void pointer_handle_frame(void* data, struct wl_pointer* pointer) {
+    rwl_window_internal* window = g_window_with_pointer;
+    if (!window || !window->scroll_pending) {
+        return;
+    }
+
+    if (window->pointer_scroll_callback) {
+        window->pointer_scroll_callback(reinterpret_cast<rwl_window*>(window),
+            window->pointer_x,
+            window->pointer_y,
+            window->scroll_delta_x,
+            window->scroll_delta_y,
+            window->scroll_discrete_x,
+            window->scroll_discrete_y,
+            g_mods);
+    }
+
+    window->scroll_delta_x = 0.0;
+    window->scroll_delta_y = 0.0;
+    window->scroll_discrete_x = 0;
+    window->scroll_discrete_y = 0;
+    window->scroll_pending = false;
+}
+
+static void pointer_handle_axis_source(
+    void* data, struct wl_pointer* pointer, uint32_t axis_source) {}
+
+static void pointer_handle_axis_stop(
+    void* data, struct wl_pointer* pointer, uint32_t time, uint32_t axis) {}
+
+static void pointer_handle_axis_discrete(
+    void* data, struct wl_pointer* pointer, uint32_t axis, int32_t discrete) {
+    rwl_window_internal* window = g_window_with_pointer;
+    if (!window) {
+        return;
+    }
+
+    if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL) {
+        window->scroll_discrete_x += discrete;
+    } else if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) {
+        window->scroll_discrete_y += discrete;
+    }
+    window->scroll_pending = true;
+}
+
+static const struct wl_pointer_listener pointer_listener = {
+    pointer_handle_enter,
+    pointer_handle_leave,
+    pointer_handle_motion,
+    pointer_handle_button,
+    pointer_handle_axis,
+    pointer_handle_frame,
+    pointer_handle_axis_source,
+    pointer_handle_axis_stop,
+    pointer_handle_axis_discrete,
+};
+
 static void seat_handle_capabilities(void* data, struct wl_seat* seat, uint32_t capabilities) {
     char buffer[256];
     snprintf(buffer, sizeof(buffer), "seat_handle_capabilities: capabilities=0x%x", capabilities);
@@ -699,6 +933,15 @@ static void seat_handle_capabilities(void* data, struct wl_seat* seat, uint32_t 
     if (!(capabilities & WL_SEAT_CAPABILITY_KEYBOARD) && g_keyboard) {
         wl_keyboard_destroy(g_keyboard);
         g_keyboard = nullptr;
+    }
+    if ((capabilities & WL_SEAT_CAPABILITY_POINTER) && !g_pointer) {
+        g_pointer = wl_seat_get_pointer(seat);
+        wl_pointer_add_listener(g_pointer, &pointer_listener, nullptr);
+    }
+    if (!(capabilities & WL_SEAT_CAPABILITY_POINTER) && g_pointer) {
+        wl_pointer_destroy(g_pointer);
+        g_pointer = nullptr;
+        g_window_with_pointer = nullptr;
     }
 }
 static void seat_handle_name(void* data, struct wl_seat* seat, const char* name) {
@@ -924,6 +1167,7 @@ rwl_status rwlShutdown() {
     }
 
     g_window_with_keyboard = nullptr;
+    g_window_with_pointer = nullptr;
 
     // ========== XKB
     {
@@ -951,6 +1195,11 @@ rwl_status rwlShutdown() {
     if (g_keyboard) {
         wl_keyboard_destroy(g_keyboard);
         g_keyboard = nullptr;
+    }
+
+    if (g_pointer) {
+        wl_pointer_destroy(g_pointer);
+        g_pointer = nullptr;
     }
 
     if (g_seat) {
@@ -1024,6 +1273,26 @@ rwl_status rwlCreateWindow(rwl_window_type type,
     window->height = height;
     window->fractional_scale = nullptr;
     window->preferred_fractional_scale = 120;  // Default 1.0x (120/120)
+    window->pixel_size_callback = nullptr;
+    window->logical_size_callback = nullptr;
+    window->key_callback = nullptr;
+    window->char_callback = nullptr;
+    window->pointer_enter_callback = nullptr;
+    window->pointer_leave_callback = nullptr;
+    window->pointer_motion_callback = nullptr;
+    window->pointer_button_callback = nullptr;
+    window->pointer_scroll_callback = nullptr;
+    window->user_pointer = nullptr;
+    window->should_close = false;
+    memset(window->key_states, 0, sizeof(window->key_states));
+    window->pointer_x = 0.0;
+    window->pointer_y = 0.0;
+    window->pointer_inside = false;
+    window->scroll_delta_x = 0.0;
+    window->scroll_delta_y = 0.0;
+    window->scroll_discrete_x = 0;
+    window->scroll_discrete_y = 0;
+    window->scroll_pending = false;
 
     // Create underlying wl_surface
     window->surface = wl_compositor_create_surface(g_compositor);
@@ -1192,6 +1461,61 @@ rwl_status rwlSetCharCallback(rwl_window* window, rwl_char_callback callback) {
 
     rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
     win->char_callback = callback;
+
+    return RWL_STATUS_OK;
+}
+
+rwl_status rwlSetPointerEnterCallback(rwl_window* window, rwl_pointer_enter_callback callback) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->pointer_enter_callback = callback;
+
+    return RWL_STATUS_OK;
+}
+
+rwl_status rwlSetPointerLeaveCallback(rwl_window* window, rwl_pointer_leave_callback callback) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->pointer_leave_callback = callback;
+
+    return RWL_STATUS_OK;
+}
+
+rwl_status rwlSetPointerMotionCallback(rwl_window* window, rwl_pointer_motion_callback callback) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->pointer_motion_callback = callback;
+
+    return RWL_STATUS_OK;
+}
+
+rwl_status rwlSetPointerButtonCallback(rwl_window* window, rwl_pointer_button_callback callback) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->pointer_button_callback = callback;
+
+    return RWL_STATUS_OK;
+}
+
+rwl_status rwlSetPointerScrollCallback(rwl_window* window, rwl_pointer_scroll_callback callback) {
+    if (!window) {
+        return RWL_STATUS_INVALID_ARGUMENT;
+    }
+
+    rwl_window_internal* win = reinterpret_cast<rwl_window_internal*>(window);
+    win->pointer_scroll_callback = callback;
 
     return RWL_STATUS_OK;
 }

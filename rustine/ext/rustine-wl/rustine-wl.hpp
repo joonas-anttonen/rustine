@@ -165,6 +165,15 @@ typedef enum rwl_key {
     RWL_KEY_COUNT = 349
 } rwl_key;
 
+typedef enum rwl_mouse_button {
+    RWL_MOUSE_BUTTON_UNKNOWN = 0,
+    RWL_MOUSE_BUTTON_LEFT = 1,
+    RWL_MOUSE_BUTTON_RIGHT = 2,
+    RWL_MOUSE_BUTTON_MIDDLE = 3,
+    RWL_MOUSE_BUTTON_BACK = 4,
+    RWL_MOUSE_BUTTON_FORWARD = 5,
+} rwl_mouse_button;
+
 // Callback for pixel size changes (e.g., when compositor configures the surface)
 typedef void (*rwl_pixel_size_callback)(rwl_window* window, uint32_t width, uint32_t height);
 // Callback for logical size changes (e.g., when compositor configures the surface)
@@ -177,6 +186,22 @@ typedef void (*rwl_key_callback)(
 // Callback for character input events (UTF-32 codepoint)
 // Only triggered on key press, not release
 typedef void (*rwl_char_callback)(rwl_window* window, uint32_t codepoint);
+
+// Pointer input callbacks
+typedef void (*rwl_pointer_enter_callback)(rwl_window* window, double x, double y);
+typedef void (*rwl_pointer_leave_callback)(rwl_window* window, double x, double y);
+typedef void (*rwl_pointer_motion_callback)(rwl_window* window, double x, double y);
+typedef void (*rwl_pointer_button_callback)(
+    rwl_window* window, double x, double y, rwl_mouse_button button, rwl_action action, rwl_mod mods);
+typedef void (*rwl_pointer_scroll_callback)(
+    rwl_window* window,
+    double x,
+    double y,
+    double delta_x,
+    double delta_y,
+    int32_t delta_discrete_x,
+    int32_t delta_discrete_y,
+    rwl_mod mods);
 
 // Callback for logging messages from the library
 // severity: 0=Debug, 1=Info, 2=Warning, 3=Error
@@ -221,6 +246,12 @@ rwl_status rwlSetPixelSizeCallback(rwl_window* window, rwl_pixel_size_callback c
 rwl_status rwlSetLogicalSizeCallback(rwl_window* window, rwl_logical_size_callback callback);
 rwl_status rwlSetKeyCallback(rwl_window* window, rwl_key_callback callback);
 rwl_status rwlSetCharCallback(rwl_window* window, rwl_char_callback callback);
+// Pointer callbacks
+rwl_status rwlSetPointerEnterCallback(rwl_window* window, rwl_pointer_enter_callback callback);
+rwl_status rwlSetPointerLeaveCallback(rwl_window* window, rwl_pointer_leave_callback callback);
+rwl_status rwlSetPointerMotionCallback(rwl_window* window, rwl_pointer_motion_callback callback);
+rwl_status rwlSetPointerButtonCallback(rwl_window* window, rwl_pointer_button_callback callback);
+rwl_status rwlSetPointerScrollCallback(rwl_window* window, rwl_pointer_scroll_callback callback);
 
 // Get the buffer size to render at (accounts for fractional scaling).
 rwl_status rwlGetPixelSize(rwl_window* window, uint32_t* width, uint32_t* height);
