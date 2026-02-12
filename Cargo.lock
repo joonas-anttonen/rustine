@@ -755,6 +755,7 @@ dependencies = [
 name = "rustine-mech"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rustine",
 ]
 

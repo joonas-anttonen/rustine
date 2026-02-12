@@ -1,33 +1,71 @@
-use rustine::{log, lua::LuaEngine};
+use std::sync::{Arc, Mutex, atomic};
 
-fn main() {
+use rustine::{Version, log};
+use rustine_mech::application::*;
+
+static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
+
+extern "C" fn handle_sigterm(_signal: i32) {
+    log::info!("SIGTERM");
+    SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
+    rustine::gui::Gui::wake_up();
+}
+fn install_signal_handlers() {
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = handle_sigterm as *const () as usize;
+        sa.sa_flags = libc::SA_RESTART;
+        libc::sigemptyset(&mut sa.sa_mask);
+
+        if libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut()) != 0 {
+            let os_error = std::io::Error::last_os_error();
+            eprintln!("Failed to install SIGINT handler: {os_error:?}",);
+        }
+        if libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut()) != 0 {
+            let os_error = std::io::Error::last_os_error();
+            eprintln!("Failed to install SIGTERM handler: {os_error:?}",);
+        }
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    install_signal_handlers();
+
     log::set_current_thread_name("main");
     log::add_listener(log::ConsoleListener::new(true));
 
-    let mut engine = LuaEngine::new();
-    engine.register_log_function();
+    log::debug!("STARTUP");
 
-    // Execute Lua script
-    let script = r#"
-        log("Hello from Lua!")
-        
-        player_x = 100
-        player_y = 200
-        
-        function update(delta)
-            player_x = player_x + delta * 10
-            log("Player moved to: " .. player_x)
-        end
-    "#;
+    {
+        let gfx_builder = rustine::gfx::Gfx::builder(rustine::Platform::Wayland)
+            .app_name("rustine-mech")
+            .app_version(Version::new(0, 1, 0))
+            .debugging(true)
+            .device_selector(rustine::gfx::DeviceSelector::Optimal);
+        let gfx = Arc::new(Mutex::new(gfx_builder.build().unwrap()));
 
-    engine.execute(script).unwrap();
+        let application = Box::new(MyApplication::new());
 
-    // Call Lua from Rust
-    engine.set_global_number("delta", 0.016);
-    engine.execute("update(delta)").unwrap();
+        let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
+            .window_title("rustine-mech")
+            .window_size(1280, 720)
+            .window_type(rustine::gui::WindowType::Normal);
+        let gui = gui_builder.build(Arc::clone(&gfx), application);
 
-    // Read values from Lua
-    if let Some(x) = engine.get_global_number("player_x") {
-        println!("Player X from Rust: {}", x);
+        let mode = rustine::RunMode::Event;
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                rustine::gfx::run(Arc::clone(&gfx), &SHUTDOWN_FLAG, mode);
+            });
+
+            rustine::gui::run(&gui, &SHUTDOWN_FLAG, mode);
+
+            SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
+            gfx.lock().unwrap().wake_up();
+        });
     }
+
+    log::debug!("SHUTDOWN");
+
+    std::process::ExitCode::SUCCESS
 }
