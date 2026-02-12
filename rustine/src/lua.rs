@@ -180,6 +180,8 @@ pub(crate) mod ffi {
 
         // Auxiliary library
         pub fn luaL_openlibs(L: *mut lua_State);
+        pub fn luaL_ref(L: *mut lua_State, t: c_int) -> c_int;
+        pub fn luaL_unref(L: *mut lua_State, t: c_int, r: c_int);
     }
 
     #[inline]

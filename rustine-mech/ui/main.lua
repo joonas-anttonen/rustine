@@ -24,13 +24,18 @@ local card_style = {
     },
 }
 
+local state = {
+    launch_clicks = 0,
+}
+
 -- Widget helpers
-local function button(label)
+local function button(label, on_click)
     return ui.div({
         style = button_style,
         children = {
             ui.label(label, { style = { foreground = "#F0F6FC" } }),
         },
+        on_click = on_click,
     })
 end
 
@@ -46,6 +51,8 @@ local header_style = ui.compose(card_style.normal, {
     size = { width = "fill", height = 72 },
 })
 
+local header_label = ui.label("MECH OPS", { scale = 1.4, style = { foreground = "#F0F6FC" } })
+
 local root = ui.div({
     style = {
         layout = { direction = "column", align_items = "stretch", justify_content = "start", gap = 16 },
@@ -57,9 +64,13 @@ local root = ui.div({
         ui.div({
             style = header_style,
             children = {
-                ui.label("MECH OPS", { scale = 1.4, style = { foreground = "#F0F6FC" } }),
+                header_label,
                 ui.spacer(),
-                button("Launch"),
+                button("Launch", function()
+                    state.launch_clicks = state.launch_clicks + 1
+                    ui.log("Launch clicked! count=" .. tostring(state.launch_clicks))
+                    ui.set_text(header_label, "MECH OPS (" .. tostring(state.launch_clicks) .. ")")
+                end),
                 button("Diagnostics"),
                 button("Power"),
             },

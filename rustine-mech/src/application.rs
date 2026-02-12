@@ -7,9 +7,7 @@ use rustine::{
 use std::path::Path;
 
 struct MyApplicationState {
-    dom: dom::Dom,
-    root: dom::NodeId,
-    style: StyleComputer,
+    runtime: gui::lua::LuaUiRuntime,
 }
 
 pub struct MyApplication {
@@ -18,10 +16,10 @@ pub struct MyApplication {
 
 impl MyApplication {
     pub fn new() -> Self {
-        let (dom, root, style, _) = load_lua_ui(Path::new("ui/main.lua"));
+        let (runtime, _) = load_lua_runtime(Path::new("ui/main.lua"));
 
         MyApplication {
-            state: std::cell::RefCell::new(MyApplicationState { dom, root, style }),
+            state: std::cell::RefCell::new(MyApplicationState { runtime }),
         }
     }
 }
@@ -66,7 +64,8 @@ impl gui::Application for MyApplication {
 
     fn on_mouse_enter(&self, gui: &gui::Gui, event: gui::MouseEnterEvent) {
         let mut state = self.state.borrow_mut();
-        let MyApplicationState { dom, style, .. } = &mut *state;
+        let MyApplicationState { runtime } = &mut *state;
+        let (dom, style) = runtime.dom_and_style_mut();
         if style.update_mouse_position(event.position, dom) {
             gui.mark_damaged();
         }
@@ -74,15 +73,16 @@ impl gui::Application for MyApplication {
 
     fn on_mouse_leave(&self, gui: &gui::Gui, _event: gui::MouseLeaveEvent) {
         let mut state = self.state.borrow_mut();
-        let MyApplicationState { style, .. } = &mut *state;
-        if style.set_hovered(None) {
+        let MyApplicationState { runtime } = &mut *state;
+        if runtime.style_mut().set_hovered(None) {
             gui.mark_damaged();
         }
     }
 
     fn on_mouse_move(&self, gui: &gui::Gui, event: gui::MouseMoveEvent) {
         let mut state = self.state.borrow_mut();
-        let MyApplicationState { dom, style, .. } = &mut *state;
+        let MyApplicationState { runtime } = &mut *state;
+        let (dom, style) = runtime.dom_and_style_mut();
         if style.update_mouse_position(event.position, dom) {
             gui.mark_damaged();
         }
@@ -90,15 +90,32 @@ impl gui::Application for MyApplication {
 
     fn on_mouse_button(&self, gui: &gui::Gui, event: gui::MouseButtonEvent) {
         let mut state = self.state.borrow_mut();
-        let MyApplicationState { dom, style, .. } = &mut *state;
-        let mut changed = style.update_mouse_position(event.position, dom);
+        let MyApplicationState { runtime } = &mut *state;
+        let mut clicked = None;
+        let mut changed = false;
 
-        if event.button == gui::MouseButton::LEFT {
-            if event.action == gui::Action::PRESS {
-                let hovered = style.hovered_node();
-                changed |= style.set_active(hovered);
-            } else {
-                changed |= style.set_active(None);
+        {
+            let (dom, style) = runtime.dom_and_style_mut();
+            changed |= style.update_mouse_position(event.position, dom);
+
+            if event.button == gui::MouseButton::LEFT {
+                if event.action == gui::Action::PRESS {
+                    let hovered = style.hovered_node();
+                    changed |= style.set_active(hovered);
+                } else {
+                    let active = style.active_node();
+                    let hovered = style.hovered_node();
+                    if active.is_some() && active == hovered {
+                        clicked = active;
+                    }
+                    changed |= style.set_active(None);
+                }
+            }
+        }
+
+        if let Some(node_id) = clicked {
+            if runtime.dispatch_click(node_id) {
+                changed = true;
             }
         }
 
@@ -109,34 +126,33 @@ impl gui::Application for MyApplication {
 
     fn render(&self, gui: &gui::Gui, frame: &mut gfx::RenderFrame) {
         let mut state = self.state.borrow_mut();
-        let MyApplicationState { dom, root, style, .. } = &mut *state;
+        let MyApplicationState { runtime } = &mut *state;
         let pixel_size = gui.pixel_size();
         let root_size = Vector2f::new(pixel_size.x as f32, pixel_size.y as f32);
+        let root = runtime.root();
+        let (dom, style) = runtime.dom_and_style_mut();
 
         dom.layout(root_size);
-        render_dom(dom, *root, style, frame);
+        render_dom(dom, root, style, frame);
     }
 }
 
-fn load_lua_ui(path: &Path) -> (dom::Dom, dom::NodeId, StyleComputer, bool) {
-    match gui::lua::load_dom_from_file(path) {
-        Ok(lua_dom) => (lua_dom.dom, lua_dom.root, lua_dom.style, true),
+fn load_lua_runtime(path: &Path) -> (gui::lua::LuaUiRuntime, bool) {
+    match gui::lua::load_runtime_from_file(path) {
+        Ok(runtime) => (runtime, true),
         Err(err) => {
             log::warning!("Failed to load Lua UI: {err}");
-            let mut dom = dom::Dom::new();
-            let root = dom.root();
-            let style = StyleComputer::new();
-            build_error_ui(&mut dom, root, err.to_string());
-            (dom, root, style, false)
+            let mut runtime = gui::lua::LuaUiRuntime::new_empty();
+            let root = runtime.root();
+            build_error_ui(runtime.dom_mut(), root, err.to_string());
+            (runtime, false)
         }
     }
 }
 
 fn reload_lua_ui(state: &mut MyApplicationState) -> bool {
-    let (dom, root, style, loaded) = load_lua_ui(Path::new("ui/main.lua"));
-    state.dom = dom;
-    state.root = root;
-    state.style = style;
+    let (runtime, loaded) = load_lua_runtime(Path::new("ui/main.lua"));
+    state.runtime = runtime;
     loaded
 }
 

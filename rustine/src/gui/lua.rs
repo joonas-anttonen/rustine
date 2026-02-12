@@ -6,6 +6,7 @@ use crate::gfx;
 use crate::gui::{dom, style};
 use crate::lua;
 
+use std::collections::HashMap;
 use std::ffi;
 use std::os::raw;
 use std::path;
@@ -67,6 +68,7 @@ struct LuaUiContext {
     dom: dom::Dom,
     root: dom::NodeId,
     style: style::StyleComputer,
+    click_handlers: HashMap<dom::NodeId, i32>,
 }
 
 impl LuaUiContext {
@@ -77,8 +79,87 @@ impl LuaUiContext {
             dom,
             root,
             style: style::StyleComputer::new(),
+            click_handlers: HashMap::new(),
         }
     }
+}
+
+pub struct LuaUiRuntime {
+    engine: lua::LuaEngine,
+    context: Box<LuaUiContext>,
+}
+
+impl LuaUiRuntime {
+    pub fn new() -> Result<Self, String> {
+        let mut engine = lua::LuaEngine::new();
+        engine.register_log_function();
+
+        let mut context = Box::new(LuaUiContext::new());
+        unsafe {
+            register_ui_api(engine.state(), &mut *context)?;
+        }
+
+        Ok(Self { engine, context })
+    }
+
+    pub fn new_empty() -> Self {
+        let mut engine = lua::LuaEngine::new();
+        engine.register_log_function();
+        let context = Box::new(LuaUiContext::new());
+        Self { engine, context }
+    }
+
+    pub fn dom(&self) -> &dom::Dom {
+        &self.context.dom
+    }
+
+    pub fn dom_mut(&mut self) -> &mut dom::Dom {
+        &mut self.context.dom
+    }
+
+    pub fn dom_and_style_mut(&mut self) -> (&mut dom::Dom, &mut style::StyleComputer) {
+        let context = &mut *self.context;
+        (&mut context.dom, &mut context.style)
+    }
+
+    pub fn root(&self) -> dom::NodeId {
+        self.context.root
+    }
+
+    pub fn style_mut(&mut self) -> &mut style::StyleComputer {
+        &mut self.context.style
+    }
+
+    pub fn dispatch_click(&mut self, node_id: dom::NodeId) -> bool {
+        let Some(callback) = self.context.click_handlers.get(&node_id).copied() else {
+            return false;
+        };
+
+        unsafe {
+            let state = self.engine.state();
+            lua::ffi::lua_rawgeti(state, lua::ffi::LUA_REGISTRYINDEX, callback as i64);
+            push_node_handle(state, node_id);
+            if lua::ffi::lua_pcall(state, 1, 0, 0) != 0 {
+                let err = get_lua_error(state);
+                crate::log::warning!("Lua on_click failed: {err}");
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+pub fn load_runtime_from_file(path: impl AsRef<path::Path>) -> Result<LuaUiRuntime, String> {
+    let mut runtime = LuaUiRuntime::new()?;
+    runtime.engine.execute_file(path)?;
+    Ok(runtime)
+}
+
+pub fn load_runtime_from_string(code: &str) -> Result<LuaUiRuntime, String> {
+    let mut runtime = LuaUiRuntime::new()?;
+    runtime.engine.execute(code)?;
+    Ok(runtime)
 }
 
 struct StyleBundle {
@@ -114,6 +195,7 @@ unsafe fn register_ui_api(
     set_field_function(state, "div", ui_div);
     set_field_function(state, "text", ui_text);
     set_field_function(state, "dom", ui_dom);
+    set_field_function(state, "set_text", ui_set_text);
     set_field_function(state, "get_default_font", ui_get_default_font);
 
     let name = ffi::CString::new("ui").map_err(|_| "Invalid UI table name".to_string())?;
@@ -273,11 +355,37 @@ extern "C" fn ui_text(state: *mut lua::ffi::lua_State) -> raw::c_int {
         if lua::ffi::lua_gettop(state) >= options_index
             && lua::ffi::lua_type(state, options_index) == lua::ffi::LUA_TTABLE
         {
+            if let Some(on_click_ref) = lua_field_function_ref(state, options_index, "on_click") {
+                context.click_handlers.insert(id, on_click_ref);
+            }
             apply_children(state, options_index, id, context);
         }
 
         push_node_handle(state, id);
         1
+    }
+}
+
+extern "C" fn ui_set_text(state: *mut lua::ffi::lua_State) -> raw::c_int {
+    unsafe {
+        let Some(context) = get_context(state) else {
+            return 0;
+        };
+
+        if lua::ffi::lua_gettop(state) < 2 {
+            return 0;
+        }
+
+        let Some(node_id) = lua_node_id(state, 1) else {
+            return 0;
+        };
+
+        let Some(text) = lua_string(state, 2) else {
+            return 0;
+        };
+
+        context.dom.set_text(node_id, text);
+        0
     }
 }
 
@@ -341,6 +449,10 @@ unsafe fn apply_node_options(
             rules = rules.with_focused(focus);
         }
         context.style.set_rules(node_id, rules);
+    }
+
+    if let Some(on_click_ref) = lua_field_function_ref(state, options_index, "on_click") {
+        context.click_handlers.insert(node_id, on_click_ref);
     }
 
     apply_children(state, options_index, node_id, context);
@@ -473,6 +585,26 @@ unsafe fn lua_field_integer(
     let result = lua_integer(state, -1);
     lua::ffi::lua_pop(state, 1);
     result
+}
+
+unsafe fn lua_field_function_ref(
+    state: *mut lua::ffi::lua_State,
+    table_index: raw::c_int,
+    name: &str,
+) -> Option<i32> {
+    let index = lua_abs_index(state, table_index);
+    let Ok(c_name) = ffi::CString::new(name) else {
+        return None;
+    };
+
+    lua::ffi::lua_getfield(state, index, c_name.as_ptr());
+    if lua::ffi::lua_type(state, -1) == lua::ffi::LUA_TFUNCTION {
+        let reference = lua::ffi::luaL_ref(state, lua::ffi::LUA_REGISTRYINDEX);
+        Some(reference)
+    } else {
+        lua::ffi::lua_pop(state, 1);
+        None
+    }
 }
 
 unsafe fn lua_string(state: *mut lua::ffi::lua_State, idx: raw::c_int) -> Option<String> {

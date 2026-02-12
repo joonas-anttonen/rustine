@@ -80,6 +80,7 @@
         "variant": "cpp"
     },
     "Lua.diagnostics.globals": [
-        "ui"
+        "ui",
+        "log"
     ]
 }

@@ -60,3 +60,7 @@ function ui.label(text, opts)
         font_scale = opts.scale or 1.0,
     }, opts))
 end
+
+function ui.log(text)
+    log(text)
+end
