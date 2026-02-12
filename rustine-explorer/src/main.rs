@@ -13,7 +13,7 @@ extern "C" fn handle_sigterm(_signal: i32) {
 fn install_signal_handlers() {
     unsafe {
         let mut sa: libc::sigaction = std::mem::zeroed();
-        sa.sa_sigaction = handle_sigterm as usize;
+        sa.sa_sigaction = handle_sigterm as *const () as usize;
         sa.sa_flags = libc::SA_RESTART;
         libc::sigemptyset(&mut sa.sa_mask);
 

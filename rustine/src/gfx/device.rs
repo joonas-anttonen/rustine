@@ -195,6 +195,7 @@ impl Drop for Device {
     }
 }
 
+#[allow(unused_assignments)] // Compiler can't see the Vulkan reads for pNext chains.
 impl Device {
     pub fn handle(&self) -> vk::VkDevice {
         self.handle

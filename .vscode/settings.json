@@ -1,15 +1,4 @@
 {
-    "cmake.ignoreCMakeListsMissing": true,
-    "terminal.integrated.defaultProfile.linux": "nix-develop",
-    "terminal.integrated.profiles.linux": {
-        "nix-develop": {
-            "path": "bash",
-            "args": [
-                "-c",
-                "nix develop"
-            ]
-        }
-    },
     "files.associations": {
         "wayland-client-protocol.h": "c",
         "time.h": "c",
