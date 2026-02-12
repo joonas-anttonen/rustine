@@ -4,6 +4,76 @@ use crate::{Color, Vector2f};
 
 pub type NodeId = usize;
 
+/// Direction for layout flow and sizing.
+///
+/// The direction sets the main axis (flow direction). The cross axis is the
+/// perpendicular axis used for alignment and stretching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutDirection {
+	/// Lay out children horizontally; main axis is left-to-right.
+	Row,
+	/// Lay out children vertically; main axis is top-to-bottom.
+	Column,
+}
+
+/// Cross-axis alignment of children inside a layout.
+///
+/// The cross axis is perpendicular to the main axis: for `Row` it is vertical,
+/// and for `Column` it is horizontal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlignItems {
+	/// Align to the start edge of the cross axis.
+	Start,
+	/// Center along the cross axis.
+	Center,
+	/// Align to the end edge of the cross axis.
+	End,
+	/// Stretch to fill the available cross-axis space.
+	Stretch,
+}
+
+/// Main-axis distribution of children inside a layout.
+///
+/// The main axis is the flow direction: `Row` uses the horizontal axis, and
+/// `Column` uses the vertical axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JustifyContent {
+	/// Pack toward the start edge of the main axis.
+	Start,
+	/// Center along the main axis.
+	Center,
+	/// Pack toward the end edge of the main axis.
+	End,
+	/// Evenly distribute extra space between children.
+	SpaceBetween,
+	/// Distribute extra space around children (half space at edges).
+	SpaceAround,
+	/// Distribute extra space evenly, including edges.
+	SpaceEvenly,
+}
+
+/// Length representation for sizes and constraints.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Length {
+	/// Use the content's intrinsic size.
+	Auto,
+	/// Fixed size in pixels.
+	Px(f32),
+	/// Percentage of the available parent size.
+	Percent(f32),
+	/// Take remaining space after fixed sizes and gaps.
+	Fill,
+}
+
+/// How a node participates in layout positioning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PositionMode {
+	/// Participate in flow layout with siblings.
+	Flow,
+	/// Positioned relative to the parent using anchors.
+	Absolute,
+}
+
 #[derive(Debug, Clone)]
 pub struct Dom {
 	nodes: Vec<Node>,
@@ -73,6 +143,10 @@ impl Dom {
 		true
 	}
 
+	pub fn hit_test(&self, position: Vector2f) -> Option<NodeId> {
+		self.hit_test_node(self.root, position)
+	}
+
 	fn alloc_node(nodes: &mut Vec<Node>, kind: NodeKind) -> NodeId {
 		let id = nodes.len();
 		nodes.push(Node {
@@ -85,32 +159,41 @@ impl Dom {
 		id
 	}
 
+	fn hit_test_node(&self, id: NodeId, position: Vector2f) -> Option<NodeId> {
+		let node = self.nodes.get(id)?;
+		if !node.layout.contains(position) {
+			return None;
+		}
+
+		for child_id in node.children.iter().rev().copied() {
+			if let Some(hit) = self.hit_test_node(child_id, position) {
+				return Some(hit);
+			}
+		}
+
+		Some(id)
+	}
+
 	fn layout_node(&mut self, id: NodeId, rect: LayoutRect) {
-		let (children, style) = match self.nodes.get(id) {
-			Some(node) => (node.children.clone(), node.style().cloned()),
+		let (children, style) = match self.nodes.get_mut(id) {
+			Some(node) => {
+				node.layout = rect;
+				let children = std::mem::take(&mut node.children);
+				let style = node.style_mut().map(std::mem::take);
+				(children, style)
+			}
 			None => return,
 		};
 
-		if let Some(node) = self.nodes.get_mut(id) {
-			node.layout = rect;
-		}
-
 		let Some(style) = style else {
+			if let Some(node) = self.nodes.get_mut(id) {
+				node.children = children;
+			}
 			return;
 		};
 
 		let content_rect = rect.inset(style.border.add(style.padding));
-		let flow_children: Vec<NodeId> = children
-			.iter()
-			.copied()
-			.filter(|child_id| {
-				self.nodes
-					.get(*child_id)
-					.and_then(|node| node.style())
-					.map(|child_style| child_style.position.mode == PositionMode::Flow)
-					.unwrap_or(false)
-			})
-			.collect();
+		let mut flow_children = Vec::new();
 
 		for child_id in children.iter().copied() {
 			let child_style = match self
@@ -118,23 +201,33 @@ impl Dom {
 				.get(child_id)
 				.and_then(|node| node.style())
 			{
-				Some(style) => style.clone(),
+				Some(style) => style,
 				None => continue,
 			};
-			let child_content_size = self
-				.nodes
-				.get(child_id)
-				.map(|node| node.content_size)
-				.unwrap_or_default();
 
-			if child_style.position.mode == PositionMode::Absolute {
-				let child_rect =
-					Self::layout_absolute(&content_rect, &child_style, child_content_size);
-				self.layout_node(child_id, child_rect);
+			match child_style.position.mode {
+				PositionMode::Flow => flow_children.push(child_id),
+				PositionMode::Absolute => {
+					let child_content_size = self
+						.nodes
+						.get(child_id)
+						.map(|node| node.content_size)
+						.unwrap_or_default();
+					let child_rect =
+						Self::layout_absolute(&content_rect, child_style, child_content_size);
+					self.layout_node(child_id, child_rect);
+				}
 			}
 		}
 
 		self.layout_flow_children(&content_rect, &style.layout, &flow_children);
+
+		if let Some(node) = self.nodes.get_mut(id) {
+			if let Some(div) = node.as_div_mut() {
+				div.style = style;
+			}
+			node.children = children;
+		}
 	}
 
 	fn layout_flow_children(
@@ -149,36 +242,30 @@ impl Dom {
 
 		let mut fixed_main = 0.0f32;
 		let mut fill_count = 0usize;
-		let mut child_styles = Vec::with_capacity(children.len());
+		let mut child_count = 0usize;
 
 		for child_id in children.iter().copied() {
-			let style = match self
-				.nodes
-				.get(child_id)
-				.and_then(|node| node.style())
-			{
-				Some(style) => style.clone(),
-				None => continue,
+			let Some(node) = self.nodes.get(child_id) else {
+				continue;
 			};
-			let content_size = self
-				.nodes
-				.get(child_id)
-				.map(|node| node.content_size)
-				.unwrap_or_default();
+			let Some(style) = node.style() else {
+				continue;
+			};
+			let content_size = node.content_size;
+			child_count += 1;
 
 			let (main, _) =
-				Self::resolve_child_size(parent_rect, layout, &style, content_size, 0.0);
+				Self::resolve_child_size(parent_rect, layout, style, content_size, 0.0);
 			let main_margin = Self::main_margin(layout, &style.margin);
 			if matches!(Self::main_length(layout, &style.size), Length::Fill) {
 				fill_count += 1;
 			} else {
 				fixed_main += main + main_margin;
 			}
-			child_styles.push((child_id, style, content_size));
 		}
 
 		let base_gap = layout.gap.max(0.0);
-		let gap_total = base_gap * (child_styles.len().saturating_sub(1) as f32);
+		let gap_total = base_gap * (child_count.saturating_sub(1) as f32);
 		let mut available_main = Self::main_size(layout, parent_rect) - fixed_main - gap_total;
 		if available_main < 0.0 {
 			available_main = 0.0;
@@ -189,19 +276,26 @@ impl Dom {
 			0.0
 		};
 
-		let mut main_sizes = Vec::with_capacity(child_styles.len());
+		let mut main_sizes = Vec::with_capacity(children.len());
 		let mut total_main = gap_total;
-		for (_, style, content_size) in child_styles.iter() {
+		for child_id in children.iter().copied() {
+			let Some(node) = self.nodes.get(child_id) else {
+				continue;
+			};
+			let Some(style) = node.style() else {
+				continue;
+			};
+			let content_size = node.content_size;
 			let (main, _) = Self::resolve_child_size(
 				parent_rect,
 				layout,
 				style,
-				*content_size,
+				content_size,
 				fill_share,
 			);
 			let main_margin = Self::main_margin(layout, &style.margin);
 			total_main += main + main_margin;
-			main_sizes.push(main);
+			main_sizes.push((child_id, main));
 		}
 
 		let mut extra_space = Self::main_size(layout, parent_rect) - total_main;
@@ -209,30 +303,31 @@ impl Dom {
 			extra_space = 0.0;
 		}
 
+		let child_count = main_sizes.len();
 		let (start_offset, extra_gap) = match layout.justify_content {
 			JustifyContent::Start => (0.0, 0.0),
 			JustifyContent::Center => (extra_space * 0.5, 0.0),
 			JustifyContent::End => (extra_space, 0.0),
 			JustifyContent::SpaceBetween => {
-				if child_styles.len() > 1 {
-					(0.0, extra_space / (child_styles.len() - 1) as f32)
+				if child_count > 1 {
+					(0.0, extra_space / (child_count - 1) as f32)
 				} else {
 					(0.0, 0.0)
 				}
 			}
 			JustifyContent::SpaceAround => {
-				if child_styles.is_empty() {
+				if child_count == 0 {
 					(0.0, 0.0)
 				} else {
-					let gap = extra_space / child_styles.len() as f32;
+					let gap = extra_space / child_count as f32;
 					(gap * 0.5, gap)
 				}
 			}
 			JustifyContent::SpaceEvenly => {
-				if child_styles.is_empty() {
+				if child_count == 0 {
 					(0.0, 0.0)
 				} else {
-					let gap = extra_space / (child_styles.len() as f32 + 1.0);
+					let gap = extra_space / (child_count as f32 + 1.0);
 					(gap, gap)
 				}
 			}
@@ -240,40 +335,47 @@ impl Dom {
 
 		let gap = base_gap + extra_gap;
 		let mut cursor = start_offset;
-		for ((child_id, style, content_size), main_size) in
-			child_styles.iter().zip(main_sizes.iter())
-		{
-			let (main, cross) = Self::resolve_child_size(
-				parent_rect,
-				layout,
-				style,
-				*content_size,
-				fill_share,
-			);
-			let cross_size = Self::resolve_cross_size(parent_rect, layout, style, cross);
-			let margin = &style.margin;
-			let (pos, size) = match layout.direction {
-				LayoutDirection::Row => {
-					let x = parent_rect.position.x + cursor + margin.left;
-					let y = Self::align_cross(parent_rect, layout, cross_size, margin);
-					(
-						Vector2f::new(x, y),
-						Vector2f::new(main, cross_size),
-					)
-				}
-				LayoutDirection::Column => {
-					let x = Self::align_cross(parent_rect, layout, cross_size, margin);
-					let y = parent_rect.position.y + cursor + margin.top;
-					(
-						Vector2f::new(x, y),
-						Vector2f::new(cross_size, main),
-					)
-				}
+		for (child_id, main_size) in main_sizes.into_iter() {
+			let (child_rect, main_margin) = {
+				let Some(node) = self.nodes.get(child_id) else {
+					continue;
+				};
+				let Some(style) = node.style() else {
+					continue;
+				};
+				let content_size = node.content_size;
+				let (main, cross) = Self::resolve_child_size(
+					parent_rect,
+					layout,
+					style,
+					content_size,
+					fill_share,
+				);
+				let cross_size = Self::resolve_cross_size(parent_rect, layout, style, cross);
+				let margin = style.margin;
+				let (pos, size) = match layout.direction {
+					LayoutDirection::Row => {
+						let x = parent_rect.position.x + cursor + margin.left;
+						let y = Self::align_cross(parent_rect, layout, cross_size, &margin);
+						(
+							Vector2f::new(x, y),
+							Vector2f::new(main, cross_size),
+						)
+					}
+					LayoutDirection::Column => {
+						let x = Self::align_cross(parent_rect, layout, cross_size, &margin);
+						let y = parent_rect.position.y + cursor + margin.top;
+						(
+							Vector2f::new(x, y),
+							Vector2f::new(cross_size, main),
+						)
+					}
+				};
+				let child_rect = LayoutRect { position: pos, size };
+				let main_margin = Self::main_margin(layout, &margin);
+				(child_rect, main_margin)
 			};
-			let child_rect = LayoutRect { position: pos, size };
-			self.layout_node(*child_id, child_rect);
-
-			let main_margin = Self::main_margin(layout, margin);
+			self.layout_node(child_id, child_rect);
 			cursor += main_size + main_margin + gap;
 		}
 	}
@@ -604,29 +706,6 @@ impl Style {
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LayoutDirection {
-	Row,
-	Column,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AlignItems {
-	Start,
-	Center,
-	End,
-	Stretch,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JustifyContent {
-	Start,
-	Center,
-	End,
-	SpaceBetween,
-	SpaceAround,
-	SpaceEvenly,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutStyle {
@@ -647,13 +726,6 @@ impl Default for LayoutStyle {
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Length {
-	Auto,
-	Px(f32),
-	Percent(f32),
-	Fill,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Size2 {
@@ -683,11 +755,6 @@ impl Default for Size2 {
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PositionMode {
-	Flow,
-	Absolute,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct PositionStyle {
@@ -816,11 +883,85 @@ impl LayoutRect {
 			size: Vector2f::new(width, height),
 		}
 	}
+
+	pub fn contains(&self, point: Vector2f) -> bool {
+		point.x >= self.position.x
+			&& point.y >= self.position.y
+			&& point.x < self.position.x + self.size.x
+			&& point.y < self.position.y + self.size.y
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	struct ExpectedStyle {
+		direction: LayoutDirection,
+		align_items: AlignItems,
+		justify_content: JustifyContent,
+		gap: f32,
+		size: Size2,
+		min_size: Size2,
+		max_size: Size2,
+		position: PositionStyle,
+		padding: EdgeSizes,
+		margin: EdgeSizes,
+		border: EdgeSizes,
+	}
+
+	fn apply_expected_style(dom: &mut Dom, id: NodeId, expected: &ExpectedStyle) {
+		let style = dom.node_mut(id).unwrap().style_mut().unwrap();
+		style.layout.direction = expected.direction;
+		style.layout.align_items = expected.align_items;
+		style.layout.justify_content = expected.justify_content;
+		style.layout.gap = expected.gap;
+		style.size = expected.size;
+		style.min_size = expected.min_size;
+		style.max_size = expected.max_size;
+		style.position = expected.position;
+		style.padding = expected.padding;
+		style.margin = expected.margin;
+		style.border = expected.border;
+	}
+
+	fn assert_style(node: &Node, expected: &ExpectedStyle) {
+		let style = node.style().unwrap();
+		assert_eq!(style.layout.direction, expected.direction);
+		assert_eq!(style.layout.align_items, expected.align_items);
+		assert_eq!(style.layout.justify_content, expected.justify_content);
+		assert_eq!(style.layout.gap, expected.gap);
+		assert_eq!(style.size.width, expected.size.width);
+		assert_eq!(style.size.height, expected.size.height);
+		assert_eq!(style.min_size.width, expected.min_size.width);
+		assert_eq!(style.min_size.height, expected.min_size.height);
+		assert_eq!(style.max_size.width, expected.max_size.width);
+		assert_eq!(style.max_size.height, expected.max_size.height);
+		assert_eq!(style.position.mode, expected.position.mode);
+		assert_eq!(style.position.anchors.left, expected.position.anchors.left);
+		assert_eq!(style.position.anchors.right, expected.position.anchors.right);
+		assert_eq!(style.position.anchors.top, expected.position.anchors.top);
+		assert_eq!(style.position.anchors.bottom, expected.position.anchors.bottom);
+		assert_eq!(style.padding.left, expected.padding.left);
+		assert_eq!(style.padding.right, expected.padding.right);
+		assert_eq!(style.padding.top, expected.padding.top);
+		assert_eq!(style.padding.bottom, expected.padding.bottom);
+		assert_eq!(style.margin.left, expected.margin.left);
+		assert_eq!(style.margin.right, expected.margin.right);
+		assert_eq!(style.margin.top, expected.margin.top);
+		assert_eq!(style.margin.bottom, expected.margin.bottom);
+		assert_eq!(style.border.left, expected.border.left);
+		assert_eq!(style.border.right, expected.border.right);
+		assert_eq!(style.border.top, expected.border.top);
+		assert_eq!(style.border.bottom, expected.border.bottom);
+	}
+
+	fn assert_layout(node: &Node, position: Vector2f, size: Vector2f) {
+		assert_eq!(node.layout.position.x, position.x);
+		assert_eq!(node.layout.position.y, position.y);
+		assert_eq!(node.layout.size.x, size.x);
+		assert_eq!(node.layout.size.y, size.y);
+	}
 
 	#[test]
 	fn auto_size_uses_content_measurement() {
@@ -969,6 +1110,361 @@ mod tests {
 
 		let child_node = dom.node(child).unwrap();
 		assert_eq!(child_node.parent, Some(parent_b));
+	}
+
+	#[test]
+	fn deep_layout_preserves_structure_and_styles() {
+		let mut dom = Dom::new();
+		let root = dom.root();
+		let a = dom.create_div();
+		let b = dom.create_div();
+		let c = dom.create_div();
+		let d = dom.create_div();
+		let e = dom.create_div();
+		let b1 = dom.create_div();
+		let root_sibling = dom.create_div();
+
+		assert!(dom.append_child(root, a));
+		assert!(dom.append_child(a, b));
+		assert!(dom.append_child(b, c));
+		assert!(dom.append_child(c, d));
+		assert!(dom.append_child(d, e));
+		assert!(dom.append_child(b, b1));
+		assert!(dom.append_child(root, root_sibling));
+
+		let expected_root = ExpectedStyle {
+			direction: LayoutDirection::Column,
+			align_items: AlignItems::Stretch,
+			justify_content: JustifyContent::SpaceBetween,
+			gap: 4.0,
+			size: Size2::fill(),
+			min_size: Size2::auto(),
+			max_size: Size2::auto(),
+			position: PositionStyle::default(),
+			padding: EdgeSizes {
+				left: 3.0,
+				right: 6.0,
+				top: 2.0,
+				bottom: 5.0,
+			},
+			margin: EdgeSizes::zero(),
+			border: EdgeSizes {
+				left: 1.0,
+				right: 2.0,
+				top: 1.5,
+				bottom: 2.5,
+			},
+		};
+
+		let expected_a = ExpectedStyle {
+			direction: LayoutDirection::Row,
+			align_items: AlignItems::Center,
+			justify_content: JustifyContent::Start,
+			gap: 1.0,
+			size: Size2 {
+				width: Length::Percent(0.5),
+				height: Length::Px(120.0),
+			},
+			min_size: Size2 {
+				width: Length::Px(30.0),
+				height: Length::Auto,
+			},
+			max_size: Size2 {
+				width: Length::Auto,
+				height: Length::Px(140.0),
+			},
+			position: PositionStyle::default(),
+			padding: EdgeSizes::zero(),
+			margin: EdgeSizes {
+				left: 4.0,
+				right: 5.0,
+				top: 6.0,
+				bottom: 7.0,
+			},
+			border: EdgeSizes::zero(),
+		};
+
+		let expected_b = ExpectedStyle {
+			direction: LayoutDirection::Column,
+			align_items: AlignItems::End,
+			justify_content: JustifyContent::Center,
+			gap: 2.5,
+			size: Size2 {
+				width: Length::Fill,
+				height: Length::Auto,
+			},
+			min_size: Size2::auto(),
+			max_size: Size2::auto(),
+			position: PositionStyle::default(),
+			padding: EdgeSizes {
+				left: 2.0,
+				right: 2.0,
+				top: 2.0,
+				bottom: 2.0,
+			},
+			margin: EdgeSizes::zero(),
+			border: EdgeSizes::zero(),
+		};
+
+		let expected_c = ExpectedStyle {
+			direction: LayoutDirection::Row,
+			align_items: AlignItems::Start,
+			justify_content: JustifyContent::End,
+			gap: 0.0,
+			size: Size2 {
+				width: Length::Px(64.0),
+				height: Length::Px(48.0),
+			},
+			min_size: Size2::auto(),
+			max_size: Size2 {
+				width: Length::Px(80.0),
+				height: Length::Px(60.0),
+			},
+			position: PositionStyle::default(),
+			padding: EdgeSizes::zero(),
+			margin: EdgeSizes::zero(),
+			border: EdgeSizes::zero(),
+		};
+
+		let expected_d = ExpectedStyle {
+			direction: LayoutDirection::Column,
+			align_items: AlignItems::Center,
+			justify_content: JustifyContent::SpaceAround,
+			gap: 3.0,
+			size: Size2 {
+				width: Length::Auto,
+				height: Length::Auto,
+			},
+			min_size: Size2::auto(),
+			max_size: Size2::auto(),
+			position: PositionStyle::default(),
+			padding: EdgeSizes::zero(),
+			margin: EdgeSizes::zero(),
+			border: EdgeSizes {
+				left: 1.0,
+				right: 1.0,
+				top: 1.0,
+				bottom: 1.0,
+			},
+		};
+
+		let expected_e = ExpectedStyle {
+			direction: LayoutDirection::Row,
+			align_items: AlignItems::Stretch,
+			justify_content: JustifyContent::SpaceEvenly,
+			gap: 5.0,
+			size: Size2 {
+				width: Length::Percent(0.25),
+				height: Length::Percent(0.4),
+			},
+			min_size: Size2::auto(),
+			max_size: Size2::auto(),
+			position: PositionStyle::default(),
+			padding: EdgeSizes::zero(),
+			margin: EdgeSizes {
+				left: 1.0,
+				right: 2.0,
+				top: 3.0,
+				bottom: 4.0,
+			},
+			border: EdgeSizes::zero(),
+		};
+
+		let expected_b1 = ExpectedStyle {
+			direction: LayoutDirection::Column,
+			align_items: AlignItems::Start,
+			justify_content: JustifyContent::Start,
+			gap: 0.0,
+			size: Size2 {
+				width: Length::Px(40.0),
+				height: Length::Px(10.0),
+			},
+			min_size: Size2::auto(),
+			max_size: Size2::auto(),
+			position: PositionStyle {
+				mode: PositionMode::Absolute,
+				anchors: Anchors::horizontal(),
+			},
+			padding: EdgeSizes::zero(),
+			margin: EdgeSizes::zero(),
+			border: EdgeSizes::zero(),
+		};
+
+		let expected_root_sibling = ExpectedStyle {
+			direction: LayoutDirection::Column,
+			align_items: AlignItems::Center,
+			justify_content: JustifyContent::Center,
+			gap: 0.5,
+			size: Size2 {
+				width: Length::Px(90.0),
+				height: Length::Px(60.0),
+			},
+			min_size: Size2::auto(),
+			max_size: Size2::auto(),
+			position: PositionStyle::default(),
+			padding: EdgeSizes::zero(),
+			margin: EdgeSizes::zero(),
+			border: EdgeSizes::zero(),
+		};
+
+		apply_expected_style(&mut dom, root, &expected_root);
+		apply_expected_style(&mut dom, a, &expected_a);
+		apply_expected_style(&mut dom, b, &expected_b);
+		apply_expected_style(&mut dom, c, &expected_c);
+		apply_expected_style(&mut dom, d, &expected_d);
+		apply_expected_style(&mut dom, e, &expected_e);
+		apply_expected_style(&mut dom, b1, &expected_b1);
+		apply_expected_style(&mut dom, root_sibling, &expected_root_sibling);
+
+		dom.set_content_size(d, Vector2f::new(24.0, 18.0));
+		dom.set_content_size(e, Vector2f::new(10.0, 12.0));
+		dom.set_content_size(b1, Vector2f::new(8.0, 6.0));
+		dom.layout(Vector2f::new(320.0, 240.0));
+
+		let root_node = dom.node(root).unwrap();
+		assert_eq!(root_node.children, vec![a, root_sibling]);
+		assert_style(root_node, &expected_root);
+		assert_layout(
+			root_node,
+			Vector2f::new(0.0, 0.0),
+			Vector2f::new(320.0, 240.0),
+		);
+
+		let a_node = dom.node(a).unwrap();
+		assert_eq!(a_node.parent, Some(root));
+		assert_eq!(a_node.children, vec![b]);
+		assert_style(a_node, &expected_a);
+		assert_layout(
+			a_node,
+			Vector2f::new(8.0, 9.5),
+			Vector2f::new(154.0, 120.0),
+		);
+
+		let b_node = dom.node(b).unwrap();
+		assert_eq!(b_node.parent, Some(a));
+		assert_eq!(b_node.children, vec![c, b1]);
+		assert_style(b_node, &expected_b);
+		assert_layout(
+			b_node,
+			Vector2f::new(8.0, 67.5),
+			Vector2f::new(154.0, 4.0),
+		);
+
+		let c_node = dom.node(c).unwrap();
+		assert_eq!(c_node.parent, Some(b));
+		assert_eq!(c_node.children, vec![d]);
+		assert_style(c_node, &expected_c);
+		assert_layout(
+			c_node,
+			Vector2f::new(96.0, 69.5),
+			Vector2f::new(64.0, 48.0),
+		);
+
+		let d_node = dom.node(d).unwrap();
+		assert_eq!(d_node.parent, Some(c));
+		assert_eq!(d_node.children, vec![e]);
+		assert_style(d_node, &expected_d);
+
+		let e_node = dom.node(e).unwrap();
+		assert_eq!(e_node.parent, Some(d));
+		assert!(e_node.children.is_empty());
+		assert_style(e_node, &expected_e);
+
+		let b1_node = dom.node(b1).unwrap();
+		assert_eq!(b1_node.parent, Some(b));
+		assert!(b1_node.children.is_empty());
+		assert_style(b1_node, &expected_b1);
+		assert_layout(
+			b1_node,
+			Vector2f::new(10.0, 69.5),
+			Vector2f::new(150.0, 10.0),
+		);
+
+		let sibling_node = dom.node(root_sibling).unwrap();
+		assert_eq!(sibling_node.parent, Some(root));
+		assert!(sibling_node.children.is_empty());
+		assert_style(sibling_node, &expected_root_sibling);
+		assert_layout(
+			sibling_node,
+			Vector2f::new(4.0, 172.5),
+			Vector2f::new(90.0, 60.0),
+		);
+	}
+
+	#[test]
+	fn hit_test_returns_deepest_child() {
+		let mut dom = Dom::new();
+		let root = dom.root();
+		let a = dom.create_div();
+		let b = dom.create_div();
+		let c = dom.create_div();
+
+		assert!(dom.append_child(root, a));
+		assert!(dom.append_child(a, b));
+		assert!(dom.append_child(b, c));
+
+		{
+			let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
+			root_style.layout.direction = LayoutDirection::Column;
+			root_style.layout.align_items = AlignItems::Start;
+			root_style.layout.justify_content = JustifyContent::Start;
+		}
+
+		{
+			let a_style = dom.node_mut(a).unwrap().style_mut().unwrap();
+			a_style.size = Size2 {
+				width: Length::Px(80.0),
+				height: Length::Px(80.0),
+			};
+			a_style.margin = EdgeSizes {
+				left: 10.0,
+				right: 0.0,
+				top: 10.0,
+				bottom: 0.0,
+			};
+		}
+
+		{
+			let b_style = dom.node_mut(b).unwrap().style_mut().unwrap();
+			b_style.size = Size2 {
+				width: Length::Px(40.0),
+				height: Length::Px(40.0),
+			};
+			b_style.margin = EdgeSizes {
+				left: 5.0,
+				right: 0.0,
+				top: 5.0,
+				bottom: 0.0,
+			};
+		}
+
+		{
+			let c_style = dom.node_mut(c).unwrap().style_mut().unwrap();
+			c_style.size = Size2 {
+				width: Length::Px(10.0),
+				height: Length::Px(10.0),
+			};
+			c_style.margin = EdgeSizes {
+				left: 2.0,
+				right: 0.0,
+				top: 2.0,
+				bottom: 0.0,
+			};
+		}
+
+		dom.layout(Vector2f::new(200.0, 200.0));
+
+		let hit_c = dom.hit_test(Vector2f::new(18.0, 18.0));
+		assert_eq!(hit_c, Some(c));
+
+		let hit_b = dom.hit_test(Vector2f::new(16.0, 16.0));
+		assert_eq!(hit_b, Some(b));
+
+		let hit_a = dom.hit_test(Vector2f::new(11.0, 11.0));
+		assert_eq!(hit_a, Some(a));
+
+		let hit_none = dom.hit_test(Vector2f::new(150.0, 150.0));
+		assert_eq!(hit_none, Some(root));
 	}
 }
 
