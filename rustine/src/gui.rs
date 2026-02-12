@@ -564,7 +564,6 @@ impl Gui {
                 let position = gui.pointer_position_from_logical(x, y);
                 gui.mouse_position = position;
 
-                log::debug!("Mouse enter at logical position: {:?}", position);
                 let event = input::MouseEnterEvent { position };
                 gui.application.on_mouse_enter(gui, event);
             }
@@ -579,7 +578,6 @@ impl Gui {
                 let position = gui.pointer_position_from_logical(x, y);
                 gui.mouse_position = position;
 
-                log::debug!("Mouse leave at logical position: {:?}", position);
                 let event = input::MouseLeaveEvent { position };
                 gui.application.on_mouse_leave(gui, event);
             }
@@ -594,7 +592,6 @@ impl Gui {
                 let position = gui.pointer_position_from_logical(x, y);
                 gui.mouse_position = position;
 
-                log::debug!("Mouse move to logical position: {:?}", position);
                 let event = input::MouseMoveEvent { position };
                 gui.application.on_mouse_move(gui, event);
             }
@@ -615,7 +612,7 @@ impl Gui {
                 let gui = &mut *gui_ptr;
                 let position = gui.pointer_position_from_logical(x, y);
                 gui.mouse_position = position;
-                log::debug!("Mouse button event at logical position: {:?}", position);
+
                 let event = input::MouseButtonEvent {
                     position,
                     button: button.to_input(),

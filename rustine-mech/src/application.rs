@@ -1,12 +1,13 @@
 use rustine::{
     Color, Vector2f, gfx,
-    gui::{self, dom},
+    gui::{self, dom, style::{StyleComputer, StyleRules}},
     log,
 };
 
 struct MyApplicationState {
     dom: dom::Dom,
     root: dom::NodeId,
+    style: StyleComputer,
 }
 
 pub struct MyApplication {
@@ -17,10 +18,11 @@ impl MyApplication {
     pub fn new() -> Self {
         let mut dom = dom::Dom::new();
         let root = dom.root();
-        build_mock_ui(&mut dom, root);
+        let mut style = StyleComputer::new();
+        build_mock_ui(&mut dom, root, &mut style);
 
         MyApplication {
-            state: std::cell::RefCell::new(MyApplicationState { dom, root }),
+            state: std::cell::RefCell::new(MyApplicationState { dom, root, style }),
         }
     }
 }
@@ -54,17 +56,61 @@ impl gui::Application for MyApplication {
         gui.mark_damaged();
     }
 
+    fn on_mouse_enter(&self, gui: &gui::Gui, event: gui::MouseEnterEvent) {
+        let mut state = self.state.borrow_mut();
+        let MyApplicationState { dom, style, .. } = &mut *state;
+        if style.update_mouse_position(event.position, dom) {
+            gui.mark_damaged();
+        }
+    }
+
+    fn on_mouse_leave(&self, gui: &gui::Gui, _event: gui::MouseLeaveEvent) {
+        let mut state = self.state.borrow_mut();
+        let MyApplicationState { style, .. } = &mut *state;
+        if style.set_hovered(None) {
+            gui.mark_damaged();
+        }
+    }
+
+    fn on_mouse_move(&self, gui: &gui::Gui, event: gui::MouseMoveEvent) {
+        let mut state = self.state.borrow_mut();
+        let MyApplicationState { dom, style, .. } = &mut *state;
+        if style.update_mouse_position(event.position, dom) {
+            gui.mark_damaged();
+        }
+    }
+
+    fn on_mouse_button(&self, gui: &gui::Gui, event: gui::MouseButtonEvent) {
+        let mut state = self.state.borrow_mut();
+        let MyApplicationState { dom, style, .. } = &mut *state;
+        let mut changed = style.update_mouse_position(event.position, dom);
+
+        if event.button == gui::MouseButton::LEFT {
+            if event.action == gui::Action::PRESS {
+                let hovered = style.hovered_node();
+                changed |= style.set_active(hovered);
+            } else {
+                changed |= style.set_active(None);
+            }
+        }
+
+        if changed {
+            gui.mark_damaged();
+        }
+    }
+
     fn render(&self, gui: &gui::Gui, frame: &mut gfx::RenderFrame) {
         let mut state = self.state.borrow_mut();
+        let MyApplicationState { dom, root, style } = &mut *state;
         let pixel_size = gui.pixel_size();
         let root_size = Vector2f::new(pixel_size.x as f32, pixel_size.y as f32);
 
-        state.dom.layout(root_size);
-        render_dom(&state.dom, state.root, frame);
+        dom.layout(root_size);
+        render_dom(dom, *root, style, frame);
     }
 }
 
-fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
+fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId, style: &mut StyleComputer) {
     let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
     root_style.layout = dom::LayoutStyle {
         direction: dom::LayoutDirection::Column,
@@ -182,6 +228,13 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             style.border_color = Color::from_u32(0x30363DFF);
         });
 
+        register_hover_active_background(
+            style,
+            button,
+            Color::from_u32(0x6B7C93FF),
+            Color::from_u32(0x4F5F74FF),
+        );
+
         add_text(dom, button, label, 1.0, |style| {
             style.size = dom::Size2::auto(); 
             style.foreground = Color::from_u32(0xF0F6FCFF); // #F0F6FCFF
@@ -259,6 +312,13 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             style.border = edge_all(1.0);
             style.border_color = Color::from_u32(0x30363DFF);
         });
+
+        register_hover_active_background(
+            style,
+            row,
+            Color::from_u32(0x161B22FF),
+            Color::from_u32(0x0B1016FF),
+        );
 
         add_text(dom, row, label, 1.0, |style| {
             style.size = dom::Size2::auto();
@@ -419,6 +479,13 @@ fn build_mock_ui(dom: &mut dom::Dom, root: dom::NodeId) {
             style.border_color = Color::from_u32(0x30363DFF);
         });
 
+        register_hover_active_background(
+            style,
+            row,
+            Color::from_u32(0x2A2F37FF),
+            Color::from_u32(0x1B1F25FF),
+        );
+
         add_text(dom, row, label, 1.0, |style| {
             style.size = dom::Size2::auto();
             style.foreground = Color::from_u32(0xF0F6FCFF);
@@ -477,7 +544,12 @@ fn edge_all(value: f32) -> dom::EdgeSizes {
     }
 }
 
-fn render_dom(dom: &dom::Dom, node_id: dom::NodeId, frame: &mut gfx::RenderFrame) {
+fn render_dom(
+    dom: &dom::Dom,
+    node_id: dom::NodeId,
+    style: &mut StyleComputer,
+    frame: &mut gfx::RenderFrame,
+) {
     let Some(node) = dom.node(node_id) else {
         return;
     };
@@ -489,17 +561,42 @@ fn render_dom(dom: &dom::Dom, node_id: dom::NodeId, frame: &mut gfx::RenderFrame
         h: node.layout.size.y,
     };
 
-    if let Some(style) = node.style() {
-        draw_style(frame, &rect, style);
+    if let Some(node_style) = node.style() {
+        let mut resolved_style = node_style.clone();
+        style.apply_to_style(node_id, &mut resolved_style);
+
+        draw_style(frame, &rect, &resolved_style);
 
         if let Some(text) = node.as_text() {
-            draw_text(frame, &rect, style, text);
+            draw_text(frame, &rect, &resolved_style, text);
         }
     }
 
     for child_id in node.children.iter().copied() {
-        render_dom(dom, child_id, frame);
+        render_dom(dom, child_id, style, frame);
     }
+}
+
+fn register_hover_active_background(
+    style: &mut StyleComputer,
+    node_id: dom::NodeId,
+    hovered: Color,
+    active: Color,
+) {
+    let hovered = dom::StyleOverride {
+        background: Some(hovered),
+        ..Default::default()
+    };
+    let active = dom::StyleOverride {
+        background: Some(active),
+        ..Default::default()
+    };
+    style.set_rules(
+        node_id,
+        StyleRules::new(dom::StyleOverride::default())
+            .with_hovered(hovered)
+            .with_active(active),
+    );
 }
 
 fn draw_text(

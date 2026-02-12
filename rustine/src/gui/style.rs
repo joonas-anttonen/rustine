@@ -119,23 +119,30 @@ impl StyleComputer {
     }
 
     /// Update mouse position and recompute hover state.
-    pub fn update_mouse_position(&mut self, position: Vector2f, dom: &dom::Dom) {
+    pub fn update_mouse_position(&mut self, position: Vector2f, dom: &dom::Dom) -> bool {
         self.mouse_position = position;
-        let new_hovered = dom.hit_test(position);
+        let new_hovered = self.resolve_interactive_target(dom, position);
+        self.set_hovered(new_hovered)
+    }
 
-        if new_hovered != self.hovered_node {
+    /// Set hovered node directly (e.g., on mouse leave).
+    pub fn set_hovered(&mut self, node_id: Option<NodeId>) -> bool {
+        if self.hovered_node != node_id {
             if let Some(old_hovered) = self.hovered_node {
                 self.invalidate_node(old_hovered);
             }
-            if let Some(new_hovered) = new_hovered {
+            if let Some(new_hovered) = node_id {
                 self.invalidate_node(new_hovered);
             }
-            self.hovered_node = new_hovered;
+            self.hovered_node = node_id;
+            true
+        } else {
+            false
         }
     }
 
     /// Set active node (e.g., on mouse button press).
-    pub fn set_active(&mut self, node_id: Option<NodeId>) {
+    pub fn set_active(&mut self, node_id: Option<NodeId>) -> bool {
         if self.active_node != node_id {
             if let Some(old_active) = self.active_node {
                 self.invalidate_node(old_active);
@@ -144,11 +151,14 @@ impl StyleComputer {
                 self.invalidate_node(new_active);
             }
             self.active_node = node_id;
+            true
+        } else {
+            false
         }
     }
 
     /// Set focused node (e.g., on keyboard focus).
-    pub fn set_focused(&mut self, node_id: Option<NodeId>) {
+    pub fn set_focused(&mut self, node_id: Option<NodeId>) -> bool {
         if self.focused_node != node_id {
             if let Some(old_focused) = self.focused_node {
                 self.invalidate_node(old_focused);
@@ -157,6 +167,9 @@ impl StyleComputer {
                 self.invalidate_node(new_focused);
             }
             self.focused_node = node_id;
+            true
+        } else {
+            false
         }
     }
 
@@ -183,6 +196,21 @@ impl StyleComputer {
     /// Invalidate cached style for a node.
     fn invalidate_node(&mut self, node_id: NodeId) {
         self.computed.remove(&node_id);
+    }
+
+    fn resolve_interactive_target(
+        &self,
+        dom: &dom::Dom,
+        position: Vector2f,
+    ) -> Option<NodeId> {
+        let mut target = dom.hit_test(position);
+        while let Some(id) = target {
+            if self.rules.contains_key(&id) {
+                return Some(id);
+            }
+            target = dom.node(id).and_then(|node| node.parent);
+        }
+        None
     }
 
     /// Compute the current state for a node based on input tracking.
