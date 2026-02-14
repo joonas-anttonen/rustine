@@ -109,24 +109,33 @@ local root = ui.div({
 ui.dom(root)
 ]] --
 
+local palette = {
+    bg = "#1B232F",
+    bg_button = "#2489db",
+    fg = "#FFFFFF",
+    border = "#2e3a4b",
+    hover = "#2a9ae0",
+    press = "#1f78c1",
+}
+
 ui.dom(
     ui.div({
         style = {
             layout = { direction = "column", align = "center", justify = "center", gap = 12 },
             size = "fill",
-            background = "#1B232F",
+            background = palette.bg,
         },
         children = {
-            ui.label("Lua UI", { scale = 1.5, style = { foreground = "#58A6FF" } }),
+            ui.label("Lua UI", { scale = 1.5, style = { foreground = palette.fg } }),
             ui.button({
                 style = {
-                    background = "#2489db",
-                    border_color = "#30363D",
-                    hover = { background = "#2a9ae0" },
-                    press = { background = "#1f78c1" },
+                    background = palette.bg_button,
+                    border_color = palette.border,
+                    hover = { background = palette.hover },
+                    press = { background = palette.press },
                 },
                 content = {
-                    ui.label("Click me!", { style = { foreground = "#F0F6FC" } }),
+                    ui.label("Click me!", { style = { foreground = palette.fg } }),
                 },
                 on_click = function()
                     ui.log("Button clicked!")

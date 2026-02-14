@@ -2,6 +2,7 @@
 
 use crate::Color;
 use crate::gfx;
+use crate::gui;
 use crate::gui::{dom, style};
 use crate::lua;
 
@@ -140,10 +141,10 @@ impl LuaRuntime {
 }
 
 struct StyleBundle {
-    base: Option<dom::StyleOverride>,
-    hover: Option<dom::StyleOverride>,
-    press: Option<dom::StyleOverride>,
-    focus: Option<dom::StyleOverride>,
+    base: Option<gui::StyleOverride>,
+    hover: Option<gui::StyleOverride>,
+    press: Option<gui::StyleOverride>,
+    focus: Option<gui::StyleOverride>,
 }
 
 impl StyleBundle {
@@ -262,13 +263,13 @@ extern "C" fn ui_text(state_raw: *mut lua::ffi::lua_State) -> ffi::c_int {
                     text.style.apply_override(override_style);
                 }
                 if !has_explicit_size {
-                    text.style.size = dom::Size2::auto();
+                    text.style.size = gui::Size::auto();
                 }
             }
         }
 
         if style_rules.has_rules() {
-            let mut rules = style::StyleRules::new(dom::StyleOverride::default());
+            let mut rules = style::StyleRules::new(gui::StyleOverride::default());
             if let Some(hover) = style_rules.hover {
                 rules = rules.with_hovered(hover);
             }
@@ -371,7 +372,7 @@ fn apply_node_options(
     }
 
     if style_rules.has_rules() {
-        let mut rules = style::StyleRules::new(dom::StyleOverride::default());
+        let mut rules = style::StyleRules::new(gui::StyleOverride::default());
         if let Some(hover) = style_rules.hover {
             rules = rules.with_hovered(hover);
         }
@@ -639,13 +640,8 @@ fn parse_style_bundle(pstate: *mut lua::ffi::lua_State, table_index: ffi::c_int)
         let index = lua_abs_index(pstate, table_index);
         let mut bundle = StyleBundle::empty();
 
-        if let Some(normal_index) = lua_field_table(pstate, index, c"normal") {
-            bundle.base = parse_style_table(pstate, normal_index);
-            lua::ffi::lua_pop(pstate, 1);
-        } else {
-            // If no "normal" state is defined, use the base table as the normal state.
-            bundle.base = parse_style_table(pstate, index);
-        }
+        // Normal style is inlined in the main table, while hover/press/focus are in subtables.
+        bundle.base = parse_style_table(pstate, index);
 
         if let Some(hover_index) = lua_field_table(pstate, index, c"hover") {
             bundle.hover = parse_style_table(pstate, hover_index);
@@ -669,14 +665,14 @@ fn parse_style_bundle(pstate: *mut lua::ffi::lua_State, table_index: ffi::c_int)
 fn parse_style_table(
     pstate: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
-) -> Option<dom::StyleOverride> {
+) -> Option<gui::StyleOverride> {
     unsafe {
         if lua::ffi::lua_type(pstate, table_index) != lua::ffi::LUA_TTABLE {
             return None;
         }
 
         let index = lua_abs_index(pstate, table_index);
-        let mut override_style = dom::StyleOverride::default();
+        let mut override_style = gui::StyleOverride::default();
         let mut any = false;
 
         if let Some(layout) = parse_layout_style(pstate, index) {
@@ -754,8 +750,8 @@ fn parse_style_table(
 fn parse_layout_style(
     state: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
-) -> Option<dom::LayoutStyle> {
-    let mut layout = dom::LayoutStyle::default();
+) -> Option<gui::LayoutStyle> {
+    let mut layout = gui::LayoutStyle::default();
     let mut any = false;
 
     if let Some(layout_index) = lua_field_table(state, table_index, c"layout") {
@@ -777,15 +773,15 @@ fn parse_layout_style(
 fn parse_layout_style_table(
     state: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
-) -> Option<dom::LayoutStyle> {
-    let mut layout = dom::LayoutStyle::default();
+) -> Option<gui::LayoutStyle> {
+    let mut layout = gui::LayoutStyle::default();
     let mut any = false;
 
     lua_field_string_func(state, table_index, c"direction", |field_string| {
         if let Some(parsed) = if field_string == c"row" {
-            Some(dom::LayoutDirection::Row)
+            Some(gui::LayoutDirection::Row)
         } else if field_string == c"column" {
-            Some(dom::LayoutDirection::Column)
+            Some(gui::LayoutDirection::Column)
         } else {
             crate::log::warning!(
                 "Invalid [direction] '{:?}' Provide one of: 'row', 'column'.",
@@ -800,13 +796,13 @@ fn parse_layout_style_table(
 
     lua_field_string_func(state, table_index, c"align", |field_string| {
         if let Some(parsed) = if field_string == c"start" {
-            Some(dom::AlignItems::Start)
+            Some(gui::Align::Start)
         } else if field_string == c"center" {
-            Some(dom::AlignItems::Center)
+            Some(gui::Align::Center)
         } else if field_string == c"end" {
-            Some(dom::AlignItems::End)
+            Some(gui::Align::End)
         } else if field_string == c"stretch" {
-            Some(dom::AlignItems::Stretch)
+            Some(gui::Align::Stretch)
         } else {
             crate::log::warning!(
                 "Invalid [align] '{:?}' Provide one of: 'start', 'center', 'end', 'stretch'.",
@@ -814,24 +810,24 @@ fn parse_layout_style_table(
             );
             None
         } {
-            layout.align_items = parsed;
+            layout.align = parsed;
             any = true;
         }
     });
 
     lua_field_string_func(state, table_index, c"justify", |field_string| {
         if let Some(parsed) = if field_string == c"start" {
-            Some(dom::JustifyContent::Start)
+            Some(gui::Justify::Start)
         } else if field_string == c"center" {
-            Some(dom::JustifyContent::Center)
+            Some(gui::Justify::Center)
         } else if field_string == c"end" {
-            Some(dom::JustifyContent::End)
+            Some(gui::Justify::End)
         } else if field_string == c"space-between" {
-            Some(dom::JustifyContent::SpaceBetween)
+            Some(gui::Justify::SpaceBetween)
         } else if field_string == c"space-around" {
-            Some(dom::JustifyContent::SpaceAround)
+            Some(gui::Justify::SpaceAround)
         } else if field_string == c"space-evenly" {
-            Some(dom::JustifyContent::SpaceEvenly)
+            Some(gui::Justify::SpaceEvenly)
         } else {
             crate::log::warning!(
                 "Invalid [justify] '{:?}' Provide one of: 'start', 'center', 'end', 'space-between', 'space-around', 'space-evenly'.",
@@ -839,7 +835,7 @@ fn parse_layout_style_table(
             );
             None
         } {
-            layout.justify_content = parsed;
+            layout.justify = parsed;
             any = true;
         }
     });
@@ -856,7 +852,7 @@ fn parse_size2_field(
     state: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
     name: &ffi::CStr,
-) -> Option<dom::Size2> {
+) -> Option<gui::Size> {
     let Some(size_index) = lua_field_table(state, table_index, name) else {
         return None;
     };
@@ -872,23 +868,23 @@ fn parse_size2_from_dimensions(
     table_index: ffi::c_int,
     width_name: &ffi::CStr,
     height_name: &ffi::CStr,
-) -> Option<dom::Size2> {
+) -> Option<gui::Size> {
     let width = parse_length_field(state, table_index, width_name);
     let height = parse_length_field(state, table_index, height_name);
     if width.is_none() && height.is_none() {
         return None;
     }
 
-    Some(dom::Size2 {
-        width: width.unwrap_or(dom::Length::Auto),
-        height: height.unwrap_or(dom::Length::Auto),
+    Some(gui::Size {
+        width: width.unwrap_or(gui::Length::Auto),
+        height: height.unwrap_or(gui::Length::Auto),
     })
 }
 
 fn parse_size2_table(
     state: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
-) -> Option<dom::Size2> {
+) -> Option<gui::Size> {
     let width = parse_length_field(state, table_index, c"width");
     let height = parse_length_field(state, table_index, c"height");
 
@@ -896,9 +892,9 @@ fn parse_size2_table(
         return None;
     }
 
-    Some(dom::Size2 {
-        width: width.unwrap_or(dom::Length::Auto),
-        height: height.unwrap_or(dom::Length::Auto),
+    Some(gui::Size {
+        width: width.unwrap_or(gui::Length::Auto),
+        height: height.unwrap_or(gui::Length::Auto),
     })
 }
 
@@ -906,7 +902,7 @@ fn parse_length_field(
     state: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
     name: &ffi::CStr,
-) -> Option<dom::Length> {
+) -> Option<gui::Length> {
     unsafe {
         let index = lua_abs_index(state, table_index);
         lua::ffi::lua_getfield(state, index, name.as_ptr());
@@ -916,12 +912,12 @@ fn parse_length_field(
     }
 }
 
-fn parse_length_value(state: *mut lua::ffi::lua_State, idx: ffi::c_int) -> Option<dom::Length> {
+fn parse_length_value(state: *mut lua::ffi::lua_State, idx: ffi::c_int) -> Option<gui::Length> {
     unsafe {
         match lua::ffi::lua_type(state, idx) {
             lua::ffi::LUA_TNUMBER => {
                 let value = lua::ffi::lua_tonumber(state, idx) as f32;
-                Some(dom::Length::Px(value.max(0.0)))
+                Some(gui::Length::Px(value.max(0.0)))
             }
             lua::ffi::LUA_TSTRING => {
                 let mut result = None;
@@ -931,19 +927,19 @@ fn parse_length_value(state: *mut lua::ffi::lua_State, idx: ffi::c_int) -> Optio
                             let trimmed = value.trim();
                             let lower = trimmed.to_ascii_lowercase();
                             if lower == "auto" {
-                                Some(dom::Length::Auto)
+                                Some(gui::Length::Auto)
                             } else if lower == "fill" {
-                                Some(dom::Length::Fill)
+                                Some(gui::Length::Fill)
                             } else if let Some(percent) = lower.strip_suffix('%')
                                 && let Ok(value) = percent.trim().parse::<f32>()
                             {
-                                Some(dom::Length::Percent((value / 100.0).max(0.0)))
+                                Some(gui::Length::Percent((value / 100.0).max(0.0)))
                             } else if let Some(px) = lower.strip_suffix("px")
                                 && let Ok(value) = px.trim().parse::<f32>()
                             {
-                                Some(dom::Length::Px(value.max(0.0)))
+                                Some(gui::Length::Px(value.max(0.0)))
                             } else if let Ok(value) = lower.parse::<f32>() {
-                                Some(dom::Length::Px(value.max(0.0)))
+                                Some(gui::Length::Px(value.max(0.0)))
                             } else {
                                 crate::log::warning!(
                                     "Invalid length value '{:?}'. Provide a number (pixels), a percentage string like '50%', or one of the keywords: 'auto', 'fill'.",
@@ -965,7 +961,7 @@ fn parse_edge_sizes_field(
     state: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
     name: &ffi::CStr,
-) -> Option<dom::EdgeSizes> {
+) -> Option<gui::EdgeSizes> {
     let index = lua_abs_index(state, table_index);
 
     unsafe {
@@ -979,12 +975,12 @@ fn parse_edge_sizes_field(
 fn parse_edge_sizes_value(
     state: *mut lua::ffi::lua_State,
     idx: ffi::c_int,
-) -> Option<dom::EdgeSizes> {
+) -> Option<gui::EdgeSizes> {
     unsafe {
         match lua::ffi::lua_type(state, idx) {
             lua::ffi::LUA_TNUMBER => {
                 let value = lua::ffi::lua_tonumber(state, idx) as f32;
-                Some(dom::EdgeSizes {
+                Some(gui::EdgeSizes {
                     left: value,
                     right: value,
                     top: value,
@@ -993,7 +989,7 @@ fn parse_edge_sizes_value(
             }
             lua::ffi::LUA_TTABLE => {
                 let index = lua_abs_index(state, idx);
-                let mut edge = dom::EdgeSizes::zero();
+                let mut edge = gui::EdgeSizes::zero();
                 let mut any = false;
 
                 if let Some(value) = lua_field_number(state, index, c"left") {
@@ -1087,9 +1083,9 @@ fn parse_color_cstr(value: &ffi::CStr) -> Option<Color> {
 fn parse_position_style(
     state: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
-) -> Option<dom::PositionStyle> {
+) -> Option<gui::PositionStyle> {
     let mut any = false;
-    let mut position = dom::PositionStyle::default();
+    let mut position = gui::PositionStyle::default();
     unsafe {
         if let Some(position_index) = lua_field_table(state, table_index, c"position") {
             if let Some(parsed) = parse_position_style_table(state, position_index) {
@@ -1109,16 +1105,16 @@ fn parse_position_style(
 fn parse_position_style_table(
     pstate: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
-) -> Option<dom::PositionStyle> {
-    let mut position = dom::PositionStyle::default();
+) -> Option<gui::PositionStyle> {
+    let mut position = gui::PositionStyle::default();
     let mut any = false;
 
     lua_field_string_func(pstate, table_index, c"mode", |field_string| {
         if let Some(parsed) = {
             if field_string == c"flow" {
-                Some(dom::PositionMode::Flow)
+                Some(gui::PositionMode::Flow)
             } else if field_string == c"absolute" {
-                Some(dom::PositionMode::Absolute)
+                Some(gui::PositionMode::Absolute)
             } else {
                 crate::log::warning!(
                     "Invalid [position.mode] '{:?}' Provide one of: 'flow', 'absolute'.",

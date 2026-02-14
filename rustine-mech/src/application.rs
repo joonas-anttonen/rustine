@@ -153,26 +153,26 @@ fn build_error_ui(dom: &mut dom::Dom, root: dom::NodeId, error: String) {
     let error_scale = 0.95;
     let error_wrap_width = panel_width - panel_padding * 2.0;
     let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
-    root_style.layout = dom::LayoutStyle {
-        direction: dom::LayoutDirection::Column,
-        align_items: dom::AlignItems::Center,
-        justify_content: dom::JustifyContent::Center,
+    root_style.layout = gui::LayoutStyle {
+        direction: gui::LayoutDirection::Column,
+        align: gui::Align::Center,
+        justify: gui::Justify::Center,
         gap: 12.0,
     };
     root_style.padding = edge_all(24.0);
     root_style.background = Color::from_u32(0x0E1117FF);
-    root_style.size = dom::Size2::fill();
+    root_style.size = gui::Size::fill();
 
     let panel = add_div(dom, root, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Column,
-            align_items: dom::AlignItems::Stretch,
-            justify_content: dom::JustifyContent::Start,
+        style.layout = gui::LayoutStyle {
+            direction: gui::LayoutDirection::Column,
+            align: gui::Align::Stretch,
+            justify: gui::Justify::Start,
             gap: 8.0,
         };
-        style.size = dom::Size2 {
-            width: dom::Length::Auto,
-            height: dom::Length::Auto,
+        style.size = gui::Size {
+            width: gui::Length::Auto,
+            height: gui::Length::Auto,
         };
         style.padding = edge_all(panel_padding);
         style.background = Color::from_u32(0x161B22FF);
@@ -181,29 +181,29 @@ fn build_error_ui(dom: &mut dom::Dom, root: dom::NodeId, error: String) {
     });
 
     add_text(dom, panel, "Lua UI failed to load", 1.3, |style| {
-        style.size = dom::Size2::auto();
+        style.size = gui::Size::auto();
         style.foreground = Color::from_u32(0xF85149FF);
     });
 
     add_text(dom, panel, "Check ui/main.lua and reload.", 1.0, |style| {
-        style.size = dom::Size2::auto();
+        style.size = gui::Size::auto();
         style.foreground = Color::from_u32(0xC9D1D9FF);
     });
 
     let error_block = add_div(dom, panel, |style| {
-        style.layout = dom::LayoutStyle {
-            direction: dom::LayoutDirection::Column,
-            align_items: dom::AlignItems::Stretch,
-            justify_content: dom::JustifyContent::Start,
+        style.layout = gui::LayoutStyle {
+            direction: gui::LayoutDirection::Column,
+            align: gui::Align::Stretch,
+            justify: gui::Justify::Start,
             gap: 4.0,
         };
-        style.size = dom::Size2::auto();
+        style.size = gui::Size::auto();
     });
 
     for line in wrap_text_lines(&error, error_wrap_width, error_scale) {
         let content = if line.is_empty() { " " } else { line.as_str() };
         add_text(dom, error_block, content, error_scale, |style| {
-            style.size = dom::Size2::auto();
+            style.size = gui::Size::auto();
             style.foreground = Color::from_u32(0x8B949EFF);
         });
     }
@@ -212,7 +212,7 @@ fn build_error_ui(dom: &mut dom::Dom, root: dom::NodeId, error: String) {
 fn add_div(
     dom: &mut dom::Dom,
     parent: dom::NodeId,
-    f: impl FnOnce(&mut dom::Style),
+    f: impl FnOnce(&mut gui::Style),
 ) -> dom::NodeId {
     let id = dom.create_div();
     if let Some(node) = dom.node_mut(id) {
@@ -229,7 +229,7 @@ fn add_text(
     parent: dom::NodeId,
     content: impl Into<String>,
     scale: f32,
-    f: impl FnOnce(&mut dom::Style),
+    f: impl FnOnce(&mut gui::Style),
 ) -> dom::NodeId {
     let id = dom.create_text(content, gfx::fonts::CASKAYDIAMONO_FONT_ID, scale);
     if let Some(node) = dom.node_mut(id) {
@@ -241,8 +241,8 @@ fn add_text(
     id
 }
 
-fn edge_all(value: f32) -> dom::EdgeSizes {
-    dom::EdgeSizes {
+fn edge_all(value: f32) -> gui::EdgeSizes {
+    gui::EdgeSizes {
         left: value,
         right: value,
         top: value,
@@ -366,7 +366,7 @@ fn render_dom(
 fn draw_text(
     frame: &mut gfx::RenderFrame,
     rect: &gfx::Rectangle,
-    style: &dom::Style,
+    style: &gui::Style,
     text: &dom::Text,
 ) {
     if style.foreground.a <= 0.0 || text.content.is_empty() {
@@ -388,7 +388,7 @@ fn draw_text(
     );
 }
 
-fn draw_style(frame: &mut gfx::RenderFrame, rect: &gfx::Rectangle, style: &dom::Style) {
+fn draw_style(frame: &mut gfx::RenderFrame, rect: &gfx::Rectangle, style: &gui::Style) {
     if style.background.a > 0.0 {
         let inner = inset_rectangle(rect, style.border);
         frame.fill_rectangle(&inner, style.background.to_u32());
@@ -402,7 +402,7 @@ fn draw_style(frame: &mut gfx::RenderFrame, rect: &gfx::Rectangle, style: &dom::
     }
 }
 
-fn inset_rectangle(rect: &gfx::Rectangle, border: dom::EdgeSizes) -> gfx::Rectangle {
+fn inset_rectangle(rect: &gfx::Rectangle, border: gui::EdgeSizes) -> gfx::Rectangle {
     let w = (rect.w - border.left - border.right).max(0.0);
     let h = (rect.h - border.top - border.bottom).max(0.0);
     gfx::Rectangle {
@@ -416,7 +416,7 @@ fn inset_rectangle(rect: &gfx::Rectangle, border: dom::EdgeSizes) -> gfx::Rectan
 fn draw_border(
     frame: &mut gfx::RenderFrame,
     rect: &gfx::Rectangle,
-    border: dom::EdgeSizes,
+    border: gui::EdgeSizes,
     color: u32,
 ) {
     let top_h = border.top.max(0.0);

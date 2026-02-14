@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::Vector2f;
+use crate::{gui, Vector2f};
 use super::dom::{self, NodeId};
 use std::collections::HashMap;
 
@@ -20,14 +20,14 @@ pub enum StyleState {
 /// Container for style rules that can be applied based on state.
 #[derive(Debug, Clone, Default)]
 pub struct StyleRules {
-    pub base: dom::StyleOverride,
-    pub hovered: Option<dom::StyleOverride>,
-    pub active: Option<dom::StyleOverride>,
-    pub focused: Option<dom::StyleOverride>,
+    pub base: gui::StyleOverride,
+    pub hovered: Option<gui::StyleOverride>,
+    pub active: Option<gui::StyleOverride>,
+    pub focused: Option<gui::StyleOverride>,
 }
 
 impl StyleRules {
-    pub fn new(base: dom::StyleOverride) -> Self {
+    pub fn new(base: gui::StyleOverride) -> Self {
         Self {
             base,
             hovered: None,
@@ -36,23 +36,23 @@ impl StyleRules {
         }
     }
 
-    pub fn with_hovered(mut self, override_style: dom::StyleOverride) -> Self {
+    pub fn with_hovered(mut self, override_style: gui::StyleOverride) -> Self {
         self.hovered = Some(override_style);
         self
     }
 
-    pub fn with_active(mut self, override_style: dom::StyleOverride) -> Self {
+    pub fn with_active(mut self, override_style: gui::StyleOverride) -> Self {
         self.active = Some(override_style);
         self
     }
 
-    pub fn with_focused(mut self, override_style: dom::StyleOverride) -> Self {
+    pub fn with_focused(mut self, override_style: gui::StyleOverride) -> Self {
         self.focused = Some(override_style);
         self
     }
 
     /// Compute the final style override by merging based on the state.
-    pub fn compute(&self, state: StyleState) -> dom::StyleOverride {
+    pub fn compute(&self, state: StyleState) -> gui::StyleOverride {
         let mut result = self.base;
 
         match state {
@@ -97,7 +97,7 @@ pub struct StyleComputer {
     /// Style rules per node.
     rules: HashMap<NodeId, StyleRules>,
     /// Computed style overrides cache.
-    computed: HashMap<NodeId, dom::StyleOverride>,
+    computed: HashMap<NodeId, gui::StyleOverride>,
 }
 
 impl StyleComputer {
@@ -176,7 +176,7 @@ impl StyleComputer {
     /// Get the computed style override for a node, or None if no rules exist.
     ///
     /// The returned override should be applied on top of the node's base style.
-    pub fn get_override(&mut self, node_id: NodeId) -> Option<&dom::StyleOverride> {
+    pub fn get_override(&mut self, node_id: NodeId) -> Option<&gui::StyleOverride> {
         if !self.computed.contains_key(&node_id) {
             let state = self.compute_state(node_id);
             let rules = self.rules.get(&node_id)?;
@@ -187,7 +187,7 @@ impl StyleComputer {
     }
 
     /// Apply the computed style override to a mutable style reference.
-    pub fn apply_to_style(&mut self, node_id: NodeId, style: &mut dom::Style) {
+    pub fn apply_to_style(&mut self, node_id: NodeId, style: &mut gui::Style) {
         if let Some(override_style) = self.get_override(node_id) {
             style.apply_override(override_style);
         }

@@ -104,7 +104,29 @@ function ui.button(options)
     })
 end
 
--- Log a message to the UI log
+function ui.progressbar(value, opts)
+    opts = opts or {}
+    local percentage = math.max(0, math.min(1, value))
+    return ui.div({
+        style = ui.compose({
+            size = { width = 200, height = 24 },
+            background = "#2e3a4b",
+            border = 1,
+            border_color = "#1B232F",
+        }, opts.style),
+        children = {
+            ui.div({
+                style = {
+                    size = { width = percentage * 100 .. "%", height = "fill" },
+                    background = "#2489db",
+                },
+            }),
+        },
+    })
+end
+
+--- Log a message to the UI log
+--- @param text string The message to log
 function ui.log(text)
     log(text)
 end

@@ -1,78 +1,13 @@
-#![allow(dead_code)]
+//#![allow(dead_code)]
 
-use crate::{Color, Vector2f, gfx};
+use crate::{
+    Vector2f, gfx,
+    gui::{
+        Align, EdgeSizes, Justify, LayoutDirection, LayoutStyle, Length, PositionMode, Size, Style,
+    },
+};
 
 pub type NodeId = usize;
-
-/// Direction for layout flow and sizing.
-///
-/// The direction sets the main axis (flow direction). The cross axis is the
-/// perpendicular axis used for alignment and stretching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LayoutDirection {
-    /// Lay out children horizontally; main axis is left-to-right.
-    Row,
-    /// Lay out children vertically; main axis is top-to-bottom.
-    Column,
-}
-
-/// Cross-axis alignment of children inside a layout.
-///
-/// The cross axis is perpendicular to the main axis: for `Row` it is vertical,
-/// and for `Column` it is horizontal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AlignItems {
-    /// Align to the start edge of the cross axis.
-    Start,
-    /// Center along the cross axis.
-    Center,
-    /// Align to the end edge of the cross axis.
-    End,
-    /// Stretch to fill the available cross-axis space.
-    Stretch,
-}
-
-/// Main-axis distribution of children inside a layout.
-///
-/// The main axis is the flow direction: `Row` uses the horizontal axis, and
-/// `Column` uses the vertical axis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JustifyContent {
-    /// Pack toward the start edge of the main axis.
-    Start,
-    /// Center along the main axis.
-    Center,
-    /// Pack toward the end edge of the main axis.
-    End,
-    /// Evenly distribute extra space between children.
-    SpaceBetween,
-    /// Distribute extra space around children (half space at edges).
-    SpaceAround,
-    /// Distribute extra space evenly, including edges.
-    SpaceEvenly,
-}
-
-/// Length representation for sizes and constraints.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Length {
-    /// Use the content's intrinsic size.
-    Auto,
-    /// Fixed size in pixels.
-    Px(f32),
-    /// Percentage of the available parent size.
-    Percent(f32),
-    /// Take remaining space after fixed sizes and gaps.
-    Fill,
-}
-
-/// How a node participates in layout positioning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PositionMode {
-    /// Participate in flow layout with siblings.
-    Flow,
-    /// Positioned relative to the parent using anchors.
-    Absolute,
-}
 
 #[derive(Debug, Clone)]
 pub struct Dom {
@@ -443,18 +378,18 @@ impl Dom {
         }
 
         let child_count = main_sizes.len();
-        let (start_offset, extra_gap) = match layout.justify_content {
-            JustifyContent::Start => (0.0, 0.0),
-            JustifyContent::Center => (extra_space * 0.5, 0.0),
-            JustifyContent::End => (extra_space, 0.0),
-            JustifyContent::SpaceBetween => {
+        let (start_offset, extra_gap) = match layout.justify {
+            Justify::Start => (0.0, 0.0),
+            Justify::Center => (extra_space * 0.5, 0.0),
+            Justify::End => (extra_space, 0.0),
+            Justify::SpaceBetween => {
                 if child_count > 1 {
                     (0.0, extra_space / (child_count - 1) as f32)
                 } else {
                     (0.0, 0.0)
                 }
             }
-            JustifyContent::SpaceAround => {
+            Justify::SpaceAround => {
                 if child_count == 0 {
                     (0.0, 0.0)
                 } else {
@@ -462,7 +397,7 @@ impl Dom {
                     (gap * 0.5, gap)
                 }
             }
-            JustifyContent::SpaceEvenly => {
+            Justify::SpaceEvenly => {
                 if child_count == 0 {
                     (0.0, 0.0)
                 } else {
@@ -584,7 +519,7 @@ impl Dom {
         let mut resolved = cross;
         let length = Self::cross_length(layout, &style.size);
         if matches!(length, Length::Fill)
-            || (matches!(length, Length::Auto) && layout.align_items == AlignItems::Stretch)
+            || (matches!(length, Length::Auto) && layout.align == Align::Stretch)
         {
             resolved = (available - cross_margin).max(0.0);
         }
@@ -657,14 +592,14 @@ impl Dom {
         }
     }
 
-    fn main_length(layout: &LayoutStyle, size: &Size2) -> Length {
+    fn main_length(layout: &LayoutStyle, size: &Size) -> Length {
         match layout.direction {
             LayoutDirection::Row => size.width,
             LayoutDirection::Column => size.height,
         }
     }
 
-    fn cross_length(layout: &LayoutStyle, size: &Size2) -> Length {
+    fn cross_length(layout: &LayoutStyle, size: &Size) -> Length {
         match layout.direction {
             LayoutDirection::Row => size.height,
             LayoutDirection::Column => size.width,
@@ -692,25 +627,21 @@ impl Dom {
         margin: &EdgeSizes,
     ) -> f32 {
         match layout.direction {
-            LayoutDirection::Row => match layout.align_items {
-                AlignItems::Start => parent_rect.position.y + margin.top,
-                AlignItems::Center => {
-                    parent_rect.position.y + (parent_rect.size.y - cross_size) * 0.5
-                }
-                AlignItems::End => {
+            LayoutDirection::Row => match layout.align {
+                Align::Start => parent_rect.position.y + margin.top,
+                Align::Center => parent_rect.position.y + (parent_rect.size.y - cross_size) * 0.5,
+                Align::End => {
                     parent_rect.position.y + parent_rect.size.y - cross_size - margin.bottom
                 }
-                AlignItems::Stretch => parent_rect.position.y + margin.top,
+                Align::Stretch => parent_rect.position.y + margin.top,
             },
-            LayoutDirection::Column => match layout.align_items {
-                AlignItems::Start => parent_rect.position.x + margin.left,
-                AlignItems::Center => {
-                    parent_rect.position.x + (parent_rect.size.x - cross_size) * 0.5
-                }
-                AlignItems::End => {
+            LayoutDirection::Column => match layout.align {
+                Align::Start => parent_rect.position.x + margin.left,
+                Align::Center => parent_rect.position.x + (parent_rect.size.x - cross_size) * 0.5,
+                Align::End => {
                     parent_rect.position.x + parent_rect.size.x - cross_size - margin.right
                 }
-                AlignItems::Stretch => parent_rect.position.x + margin.left,
+                Align::Stretch => parent_rect.position.x + margin.left,
             },
         }
     }
@@ -813,232 +744,6 @@ impl Text {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Style {
-    pub layout: LayoutStyle,
-    pub size: Size2,
-    pub min_size: Size2,
-    pub max_size: Size2,
-    pub position: PositionStyle,
-    pub padding: EdgeSizes,
-    pub margin: EdgeSizes,
-    pub foreground: Color,
-    pub background: Color,
-    pub border_color: Color,
-    pub border: EdgeSizes,
-}
-
-impl Default for Style {
-    fn default() -> Self {
-        Self {
-            layout: LayoutStyle::default(),
-            size: Size2::fill(),
-            min_size: Size2::auto(),
-            max_size: Size2::auto(),
-            position: PositionStyle::default(),
-            padding: EdgeSizes::zero(),
-            margin: EdgeSizes::zero(),
-            foreground: Color::from_u32(0xFFFF_FFFF),
-            background: Color::transparent(),
-            border_color: Color::from_u32(0xFFFF_FFFF),
-            border: EdgeSizes::zero(),
-        }
-    }
-}
-
-impl Style {
-    pub fn apply_override(&mut self, override_style: &StyleOverride) {
-        if let Some(layout) = override_style.layout {
-            self.layout = layout;
-        }
-        if let Some(size) = override_style.size {
-            self.size = size;
-        }
-        if let Some(min_size) = override_style.min_size {
-            self.min_size = min_size;
-        }
-        if let Some(max_size) = override_style.max_size {
-            self.max_size = max_size;
-        }
-        if let Some(position) = override_style.position {
-            self.position = position;
-        }
-        if let Some(padding) = override_style.padding {
-            self.padding = padding;
-        }
-        if let Some(margin) = override_style.margin {
-            self.margin = margin;
-        }
-        if let Some(foreground) = override_style.foreground {
-            self.foreground = foreground;
-        }
-        if let Some(background) = override_style.background {
-            self.background = background;
-        }
-        if let Some(border_color) = override_style.border_color {
-            self.border_color = border_color;
-        }
-        if let Some(border) = override_style.border {
-            self.border = border;
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct StyleOverride {
-    pub layout: Option<LayoutStyle>,
-    pub size: Option<Size2>,
-    pub min_size: Option<Size2>,
-    pub max_size: Option<Size2>,
-    pub position: Option<PositionStyle>,
-    pub padding: Option<EdgeSizes>,
-    pub margin: Option<EdgeSizes>,
-    pub foreground: Option<Color>,
-    pub background: Option<Color>,
-    pub border_color: Option<Color>,
-    pub border: Option<EdgeSizes>,
-}
-
-impl StyleOverride {
-    pub fn merge_from(&mut self, other: &StyleOverride) {
-        if other.layout.is_some() {
-            self.layout = other.layout;
-        }
-        if other.size.is_some() {
-            self.size = other.size;
-        }
-        if other.min_size.is_some() {
-            self.min_size = other.min_size;
-        }
-        if other.max_size.is_some() {
-            self.max_size = other.max_size;
-        }
-        if other.position.is_some() {
-            self.position = other.position;
-        }
-        if other.padding.is_some() {
-            self.padding = other.padding;
-        }
-        if other.margin.is_some() {
-            self.margin = other.margin;
-        }
-        if other.foreground.is_some() {
-            self.foreground = other.foreground;
-        }
-        if other.background.is_some() {
-            self.background = other.background;
-        }
-        if other.border_color.is_some() {
-            self.border_color = other.border_color;
-        }
-        if other.border.is_some() {
-            self.border = other.border;
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct LayoutStyle {
-    pub direction: LayoutDirection,
-    pub align_items: AlignItems,
-    pub justify_content: JustifyContent,
-    pub gap: f32,
-}
-
-impl Default for LayoutStyle {
-    fn default() -> Self {
-        Self {
-            direction: LayoutDirection::Column,
-            align_items: AlignItems::Stretch,
-            justify_content: JustifyContent::Start,
-            gap: 0.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Size2 {
-    pub width: Length,
-    pub height: Length,
-}
-
-impl Size2 {
-    pub fn fill() -> Self {
-        Self {
-            width: Length::Fill,
-            height: Length::Fill,
-        }
-    }
-
-    pub fn auto() -> Self {
-        Self {
-            width: Length::Auto,
-            height: Length::Auto,
-        }
-    }
-}
-
-impl Default for Size2 {
-    fn default() -> Self {
-        Self::fill()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PositionStyle {
-    pub mode: PositionMode,
-}
-
-impl Default for PositionStyle {
-    fn default() -> Self {
-        Self {
-            mode: PositionMode::Flow,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct EdgeSizes {
-    pub left: f32,
-    pub right: f32,
-    pub top: f32,
-    pub bottom: f32,
-}
-
-impl EdgeSizes {
-    pub fn zero() -> Self {
-        Self {
-            left: 0.0,
-            right: 0.0,
-            top: 0.0,
-            bottom: 0.0,
-        }
-    }
-
-    pub fn add(self, other: Self) -> Self {
-        Self {
-            left: self.left + other.left,
-            right: self.right + other.right,
-            top: self.top + other.top,
-            bottom: self.bottom + other.bottom,
-        }
-    }
-
-    pub fn horizontal(self) -> f32 {
-        self.left + self.right
-    }
-
-    pub fn vertical(self) -> f32 {
-        self.top + self.bottom
-    }
-}
-
-impl Default for EdgeSizes {
-    fn default() -> Self {
-        Self::zero()
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutRect {
     pub position: Vector2f,
@@ -1079,225 +784,6 @@ impl LayoutRect {
 mod tests {
     use super::*;
 
-    struct ExpectedStyle {
-        direction: LayoutDirection,
-        align_items: AlignItems,
-        justify_content: JustifyContent,
-        gap: f32,
-        size: Size2,
-        min_size: Size2,
-        max_size: Size2,
-        position: PositionStyle,
-        padding: EdgeSizes,
-        margin: EdgeSizes,
-        border: EdgeSizes,
-    }
-
-    fn apply_expected_style(dom: &mut Dom, id: NodeId, expected: &ExpectedStyle) {
-        let style = dom.node_mut(id).unwrap().style_mut().unwrap();
-        style.layout.direction = expected.direction;
-        style.layout.align_items = expected.align_items;
-        style.layout.justify_content = expected.justify_content;
-        style.layout.gap = expected.gap;
-        style.size = expected.size;
-        style.min_size = expected.min_size;
-        style.max_size = expected.max_size;
-        style.position = expected.position;
-        style.padding = expected.padding;
-        style.margin = expected.margin;
-        style.border = expected.border;
-    }
-
-    fn assert_style(node: &Node, expected: &ExpectedStyle) {
-        let style = node.style().unwrap();
-        assert_eq!(style.layout.direction, expected.direction);
-        assert_eq!(style.layout.align_items, expected.align_items);
-        assert_eq!(style.layout.justify_content, expected.justify_content);
-        assert_eq!(style.layout.gap, expected.gap);
-        assert_eq!(style.size.width, expected.size.width);
-        assert_eq!(style.size.height, expected.size.height);
-        assert_eq!(style.min_size.width, expected.min_size.width);
-        assert_eq!(style.min_size.height, expected.min_size.height);
-        assert_eq!(style.max_size.width, expected.max_size.width);
-        assert_eq!(style.max_size.height, expected.max_size.height);
-        assert_eq!(style.position.mode, expected.position.mode);
-        assert_eq!(style.padding.left, expected.padding.left);
-        assert_eq!(style.padding.right, expected.padding.right);
-        assert_eq!(style.padding.top, expected.padding.top);
-        assert_eq!(style.padding.bottom, expected.padding.bottom);
-        assert_eq!(style.margin.left, expected.margin.left);
-        assert_eq!(style.margin.right, expected.margin.right);
-        assert_eq!(style.margin.top, expected.margin.top);
-        assert_eq!(style.margin.bottom, expected.margin.bottom);
-        assert_eq!(style.border.left, expected.border.left);
-        assert_eq!(style.border.right, expected.border.right);
-        assert_eq!(style.border.top, expected.border.top);
-        assert_eq!(style.border.bottom, expected.border.bottom);
-    }
-
-    fn assert_layout(node: &Node, position: Vector2f, size: Vector2f) {
-        assert_eq!(node.layout.position.x, position.x);
-        assert_eq!(node.layout.position.y, position.y);
-        assert_eq!(node.layout.size.x, size.x);
-        assert_eq!(node.layout.size.y, size.y);
-    }
-
-    fn edge_all(value: f32) -> EdgeSizes {
-        EdgeSizes {
-            left: value,
-            right: value,
-            top: value,
-            bottom: value,
-        }
-    }
-
-    fn add_div(dom: &mut Dom, parent: NodeId, f: impl FnOnce(&mut Style)) -> NodeId {
-        let id = dom.create_div();
-        if let Some(node) = dom.node_mut(id) {
-            if let Some(div) = node.as_div_mut() {
-                f(&mut div.style);
-            }
-        }
-        dom.append_child(parent, id);
-        id
-    }
-
-    fn add_text(
-        dom: &mut Dom,
-        parent: NodeId,
-        content: impl Into<String>,
-        scale: f32,
-        f: impl FnOnce(&mut Style),
-    ) -> NodeId {
-        let id = dom.create_text(content, gfx::fonts::CASKAYDIAMONO_FONT_ID, scale);
-        if let Some(node) = dom.node_mut(id) {
-            if let Some(text) = node.as_text_mut() {
-                f(&mut text.style);
-            }
-        }
-        dom.append_child(parent, id);
-        id
-    }
-
-    fn wrap_text_lines(content: &str, max_width: f32, scale: f32) -> Vec<String> {
-        let mut lines = Vec::new();
-        for raw_line in content.lines() {
-            if raw_line.trim().is_empty() {
-                lines.push(String::new());
-                continue;
-            }
-
-            let mut current = String::new();
-            for word in raw_line.split_whitespace() {
-                if current.is_empty() {
-                    if gfx::measure_text(word, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
-                        <= max_width
-                    {
-                        current.push_str(word);
-                        continue;
-                    }
-
-                    let mut chunk = String::new();
-                    for ch in word.chars() {
-                        let candidate = format!("{}{}", chunk, ch);
-                        if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
-                            <= max_width
-                        {
-                            chunk = candidate;
-                        } else {
-                            if !chunk.is_empty() {
-                                lines.push(chunk);
-                            }
-                            chunk = ch.to_string();
-                        }
-                    }
-                    current = chunk;
-                    continue;
-                }
-
-                let candidate = format!("{} {}", current, word);
-                if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
-                    <= max_width
-                {
-                    current = candidate;
-                } else {
-                    lines.push(current);
-                    current = word.to_string();
-                }
-            }
-
-            if !current.is_empty() {
-                lines.push(current);
-            }
-        }
-
-        lines
-    }
-
-    fn build_error_dom(dom: &mut Dom, root: NodeId, error: &str) -> NodeId {
-        let panel_width = 600.0;
-        let panel_padding = 16.0;
-        let error_scale = 0.95;
-        let error_wrap_width = panel_width - panel_padding * 2.0;
-        let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
-        root_style.layout = LayoutStyle {
-            direction: LayoutDirection::Column,
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center,
-            gap: 12.0,
-        };
-        root_style.padding = edge_all(24.0);
-        root_style.background = Color::from_u32(0x0E1117FF);
-        root_style.size = Size2::fill();
-
-        let panel = add_div(dom, root, |style| {
-            style.layout = LayoutStyle {
-                direction: LayoutDirection::Column,
-                align_items: AlignItems::Stretch,
-                justify_content: JustifyContent::Start,
-                gap: 8.0,
-            };
-            style.size = Size2 {
-                width: Length::Auto,
-                height: Length::Auto,
-            };
-            style.padding = edge_all(panel_padding);
-            style.background = Color::from_u32(0x161B22FF);
-            style.border = edge_all(1.0);
-            style.border_color = Color::from_u32(0x30363DFF);
-        });
-
-        add_text(dom, panel, "Lua UI failed to load", 1.3, |style| {
-            style.size = Size2::auto();
-            style.foreground = Color::from_u32(0xF85149FF);
-        });
-
-        add_text(dom, panel, "Check ui/main.lua and reload.", 1.0, |style| {
-            style.size = Size2::auto();
-            style.foreground = Color::from_u32(0xC9D1D9FF);
-        });
-
-        let error_block = add_div(dom, panel, |style| {
-            style.layout = LayoutStyle {
-                direction: LayoutDirection::Column,
-                align_items: AlignItems::Stretch,
-                justify_content: JustifyContent::Start,
-                gap: 4.0,
-            };
-            style.size = Size2::auto();
-        });
-
-        for line in wrap_text_lines(error, error_wrap_width, error_scale) {
-            let content = if line.is_empty() { " " } else { line.as_str() };
-            add_text(dom, error_block, content, error_scale, |style| {
-                style.size = Size2::auto();
-                style.foreground = Color::from_u32(0x8B949EFF);
-            });
-        }
-
-        panel
-    }
-
     #[test]
     fn auto_size_uses_content_measurement() {
         let mut dom = Dom::new();
@@ -1307,13 +793,13 @@ mod tests {
 
         {
             let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
-            root_style.layout.align_items = AlignItems::Start;
+            root_style.layout.align = Align::Start;
             root_style.layout.direction = LayoutDirection::Column;
         }
 
         {
             let child_style = dom.node_mut(child).unwrap().style_mut().unwrap();
-            child_style.size = Size2::auto();
+            child_style.size = Size::auto();
             child_style.padding = EdgeSizes {
                 left: 5.0,
                 right: 5.0,
@@ -1334,31 +820,6 @@ mod tests {
         let child_node = dom.node(child).unwrap();
         assert_eq!(child_node.layout.size.x, 30.0 + 10.0 + 4.0);
         assert_eq!(child_node.layout.size.y, 40.0 + 10.0 + 4.0);
-    }
-
-    #[test]
-    fn error_panel_centers_in_window() {
-        let mut dom = Dom::new();
-        let root = dom.root();
-        let error = r#"Failed to load Lua UI: [string "-- Style definitions..."]:17: '=' expected near 'misspelled'"#;
-        let panel = build_error_dom(&mut dom, root, error);
-
-        dom.layout(Vector2f::new(1280.0, 720.0));
-
-        let root_node = dom.node(root).unwrap();
-        let root_style = root_node.style().unwrap();
-        let content_rect = root_node
-            .layout
-            .inset(root_style.border.add(root_style.padding));
-        let panel_node = dom.node(panel).unwrap();
-        let expected_x =
-            content_rect.position.x + (content_rect.size.x - panel_node.layout.size.x) * 0.5;
-        let expected_y =
-            content_rect.position.y + (content_rect.size.y - panel_node.layout.size.y) * 0.5;
-        let epsilon = 0.5;
-
-        assert!((panel_node.layout.position.x - expected_x).abs() <= epsilon);
-        assert!((panel_node.layout.position.y - expected_y).abs() <= epsilon);
     }
 
     #[test]
@@ -1390,22 +851,22 @@ mod tests {
 
         for text_id in [text_a, text_b, text_c] {
             let text_style = dom.node_mut(text_id).unwrap().style_mut().unwrap();
-            text_style.size = Size2::auto();
+            text_style.size = Size::auto();
         }
 
         {
             let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
             root_style.layout.direction = LayoutDirection::Column;
-            root_style.layout.align_items = AlignItems::Start;
-            root_style.layout.justify_content = JustifyContent::Start;
+            root_style.layout.align = Align::Start;
+            root_style.layout.justify = Justify::Start;
         }
 
         {
             let panel_style = dom.node_mut(panel).unwrap().style_mut().unwrap();
             panel_style.layout.direction = LayoutDirection::Column;
-            panel_style.layout.align_items = AlignItems::Start;
-            panel_style.layout.justify_content = JustifyContent::Start;
-            panel_style.size = Size2 {
+            panel_style.layout.align = Align::Start;
+            panel_style.layout.justify = Justify::Start;
+            panel_style.size = Size {
                 width: Length::Px(200.0),
                 height: Length::Px(60.0),
             };
@@ -1453,23 +914,23 @@ mod tests {
 
         for text_id in [text_a, text_b, text_c] {
             let text_style = dom.node_mut(text_id).unwrap().style_mut().unwrap();
-            text_style.size = Size2::auto();
+            text_style.size = Size::auto();
         }
 
         {
             let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
             root_style.layout.direction = LayoutDirection::Column;
-            root_style.layout.align_items = AlignItems::Start;
-            root_style.layout.justify_content = JustifyContent::Start;
+            root_style.layout.align = Align::Start;
+            root_style.layout.justify = Justify::Start;
         }
 
         {
             let panel_style = dom.node_mut(panel).unwrap().style_mut().unwrap();
             panel_style.layout.direction = LayoutDirection::Column;
-            panel_style.layout.align_items = AlignItems::Start;
-            panel_style.layout.justify_content = JustifyContent::Start;
+            panel_style.layout.align = Align::Start;
+            panel_style.layout.justify = Justify::Start;
             panel_style.layout.gap = 4.0;
-            panel_style.size = Size2::auto();
+            panel_style.size = Size::auto();
             panel_style.padding = EdgeSizes::zero();
             panel_style.border = EdgeSizes::zero();
         }
@@ -1501,18 +962,18 @@ mod tests {
 
         {
             let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
-            root_style.layout.align_items = AlignItems::Start;
+            root_style.layout.align = Align::Start;
             root_style.layout.direction = LayoutDirection::Column;
         }
 
         {
             let child_style = dom.node_mut(child).unwrap().style_mut().unwrap();
-            child_style.size = Size2::auto();
-            child_style.min_size = Size2 {
+            child_style.size = Size::auto();
+            child_style.min_size = Size {
                 width: Length::Px(120.0),
                 height: Length::Auto,
             };
-            child_style.max_size = Size2 {
+            child_style.max_size = Size {
                 width: Length::Auto,
                 height: Length::Px(80.0),
             };
@@ -1568,272 +1029,6 @@ mod tests {
     }
 
     #[test]
-    fn deep_layout_preserves_structure_and_styles() {
-        let mut dom = Dom::new();
-        let root = dom.root();
-        let a = dom.create_div();
-        let b = dom.create_div();
-        let c = dom.create_div();
-        let d = dom.create_div();
-        let e = dom.create_div();
-        let b1 = dom.create_div();
-        let root_sibling = dom.create_div();
-
-        assert!(dom.append_child(root, a));
-        assert!(dom.append_child(a, b));
-        assert!(dom.append_child(b, c));
-        assert!(dom.append_child(c, d));
-        assert!(dom.append_child(d, e));
-        assert!(dom.append_child(b, b1));
-        assert!(dom.append_child(root, root_sibling));
-
-        let expected_root = ExpectedStyle {
-            direction: LayoutDirection::Column,
-            align_items: AlignItems::Stretch,
-            justify_content: JustifyContent::SpaceBetween,
-            gap: 4.0,
-            size: Size2::fill(),
-            min_size: Size2::auto(),
-            max_size: Size2::auto(),
-            position: PositionStyle::default(),
-            padding: EdgeSizes {
-                left: 3.0,
-                right: 6.0,
-                top: 2.0,
-                bottom: 5.0,
-            },
-            margin: EdgeSizes::zero(),
-            border: EdgeSizes {
-                left: 1.0,
-                right: 2.0,
-                top: 1.5,
-                bottom: 2.5,
-            },
-        };
-
-        let expected_a = ExpectedStyle {
-            direction: LayoutDirection::Row,
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::Start,
-            gap: 1.0,
-            size: Size2 {
-                width: Length::Percent(0.5),
-                height: Length::Px(120.0),
-            },
-            min_size: Size2 {
-                width: Length::Px(30.0),
-                height: Length::Auto,
-            },
-            max_size: Size2 {
-                width: Length::Auto,
-                height: Length::Px(140.0),
-            },
-            position: PositionStyle::default(),
-            padding: EdgeSizes::zero(),
-            margin: EdgeSizes {
-                left: 4.0,
-                right: 5.0,
-                top: 6.0,
-                bottom: 7.0,
-            },
-            border: EdgeSizes::zero(),
-        };
-
-        let expected_b = ExpectedStyle {
-            direction: LayoutDirection::Column,
-            align_items: AlignItems::End,
-            justify_content: JustifyContent::Center,
-            gap: 2.5,
-            size: Size2 {
-                width: Length::Fill,
-                height: Length::Auto,
-            },
-            min_size: Size2::auto(),
-            max_size: Size2::auto(),
-            position: PositionStyle::default(),
-            padding: EdgeSizes {
-                left: 2.0,
-                right: 2.0,
-                top: 2.0,
-                bottom: 2.0,
-            },
-            margin: EdgeSizes::zero(),
-            border: EdgeSizes::zero(),
-        };
-
-        let expected_c = ExpectedStyle {
-            direction: LayoutDirection::Row,
-            align_items: AlignItems::Start,
-            justify_content: JustifyContent::End,
-            gap: 0.0,
-            size: Size2 {
-                width: Length::Px(64.0),
-                height: Length::Px(48.0),
-            },
-            min_size: Size2::auto(),
-            max_size: Size2 {
-                width: Length::Px(80.0),
-                height: Length::Px(60.0),
-            },
-            position: PositionStyle::default(),
-            padding: EdgeSizes::zero(),
-            margin: EdgeSizes::zero(),
-            border: EdgeSizes::zero(),
-        };
-
-        let expected_d = ExpectedStyle {
-            direction: LayoutDirection::Column,
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::SpaceAround,
-            gap: 3.0,
-            size: Size2 {
-                width: Length::Auto,
-                height: Length::Auto,
-            },
-            min_size: Size2::auto(),
-            max_size: Size2::auto(),
-            position: PositionStyle::default(),
-            padding: EdgeSizes::zero(),
-            margin: EdgeSizes::zero(),
-            border: EdgeSizes {
-                left: 1.0,
-                right: 1.0,
-                top: 1.0,
-                bottom: 1.0,
-            },
-        };
-
-        let expected_e = ExpectedStyle {
-            direction: LayoutDirection::Row,
-            align_items: AlignItems::Stretch,
-            justify_content: JustifyContent::SpaceEvenly,
-            gap: 5.0,
-            size: Size2 {
-                width: Length::Percent(0.25),
-                height: Length::Percent(0.4),
-            },
-            min_size: Size2::auto(),
-            max_size: Size2::auto(),
-            position: PositionStyle::default(),
-            padding: EdgeSizes::zero(),
-            margin: EdgeSizes {
-                left: 1.0,
-                right: 2.0,
-                top: 3.0,
-                bottom: 4.0,
-            },
-            border: EdgeSizes::zero(),
-        };
-
-        let expected_b1 = ExpectedStyle {
-            direction: LayoutDirection::Column,
-            align_items: AlignItems::Start,
-            justify_content: JustifyContent::Start,
-            gap: 0.0,
-            size: Size2 {
-                width: Length::Px(40.0),
-                height: Length::Px(10.0),
-            },
-            min_size: Size2::auto(),
-            max_size: Size2::auto(),
-            position: PositionStyle {
-                mode: PositionMode::Absolute,
-            },
-            padding: EdgeSizes::zero(),
-            margin: EdgeSizes::zero(),
-            border: EdgeSizes::zero(),
-        };
-
-        let expected_root_sibling = ExpectedStyle {
-            direction: LayoutDirection::Column,
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center,
-            gap: 0.5,
-            size: Size2 {
-                width: Length::Px(90.0),
-                height: Length::Px(60.0),
-            },
-            min_size: Size2::auto(),
-            max_size: Size2::auto(),
-            position: PositionStyle::default(),
-            padding: EdgeSizes::zero(),
-            margin: EdgeSizes::zero(),
-            border: EdgeSizes::zero(),
-        };
-
-        apply_expected_style(&mut dom, root, &expected_root);
-        apply_expected_style(&mut dom, a, &expected_a);
-        apply_expected_style(&mut dom, b, &expected_b);
-        apply_expected_style(&mut dom, c, &expected_c);
-        apply_expected_style(&mut dom, d, &expected_d);
-        apply_expected_style(&mut dom, e, &expected_e);
-        apply_expected_style(&mut dom, b1, &expected_b1);
-        apply_expected_style(&mut dom, root_sibling, &expected_root_sibling);
-
-        dom.set_content_size(d, Vector2f::new(24.0, 18.0));
-        dom.set_content_size(e, Vector2f::new(10.0, 12.0));
-        dom.set_content_size(b1, Vector2f::new(8.0, 6.0));
-        dom.layout(Vector2f::new(320.0, 240.0));
-
-        let root_node = dom.node(root).unwrap();
-        assert_eq!(root_node.children, vec![a, root_sibling]);
-        assert_style(root_node, &expected_root);
-        assert_layout(
-            root_node,
-            Vector2f::new(0.0, 0.0),
-            Vector2f::new(320.0, 240.0),
-        );
-
-        let a_node = dom.node(a).unwrap();
-        assert_eq!(a_node.parent, Some(root));
-        assert_eq!(a_node.children, vec![b]);
-        assert_style(a_node, &expected_a);
-        assert_layout(a_node, Vector2f::new(8.0, 9.5), Vector2f::new(154.0, 120.0));
-
-        let b_node = dom.node(b).unwrap();
-        assert_eq!(b_node.parent, Some(a));
-        assert_eq!(b_node.children, vec![c, b1]);
-        assert_style(b_node, &expected_b);
-        assert_layout(b_node, Vector2f::new(8.0, 43.5), Vector2f::new(154.0, 52.0));
-
-        let c_node = dom.node(c).unwrap();
-        assert_eq!(c_node.parent, Some(b));
-        assert_eq!(c_node.children, vec![d]);
-        assert_style(c_node, &expected_c);
-        assert_layout(c_node, Vector2f::new(96.0, 45.5), Vector2f::new(64.0, 48.0));
-
-        let d_node = dom.node(d).unwrap();
-        assert_eq!(d_node.parent, Some(c));
-        assert_eq!(d_node.children, vec![e]);
-        assert_style(d_node, &expected_d);
-
-        let e_node = dom.node(e).unwrap();
-        assert_eq!(e_node.parent, Some(d));
-        assert!(e_node.children.is_empty());
-        assert_style(e_node, &expected_e);
-
-        let b1_node = dom.node(b1).unwrap();
-        assert_eq!(b1_node.parent, Some(b));
-        assert!(b1_node.children.is_empty());
-        assert_style(b1_node, &expected_b1);
-        assert_layout(
-            b1_node,
-            Vector2f::new(10.0, 45.5),
-            Vector2f::new(150.0, 10.0),
-        );
-
-        let sibling_node = dom.node(root_sibling).unwrap();
-        assert_eq!(sibling_node.parent, Some(root));
-        assert!(sibling_node.children.is_empty());
-        assert_style(sibling_node, &expected_root_sibling);
-        assert_layout(
-            sibling_node,
-            Vector2f::new(4.0, 172.5),
-            Vector2f::new(90.0, 60.0),
-        );
-    }
-
-    #[test]
     fn hit_test_returns_deepest_child() {
         let mut dom = Dom::new();
         let root = dom.root();
@@ -1848,13 +1043,13 @@ mod tests {
         {
             let root_style = dom.node_mut(root).unwrap().style_mut().unwrap();
             root_style.layout.direction = LayoutDirection::Column;
-            root_style.layout.align_items = AlignItems::Start;
-            root_style.layout.justify_content = JustifyContent::Start;
+            root_style.layout.align = Align::Start;
+            root_style.layout.justify = Justify::Start;
         }
 
         {
             let a_style = dom.node_mut(a).unwrap().style_mut().unwrap();
-            a_style.size = Size2 {
+            a_style.size = Size {
                 width: Length::Px(80.0),
                 height: Length::Px(80.0),
             };
@@ -1868,7 +1063,7 @@ mod tests {
 
         {
             let b_style = dom.node_mut(b).unwrap().style_mut().unwrap();
-            b_style.size = Size2 {
+            b_style.size = Size {
                 width: Length::Px(40.0),
                 height: Length::Px(40.0),
             };
@@ -1882,7 +1077,7 @@ mod tests {
 
         {
             let c_style = dom.node_mut(c).unwrap().style_mut().unwrap();
-            c_style.size = Size2 {
+            c_style.size = Size {
                 width: Length::Px(10.0),
                 height: Length::Px(10.0),
             };
