@@ -140,6 +140,9 @@ impl LayoutRect {
 pub struct Dom {
     nodes: Vec<Node>,
     root: NodeId,
+    flow_children: Vec<NodeId>,
+    absolute_children: Vec<NodeId>,
+    main_sizes: Vec<(NodeId, f32)>,
 }
 
 impl Default for Dom {
@@ -152,7 +155,13 @@ impl Dom {
     pub fn new() -> Self {
         let mut nodes = Vec::new();
         let root = Self::alloc_node(&mut nodes, NodeKind::Div(Div::default()));
-        Self { nodes, root }
+        Self {
+            nodes,
+            root,
+            flow_children: Vec::new(),
+            absolute_children: Vec::new(),
+            main_sizes: Vec::new(),
+        }
     }
 
     pub fn layout(&mut self, root_size: Vector2f) {
@@ -305,9 +314,11 @@ impl Dom {
         };
 
         let content_rect = rect.inset(style.border.add(style.padding));
-        let mut flow_children = Vec::new();
+        let mut flow_children = std::mem::take(&mut self.flow_children);
+        flow_children.clear();
         let mut needs_flow_relayout = false;
-        let mut absolute_children = Vec::new();
+        let mut absolute_children = std::mem::take(&mut self.absolute_children);
+        absolute_children.clear();
 
         for child_id in children.iter().copied() {
             let (child_style, position_mode, child_content_size) = {
@@ -399,6 +410,9 @@ impl Dom {
             }
         }
 
+        self.flow_children = flow_children;
+        self.absolute_children = absolute_children;
+
         if matches!(style.size.width, Length::Auto) || matches!(style.size.height, Length::Auto) {
             let edge = style.border.add(style.padding);
             let mut max_right = updated_rect.position.x + edge.left;
@@ -488,7 +502,9 @@ impl Dom {
             0.0
         };
 
-        let mut main_sizes = Vec::with_capacity(children.len());
+        let mut main_sizes = std::mem::take(&mut self.main_sizes);
+        main_sizes.clear();
+        main_sizes.reserve(children.len());
         let mut total_main = gap_total;
         for child_id in children.iter().copied() {
             let Some(node) = self.nodes.get(child_id) else {
@@ -542,7 +558,7 @@ impl Dom {
 
         let gap = base_gap + extra_gap;
         let mut cursor = start_offset;
-        for (child_id, main_size) in main_sizes.into_iter() {
+        for (child_id, main_size) in main_sizes.drain(..) {
             let (child_rect, main_margin) = {
                 let Some(node) = self.nodes.get(child_id) else {
                     continue;
@@ -577,6 +593,8 @@ impl Dom {
             self.layout_node(child_id, child_rect);
             cursor += main_size + main_margin + gap;
         }
+
+        self.main_sizes = main_sizes;
     }
 
     fn layout_absolute(
