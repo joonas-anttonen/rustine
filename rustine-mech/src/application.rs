@@ -200,7 +200,12 @@ fn build_error_ui(dom: &mut dom::Dom, root: dom::NodeId, error: String) {
         style.size = gui::Size::auto();
     });
 
-    for line in wrap_text_lines(&error, error_wrap_width, error_scale) {
+    for line in gfx::wrap_text_lines(
+        &error,
+        error_wrap_width,
+        error_scale,
+        gfx::fonts::CASKAYDIAMONO_FONT_ID,
+    ) {
         let content = if line.is_empty() { " " } else { line.as_str() };
         add_text(dom, error_block, content, error_scale, |style| {
             style.size = gui::Size::auto();
@@ -248,86 +253,6 @@ fn edge_all(value: f32) -> gui::EdgeSizes {
         top: value,
         bottom: value,
     }
-}
-
-fn wrap_text_lines(content: &str, max_width: f32, scale: f32) -> Vec<String> {
-    let mut lines = Vec::new();
-    for raw_line in content.lines() {
-        if raw_line.trim().is_empty() {
-            lines.push(String::new());
-            continue;
-        }
-
-        let mut current = String::new();
-        for word in raw_line.split_whitespace() {
-            if current.is_empty() {
-                if gfx::measure_text(word, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x <= max_width
-                {
-                    current.push_str(word);
-                    continue;
-                }
-
-                let mut chunk = String::new();
-                for ch in word.chars() {
-                    let candidate = format!("{}{}", chunk, ch);
-                    if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
-                        <= max_width
-                    {
-                        chunk = candidate;
-                    } else {
-                        if !chunk.is_empty() {
-                            lines.push(chunk);
-                        }
-                        chunk = ch.to_string();
-                    }
-                }
-                current = chunk;
-                continue;
-            }
-
-            let candidate = format!("{} {}", current, word);
-            if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
-                <= max_width
-            {
-                current = candidate;
-                continue;
-            }
-
-            lines.push(current);
-            current = String::new();
-
-            if gfx::measure_text(word, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x <= max_width {
-                current.push_str(word);
-                continue;
-            }
-
-            let mut chunk = String::new();
-            for ch in word.chars() {
-                let candidate = format!("{}{}", chunk, ch);
-                if gfx::measure_text(&candidate, scale, gfx::fonts::CASKAYDIAMONO_FONT_ID).x
-                    <= max_width
-                {
-                    chunk = candidate;
-                } else {
-                    if !chunk.is_empty() {
-                        lines.push(chunk);
-                    }
-                    chunk = ch.to_string();
-                }
-            }
-            current = chunk;
-        }
-
-        if !current.is_empty() {
-            lines.push(current);
-        }
-    }
-
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
-
-    lines
 }
 
 fn render_dom(

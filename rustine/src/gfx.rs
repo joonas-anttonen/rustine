@@ -244,6 +244,80 @@ pub fn measure_text(text: &str, scale: f32, font_id: u32) -> Rectangle {
     }
 }
 
+/// Wrap text into lines using the embedded bitmap fonts.
+pub fn wrap_text_lines(content: &str, max_width: f32, scale: f32, font_id: u32) -> Vec<String> {
+    let mut lines = Vec::new();
+    for raw_line in content.lines() {
+        if raw_line.trim().is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        for word in raw_line.split_whitespace() {
+            if current.is_empty() {
+                if measure_text(word, scale, font_id).x <= max_width {
+                    current.push_str(word);
+                    continue;
+                }
+
+                let mut chunk = String::new();
+                for ch in word.chars() {
+                    let candidate = format!("{}{}", chunk, ch);
+                    if measure_text(&candidate, scale, font_id).x <= max_width {
+                        chunk = candidate;
+                    } else {
+                        if !chunk.is_empty() {
+                            lines.push(chunk);
+                        }
+                        chunk = ch.to_string();
+                    }
+                }
+                current = chunk;
+                continue;
+            }
+
+            let candidate = format!("{} {}", current, word);
+            if measure_text(&candidate, scale, font_id).x <= max_width {
+                current = candidate;
+                continue;
+            }
+
+            lines.push(current);
+            current = String::new();
+
+            if measure_text(word, scale, font_id).x <= max_width {
+                current.push_str(word);
+                continue;
+            }
+
+            let mut chunk = String::new();
+            for ch in word.chars() {
+                let candidate = format!("{}{}", chunk, ch);
+                if measure_text(&candidate, scale, font_id).x <= max_width {
+                    chunk = candidate;
+                } else {
+                    if !chunk.is_empty() {
+                        lines.push(chunk);
+                    }
+                    chunk = ch.to_string();
+                }
+            }
+            current = chunk;
+        }
+
+        if !current.is_empty() {
+            lines.push(current);
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+
+    lines
+}
+
 /// A single draw command: draw a range of indices from the vertex/index buffer with optional scissor.
 #[derive(Debug, Clone)]
 pub struct DrawCommand {
