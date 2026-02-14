@@ -22,7 +22,7 @@ pub struct Style {
     pub size: Size,
     pub min_size: Size,
     pub max_size: Size,
-    pub position: PositionStyle,
+    pub position: PositionMode,
     pub padding: EdgeSizes,
     pub margin: EdgeSizes,
     pub foreground: Color,
@@ -38,7 +38,7 @@ impl Default for Style {
             size: Size::fill(),
             min_size: Size::auto(),
             max_size: Size::auto(),
-            position: PositionStyle::default(),
+            position: PositionMode::Flow,
             padding: EdgeSizes::zero(),
             margin: EdgeSizes::zero(),
             foreground: Color::from_u32(0xFFFF_FFFF),
@@ -93,7 +93,7 @@ pub struct StyleOverride {
     pub size: Option<Size>,
     pub min_size: Option<Size>,
     pub max_size: Option<Size>,
-    pub position: Option<PositionStyle>,
+    pub position: Option<PositionMode>,
     pub padding: Option<EdgeSizes>,
     pub margin: Option<EdgeSizes>,
     pub foreground: Option<Color>,
@@ -155,19 +155,6 @@ impl Default for LayoutStyle {
             align: Align::Stretch,
             justify: Justify::Start,
             gap: 0.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PositionStyle {
-    pub mode: PositionMode,
-}
-
-impl Default for PositionStyle {
-    fn default() -> Self {
-        Self {
-            mode: PositionMode::Flow,
         }
     }
 }

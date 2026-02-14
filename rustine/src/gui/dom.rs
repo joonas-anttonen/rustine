@@ -10,9 +10,142 @@ use crate::{
 pub type NodeId = usize;
 
 #[derive(Debug, Clone)]
+pub enum NodeKind {
+    Div(Div),
+    Text(Text),
+}
+
+#[derive(Debug, Clone)]
+pub struct Node {
+    pub parent: Option<NodeId>,
+    pub children: Vec<NodeId>,
+    pub kind: NodeKind,
+    pub layout: LayoutRect,
+    pub content_size: Vector2f,
+}
+
+impl Node {
+    pub fn as_div(&self) -> Option<&Div> {
+        match &self.kind {
+            NodeKind::Div(div) => Some(div),
+            NodeKind::Text(_) => None,
+        }
+    }
+
+    pub fn as_div_mut(&mut self) -> Option<&mut Div> {
+        match &mut self.kind {
+            NodeKind::Div(div) => Some(div),
+            NodeKind::Text(_) => None,
+        }
+    }
+
+    pub fn as_text(&self) -> Option<&Text> {
+        match &self.kind {
+            NodeKind::Text(text) => Some(text),
+            NodeKind::Div(_) => None,
+        }
+    }
+
+    pub fn as_text_mut(&mut self) -> Option<&mut Text> {
+        match &mut self.kind {
+            NodeKind::Text(text) => Some(text),
+            NodeKind::Div(_) => None,
+        }
+    }
+
+    pub fn style(&self) -> Option<&Style> {
+        match &self.kind {
+            NodeKind::Div(div) => Some(&div.style),
+            NodeKind::Text(text) => Some(&text.style),
+        }
+    }
+
+    pub fn style_mut(&mut self) -> Option<&mut Style> {
+        match &mut self.kind {
+            NodeKind::Div(div) => Some(&mut div.style),
+            NodeKind::Text(text) => Some(&mut text.style),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Div {
+    pub style: Style,
+}
+
+impl Default for Div {
+    fn default() -> Self {
+        Self {
+            style: Style::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Text {
+    pub content: String,
+    pub font_id: u32,
+    pub scale: f32,
+    pub style: Style,
+}
+
+impl Text {
+    pub fn new(content: impl Into<String>, font_id: u32, scale: f32) -> Self {
+        Self {
+            content: content.into(),
+            font_id,
+            scale,
+            style: Style::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LayoutRect {
+    pub position: Vector2f,
+    pub size: Vector2f,
+}
+
+impl Default for LayoutRect {
+    fn default() -> Self {
+        Self {
+            position: Vector2f::default(),
+            size: Vector2f::default(),
+        }
+    }
+}
+
+impl LayoutRect {
+    pub fn inset(&self, padding: EdgeSizes) -> Self {
+        let width = (self.size.x - padding.left - padding.right).max(0.0);
+        let height = (self.size.y - padding.top - padding.bottom).max(0.0);
+        Self {
+            position: Vector2f::new(
+                self.position.x + padding.left,
+                self.position.y + padding.top,
+            ),
+            size: Vector2f::new(width, height),
+        }
+    }
+
+    pub fn contains(&self, point: Vector2f) -> bool {
+        point.x >= self.position.x
+            && point.y >= self.position.y
+            && point.x < self.position.x + self.size.x
+            && point.y < self.position.y + self.size.y
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Dom {
     nodes: Vec<Node>,
     root: NodeId,
+}
+
+impl Default for Dom {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Dom {
@@ -187,7 +320,7 @@ impl Dom {
                 let Some(style) = node.style() else {
                     continue;
                 };
-                (style.clone(), style.position.mode, node.content_size)
+                (style.clone(), style.position, node.content_size)
             };
 
             match position_mode {
@@ -644,139 +777,6 @@ impl Dom {
                 Align::Stretch => parent_rect.position.x + margin.left,
             },
         }
-    }
-}
-
-impl Default for Dom {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Node {
-    pub parent: Option<NodeId>,
-    pub children: Vec<NodeId>,
-    pub kind: NodeKind,
-    pub layout: LayoutRect,
-    pub content_size: Vector2f,
-}
-
-impl Node {
-    pub fn as_div(&self) -> Option<&Div> {
-        match &self.kind {
-            NodeKind::Div(div) => Some(div),
-            NodeKind::Text(_) => None,
-        }
-    }
-
-    pub fn as_div_mut(&mut self) -> Option<&mut Div> {
-        match &mut self.kind {
-            NodeKind::Div(div) => Some(div),
-            NodeKind::Text(_) => None,
-        }
-    }
-
-    pub fn as_text(&self) -> Option<&Text> {
-        match &self.kind {
-            NodeKind::Text(text) => Some(text),
-            NodeKind::Div(_) => None,
-        }
-    }
-
-    pub fn as_text_mut(&mut self) -> Option<&mut Text> {
-        match &mut self.kind {
-            NodeKind::Text(text) => Some(text),
-            NodeKind::Div(_) => None,
-        }
-    }
-
-    pub fn style(&self) -> Option<&Style> {
-        match &self.kind {
-            NodeKind::Div(div) => Some(&div.style),
-            NodeKind::Text(text) => Some(&text.style),
-        }
-    }
-
-    pub fn style_mut(&mut self) -> Option<&mut Style> {
-        match &mut self.kind {
-            NodeKind::Div(div) => Some(&mut div.style),
-            NodeKind::Text(text) => Some(&mut text.style),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum NodeKind {
-    Div(Div),
-    Text(Text),
-}
-
-#[derive(Debug, Clone)]
-pub struct Div {
-    pub style: Style,
-}
-
-impl Default for Div {
-    fn default() -> Self {
-        Self {
-            style: Style::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Text {
-    pub content: String,
-    pub font_id: u32,
-    pub scale: f32,
-    pub style: Style,
-}
-
-impl Text {
-    pub fn new(content: impl Into<String>, font_id: u32, scale: f32) -> Self {
-        Self {
-            content: content.into(),
-            font_id,
-            scale,
-            style: Style::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct LayoutRect {
-    pub position: Vector2f,
-    pub size: Vector2f,
-}
-
-impl Default for LayoutRect {
-    fn default() -> Self {
-        Self {
-            position: Vector2f::default(),
-            size: Vector2f::default(),
-        }
-    }
-}
-
-impl LayoutRect {
-    pub fn inset(&self, padding: EdgeSizes) -> Self {
-        let width = (self.size.x - padding.left - padding.right).max(0.0);
-        let height = (self.size.y - padding.top - padding.bottom).max(0.0);
-        Self {
-            position: Vector2f::new(
-                self.position.x + padding.left,
-                self.position.y + padding.top,
-            ),
-            size: Vector2f::new(width, height),
-        }
-    }
-
-    pub fn contains(&self, point: Vector2f) -> bool {
-        point.x >= self.position.x
-            && point.y >= self.position.y
-            && point.x < self.position.x + self.size.x
-            && point.y < self.position.y + self.size.y
     }
 }
 

@@ -570,6 +570,10 @@ fn lua_field_string_func<F: FnOnce(&ffi::CStr)>(
     }
 }
 
+/// `lua_type` == `LUA_TSTRING` into `lua_tolstring` at the specified index.
+/// Wraps the returned Lua string into `CStr` and calls `func` with it.
+///
+/// Returns `true` if found valid string and `func` was called, otherwise `false`.
 fn lua_string_func<F: FnOnce(&ffi::CStr)>(
     pstate: *mut lua::ffi::lua_State,
     idx: ffi::c_int,
@@ -590,6 +594,10 @@ fn lua_string_func<F: FnOnce(&ffi::CStr)>(
     }
 }
 
+/// `lua_type` == `LUA_TSTRING` into `lua_tolstring` at the specified index,
+/// then convert to Rust `String`.
+///
+/// Returns `Some(String)` if found valid string, otherwise `None`.
 fn lua_string(pstate: *mut lua::ffi::lua_State, idx: ffi::c_int) -> Option<String> {
     unsafe {
         if lua::ffi::lua_type(pstate, idx) != lua::ffi::LUA_TSTRING {
@@ -680,35 +688,24 @@ fn parse_style_table(
             any = true;
         }
 
-        if let Some(size) = parse_size2_field(pstate, index, c"size") {
-            override_style.size = Some(size);
-            any = true;
-        } else if let Some(size) = parse_size2_from_dimensions(pstate, index, c"width", c"height") {
+        if let Some(size) = parse_size2_from_dimensions(pstate, index, c"width", c"height") {
             override_style.size = Some(size);
             any = true;
         }
 
-        if let Some(size) = parse_size2_field(pstate, index, c"min_size") {
-            override_style.min_size = Some(size);
-            any = true;
-        } else if let Some(size) =
-            parse_size2_from_dimensions(pstate, index, c"min_width", c"min_height")
+        if let Some(size) = parse_size2_from_dimensions(pstate, index, c"min_width", c"min_height")
         {
             override_style.min_size = Some(size);
             any = true;
         }
 
-        if let Some(size) = parse_size2_field(pstate, index, c"max_size") {
-            override_style.max_size = Some(size);
-            any = true;
-        } else if let Some(size) =
-            parse_size2_from_dimensions(pstate, index, c"max_width", c"max_height")
+        if let Some(size) = parse_size2_from_dimensions(pstate, index, c"max_width", c"max_height")
         {
             override_style.max_size = Some(size);
             any = true;
         }
 
-        if let Some(position) = parse_position_style(pstate, index) {
+        if let Some(position) = parse_position_mode(pstate, index, c"mode") {
             override_style.position = Some(position);
             any = true;
         }
@@ -1080,36 +1077,14 @@ fn parse_color_cstr(value: &ffi::CStr) -> Option<Color> {
     }
 }
 
-fn parse_position_style(
-    state: *mut lua::ffi::lua_State,
-    table_index: ffi::c_int,
-) -> Option<gui::PositionStyle> {
-    let mut any = false;
-    let mut position = gui::PositionStyle::default();
-    unsafe {
-        if let Some(position_index) = lua_field_table(state, table_index, c"position") {
-            if let Some(parsed) = parse_position_style_table(state, position_index) {
-                position = parsed;
-                any = true;
-            }
-            lua::ffi::lua_pop(state, 1);
-        } else if let Some(parsed) = parse_position_style_table(state, table_index) {
-            position = parsed;
-            any = true;
-        }
-
-        if any { Some(position) } else { None }
-    }
-}
-
-fn parse_position_style_table(
+fn parse_position_mode(
     pstate: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
-) -> Option<gui::PositionStyle> {
-    let mut position = gui::PositionStyle::default();
-    let mut any = false;
+    name: &ffi::CStr,
+) -> Option<gui::PositionMode> {
+    let mut result = None;
 
-    lua_field_string_func(pstate, table_index, c"mode", |field_string| {
+    lua_field_string_func(pstate, table_index, name, |field_string| {
         if let Some(parsed) = {
             if field_string == c"flow" {
                 Some(gui::PositionMode::Flow)
@@ -1117,18 +1092,17 @@ fn parse_position_style_table(
                 Some(gui::PositionMode::Absolute)
             } else {
                 crate::log::warning!(
-                    "Invalid [position.mode] '{:?}' Provide one of: 'flow', 'absolute'.",
+                    "Invalid [mode] '{:?}' Provide one of: 'flow', 'absolute'.",
                     field_string
                 );
                 None
             }
         } {
-            position.mode = parsed;
-            any = true;
+            result = Some(parsed);
         }
     });
 
-    if any { Some(position) } else { None }
+    result
 }
 
 #[cfg(test)]

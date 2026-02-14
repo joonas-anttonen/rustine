@@ -35,7 +35,8 @@ function ui.hbox(opts)
 
     return ui.div(ui.compose(style, {
         layout = layout,
-        size = opts.size or { width = "fill", height = "auto" },
+        width = opts.width or "auto",
+        height = opts.height or "fill",
     }))
 end
 
@@ -46,7 +47,7 @@ end
 ---   - gap: Spacing between children in pixels
 ---   - size: Table with width and height ('auto', 'fill', or specific pixel values)
 ---   - style: Additional styles to apply to the container
---- @return table 
+--- @return table
 function ui.vbox(opts)
     opts = opts or {}
     local style = opts.style or {}
@@ -59,7 +60,8 @@ function ui.vbox(opts)
 
     return ui.div(ui.compose(style, {
         layout = layout,
-        size = opts.size or { width = "auto", height = "fill" },
+        width = opts.width or "auto",
+        height = opts.height or "fill",
     }))
 end
 
@@ -93,7 +95,8 @@ function ui.button(options)
     return ui.div({
         style = ui.compose({
             layout = { direction = "row", align = "center", justify = "center", gap = 0 },
-            size = { width = 128, height = 32 },
+            width = 128,
+            height = 32,
             padding = 2,
             background = "#5D6C80",
             border = 2,
@@ -101,27 +104,6 @@ function ui.button(options)
         }, options.style),
         children = options.content,
         on_click = options.on_click,
-    })
-end
-
-function ui.progressbar(value, opts)
-    opts = opts or {}
-    local percentage = math.max(0, math.min(1, value))
-    return ui.div({
-        style = ui.compose({
-            size = { width = 200, height = 24 },
-            background = "#2e3a4b",
-            border = 1,
-            border_color = "#1B232F",
-        }, opts.style),
-        children = {
-            ui.div({
-                style = {
-                    size = { width = percentage * 100 .. "%", height = "fill" },
-                    background = "#2489db",
-                },
-            }),
-        },
     })
 end
 
