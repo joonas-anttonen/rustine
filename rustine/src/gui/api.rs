@@ -706,7 +706,17 @@ fn parse_style_table(
         }
 
         if let Some(position) = parse_position_mode(pstate, index, c"mode") {
-            override_style.position = Some(position);
+            override_style.position_mode = Some(position);
+            any = true;
+        }
+
+        if let Some(x) = lua_field_number(pstate, index, c"x") {
+            override_style.x = Some(x);
+            any = true;
+        }
+
+        if let Some(y) = lua_field_number(pstate, index, c"y") {
+            override_style.y = Some(y);
             any = true;
         }
 
@@ -845,21 +855,6 @@ fn parse_layout_style_table(
     if any { Some(layout) } else { None }
 }
 
-fn parse_size2_field(
-    state: *mut lua::ffi::lua_State,
-    table_index: ffi::c_int,
-    name: &ffi::CStr,
-) -> Option<gui::Size> {
-    let Some(size_index) = lua_field_table(state, table_index, name) else {
-        return None;
-    };
-    let result = parse_size2_table(state, size_index);
-    unsafe {
-        lua::ffi::lua_pop(state, 1);
-        result
-    }
-}
-
 fn parse_size2_from_dimensions(
     state: *mut lua::ffi::lua_State,
     table_index: ffi::c_int,
@@ -868,23 +863,6 @@ fn parse_size2_from_dimensions(
 ) -> Option<gui::Size> {
     let width = parse_length_field(state, table_index, width_name);
     let height = parse_length_field(state, table_index, height_name);
-    if width.is_none() && height.is_none() {
-        return None;
-    }
-
-    Some(gui::Size {
-        width: width.unwrap_or(gui::Length::Auto),
-        height: height.unwrap_or(gui::Length::Auto),
-    })
-}
-
-fn parse_size2_table(
-    state: *mut lua::ffi::lua_State,
-    table_index: ffi::c_int,
-) -> Option<gui::Size> {
-    let width = parse_length_field(state, table_index, c"width");
-    let height = parse_length_field(state, table_index, c"height");
-
     if width.is_none() && height.is_none() {
         return None;
     }
@@ -1219,6 +1197,30 @@ mod tests {
         assert_eq!(style.margin.right, 5.0);
         assert_eq!(style.margin.top, 2.0);
         assert_eq!(style.margin.bottom, 2.0);
+    }
+
+    #[test]
+    fn lua_absolute_positioning() {
+        let code = cr###"
+            local div = ui.div({
+                style = {
+                    mode = "absolute",
+                    x = 12,
+                    y = 34,
+                },
+            })
+            ui.dom(div)
+        "###;
+        let lua_dom = LuaDom::from_cstr(code).expect("Failed to load DOM");
+
+        let root = lua_dom.dom.node(lua_dom.root).expect("Root should exist");
+        let child_id = root.children[0];
+        let child = lua_dom.dom.node(child_id).expect("Child should exist");
+        let style = child.style().expect("Should have style");
+
+        assert_eq!(style.position, crate::gui::PositionMode::Absolute);
+        assert_eq!(style.x, 12.0);
+        assert_eq!(style.y, 34.0);
     }
 
     #[test]

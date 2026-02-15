@@ -151,6 +151,13 @@ impl Default for Dom {
     }
 }
 
+impl std::fmt::Display for Dom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n\n")?;
+        self.fmt_node(self.root, 0, f)
+    }
+}
+
 impl Dom {
     pub fn new() -> Self {
         let mut nodes = Vec::new();
@@ -289,6 +296,53 @@ impl Dom {
         }
 
         Some(id)
+    }
+
+    fn fmt_node(
+        &self,
+        id: NodeId,
+        depth: usize,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let Some(node) = self.nodes.get(id) else {
+            return Ok(());
+        };
+
+        let indent = "  ".repeat(depth);
+        let kind = match &node.kind {
+            NodeKind::Div(_) => "Div".to_string(),
+            NodeKind::Text(text) => {
+                let mut buffer = String::new();
+                buffer.push_str("Text(\"");
+                buffer.push_str(&text.content);
+                buffer.push_str("\")");
+                buffer
+            }
+        };
+
+        self.fmt_entry(id, &indent, &kind, f)?;
+
+        for child_id in node.children.iter().copied() {
+            self.fmt_node(child_id, depth + 1, f)?;
+        }
+
+        Ok(())
+    }
+
+    fn fmt_entry(
+        &self,
+        id: NodeId,
+        indent: &str,
+        kind: &str,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        write!(
+            f,
+            "{indent}{kind} id={id}\n",
+            indent = indent,
+            kind = kind,
+            id = id
+        )
     }
 
     fn layout_node(&mut self, id: NodeId, rect: LayoutRect) {
@@ -605,8 +659,8 @@ impl Dom {
         let size = Self::resolve_size(parent_rect, style, content_size, 0.0);
         let margin = &style.margin;
         let mut pos = parent_rect.position;
-        pos.x = parent_rect.position.x + margin.left;
-        pos.y = parent_rect.position.y + margin.top;
+        pos.x = parent_rect.position.x + style.x + margin.left;
+        pos.y = parent_rect.position.y + style.y + margin.top;
 
         LayoutRect {
             position: pos,

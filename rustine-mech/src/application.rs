@@ -130,7 +130,10 @@ impl gui::Application for MyApplication {
 
 fn load_lua_runtime(path: &Path) -> (gui::api::LuaRuntime, bool) {
     match gui::api::LuaRuntime::from_file(path) {
-        Ok(runtime) => (runtime, true),
+        Ok(runtime) => {
+            log::info!("{}", runtime.dom());
+            (runtime, true)
+        }
         Err(err) => {
             log::warning!("Failed to load Lua UI: {err}");
             let mut runtime = gui::api::LuaRuntime::new_empty();

@@ -53,16 +53,19 @@ function ui.vbox(opts)
     local style = opts.style or {}
     local layout = {
         direction = "column",
-        align = opts.align or "stretch",
-        justify = opts.justify or "start",
-        gap = opts.gap or 0,
+        align = "start",
+        justify = "start",
+        gap = opts.layout.gap or 0,
     }
 
-    return ui.div(ui.compose(style, {
-        layout = layout,
-        width = opts.width or "auto",
-        height = opts.height or "fill",
-    }))
+    return ui.div({
+        style = ui.compose(style, {
+            layout = layout,
+            width = opts.width or "fill",
+            height = opts.height or "auto",
+        }),
+        children = opts.children or {},
+    })
 end
 
 -- Create a spacer element
@@ -102,8 +105,45 @@ function ui.button(options)
             border = 2,
             border_color = "#30363D",
         }, options.style),
-        children = options.content,
+        children = options.children,
         on_click = options.on_click,
+    })
+end
+
+function ui.copy(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for k, v in pairs(value) do
+        result[ui.copy(k)] = ui.copy(v)
+    end
+    return result
+end
+
+--- Create a list container that instantiates a template for each item
+--- @param opts table Options for the list, including:
+---   - item_template: Function that returns a node structure (receives index as argument)
+---   - count: Number of items to create
+---   - style: Additional styles to apply to the list container
+--- @return table
+function ui.list(opts)
+    opts = opts or {}
+    local item_template = opts.item_template
+    local count = opts.count or 0
+    local children = {}
+
+    if type(item_template) == "function" then
+        for i = 1, count do
+            table.insert(children, item_template(i))
+        end
+    end
+
+    return ui.div({
+        style = opts.style or {
+            layout = { direction = "column", align = "start", justify = "start", gap = 0 },
+        },
+        children = children,
     })
 end
 

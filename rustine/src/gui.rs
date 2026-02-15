@@ -23,6 +23,8 @@ pub struct Style {
     pub min_size: Size,
     pub max_size: Size,
     pub position: PositionMode,
+    pub x: f32,
+    pub y: f32,
     pub padding: EdgeSizes,
     pub margin: EdgeSizes,
     pub foreground: Color,
@@ -39,6 +41,8 @@ impl Default for Style {
             min_size: Size::auto(),
             max_size: Size::auto(),
             position: PositionMode::Flow,
+            x: 0.0,
+            y: 0.0,
             padding: EdgeSizes::zero(),
             margin: EdgeSizes::zero(),
             foreground: Color::from_u32(0xFFFF_FFFF),
@@ -63,8 +67,14 @@ impl Style {
         if let Some(max_size) = override_style.max_size {
             self.max_size = max_size;
         }
-        if let Some(position) = override_style.position {
+        if let Some(position) = override_style.position_mode {
             self.position = position;
+        }
+        if let Some(x) = override_style.x {
+            self.x = x;
+        }
+        if let Some(y) = override_style.y {
+            self.y = y;
         }
         if let Some(padding) = override_style.padding {
             self.padding = padding;
@@ -93,7 +103,9 @@ pub struct StyleOverride {
     pub size: Option<Size>,
     pub min_size: Option<Size>,
     pub max_size: Option<Size>,
-    pub position: Option<PositionMode>,
+    pub position_mode: Option<PositionMode>,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub padding: Option<EdgeSizes>,
     pub margin: Option<EdgeSizes>,
     pub foreground: Option<Color>,
@@ -116,8 +128,14 @@ impl StyleOverride {
         if other.max_size.is_some() {
             self.max_size = other.max_size;
         }
-        if other.position.is_some() {
-            self.position = other.position;
+        if other.position_mode.is_some() {
+            self.position_mode = other.position_mode;
+        }
+        if other.x.is_some() {
+            self.x = other.x;
+        }
+        if other.y.is_some() {
+            self.y = other.y;
         }
         if other.padding.is_some() {
             self.padding = other.padding;
