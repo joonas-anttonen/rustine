@@ -1,4 +1,4 @@
-use crate::{error, vk_call, warning};
+use crate::{drop, error, vk_call};
 use crate::{gfx::PixelBuffer, gfx::vulkan as vk, gfx::*};
 
 use std::rc::Rc;
@@ -41,10 +41,7 @@ pub struct PresentationImage {
 
 impl PresentationImage {
     pub fn size(&self) -> crate::Vector2i {
-        crate::Vector2i::new(
-            self.width as i32,
-            self.height as i32,
-        )
+        crate::Vector2i::new(self.width as i32, self.height as i32)
     }
 }
 
@@ -117,7 +114,7 @@ pub struct SwapchainProvider {
 impl Drop for SwapchainProvider {
     fn drop(&mut self) {
         unsafe {
-            warning!("SwapchainProvider::drop");
+            drop!("SwapchainProvider::drop");
 
             vk::vkDestroyFence(self.device.handle(), self.acquire_fence, std::ptr::null());
             for semaphore in &self.acquire_semaphores {

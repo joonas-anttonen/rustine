@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{error, vk_call, warning};
+use crate::{error, vk_call, drop};
 use crate::{gfx::pipeline::*, gfx::vulkan as vk, gfx::*};
 
 use std::{collections::HashSet, rc::Rc};
@@ -12,7 +12,7 @@ pub struct CommandPool {
 
 impl Drop for CommandPool {
     fn drop(&mut self) {
-        warning!("CommandPool::drop");
+        drop!("CommandPool::drop");
         unsafe {
             vk::vkDestroyCommandPool(self.device.handle(), self.handle, std::ptr::null());
         }
@@ -129,7 +129,7 @@ pub struct CommandBuffer {
 
 impl Drop for CommandBuffer {
     fn drop(&mut self) {
-        warning!("CommandBuffer::drop");
+        drop!("CommandBuffer::drop");
         unsafe {
             vk::vkDestroySemaphore(self.pool.device.handle(), self.semaphore, std::ptr::null());
             vk::vkDestroyFence(self.pool.device.handle(), self.fence, std::ptr::null());

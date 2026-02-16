@@ -1,5 +1,5 @@
 use crate::gfx::pipeline::*;
-use crate::{Parameters, RingBuffer, gfx::queue::Queue, gfx::*, io, warning};
+use crate::{Parameters, RingBuffer, drop, gfx::queue::Queue, gfx::*, io, warning};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
@@ -83,7 +83,7 @@ pub fn run(am_gfx: Arc<Mutex<gfx::Gfx>>, exit_flag: &std::sync::atomic::AtomicBo
 
 impl Drop for Gfx {
     fn drop(&mut self) {
-        warning!("Gfx::drop");
+        drop!("Gfx::drop");
     }
 }
 

@@ -5,7 +5,7 @@ use std::sync::atomic;
 
 use crate::gfx::vulkan as vk;
 use crate::gfx::*;
-use crate::{debug, vk_call, warning};
+use crate::{debug, vk_call, drop};
 
 pub use ffi::VmaAllocation;
 pub use ffi::VmaAllocationInfo;
@@ -51,7 +51,7 @@ pub struct Allocator {
 
 impl Drop for Allocator {
     fn drop(&mut self) {
-        warning!("Allocator::drop");
+        drop!("Allocator::drop");
         unsafe {
             ffi::vmaDestroyAllocator(self.handle);
         }

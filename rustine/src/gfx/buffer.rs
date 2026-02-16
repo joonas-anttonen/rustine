@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::vk_call;
-use crate::warning;
+use crate::drop;
 use crate::{gfx::allocator, gfx::vulkan as vk};
 
 use std::rc::Rc;
@@ -32,7 +32,7 @@ impl std::hash::Hash for PixelBuffer {
 
 impl Drop for PixelBuffer {
     fn drop(&mut self) {
-        warning!("PixelBuffer::drop");
+        drop!("PixelBuffer::drop");
         unsafe {
             vk::vkDestroyImageView(
                 self.allocator.device().handle(),
@@ -230,7 +230,6 @@ impl MemoryBuffer {
 
 impl Drop for MemoryBuffer {
     fn drop(&mut self) {
-        //warning!("MemoryBuffer::drop");
         unsafe {
             allocator::vmaDestroyBuffer(self.allocator.handle(), self.handle, self.allocation);
         }

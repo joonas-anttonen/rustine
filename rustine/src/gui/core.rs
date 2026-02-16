@@ -94,7 +94,7 @@ pub struct Gui {
 
 impl Drop for Gui {
     fn drop(&mut self) {
-        warning!("Gui::drop");
+        log::drop!("Gui::drop");
 
         let mut gfx = self.gfx.lock().unwrap();
         gfx.drop_presentation();

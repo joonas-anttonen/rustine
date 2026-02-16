@@ -23,3 +23,9 @@ rustine-sc = { path = "../rustine-sc" }
 cmake = ">=0.1"
 fontdue = ">=0.9"
 toml = ">=0.8"
+
+[features]
+# To enable:
+# [dependencies]
+# rustine = { path = "../rustine", features = ["drop-log"] }
+drop-log = []

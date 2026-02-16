@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{gfx::vulkan as vk, gfx::*, vk_call, vk_next, warning};
+use crate::{drop, gfx::vulkan as vk, gfx::*, vk_call, vk_next};
 use std::rc::Rc;
 
 pub struct Parameters {
@@ -41,7 +41,7 @@ impl std::hash::Hash for Pipeline {
 
 impl Drop for Pipeline {
     fn drop(&mut self) {
-        warning!("Pipeline::drop");
+        drop!("Pipeline::drop");
         unsafe {
             vk::vkDestroyPipeline(self.device.handle(), self.pipeline, std::ptr::null());
             vk::vkDestroyPipelineLayout(

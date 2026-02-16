@@ -2,8 +2,8 @@
 
 use std::{collections, ptr};
 
+use crate::{drop, vk_call, vk_next};
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
-use crate::{vk_call, vk_next, warning};
 
 unsafe extern "C" fn vulkan_debug_callback(
     _message_severity: u32,
@@ -36,7 +36,7 @@ pub struct Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        warning!("Instance::drop");
+        drop!("Instance::drop");
 
         if let Some(messenger) = self.debug_messenger {
             let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";

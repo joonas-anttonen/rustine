@@ -10,7 +10,7 @@ pub mod dom;
 pub mod style;
 
 use crate::gfx::{self, presentation, vulkan as vk};
-use crate::{Color, debug, warning};
+use crate::{Color, debug};
 
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};

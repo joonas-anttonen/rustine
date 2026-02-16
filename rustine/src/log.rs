@@ -247,7 +247,7 @@ pub fn add_listener<L: LogListener + 'static>(listener: L) -> sync::Arc<dyn LogL
 }
 
 // Re-export macros into this module's namespace
-pub use crate::{debug, error, info, warning};
+pub use crate::{debug, drop, error, info, warning};
 
 #[macro_export]
 macro_rules! debug {
@@ -290,5 +290,19 @@ macro_rules! error {
             &format!($($arg)*),
             module_path!()
         );
+    }};
+}
+
+#[macro_export]
+macro_rules! drop {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "drop-log")]
+        {
+            $crate::log::Log::global().append(
+                $crate::log::Severity::Debug,
+                &format!($($arg)*),
+                module_path!()
+            );
+        }
     }};
 }

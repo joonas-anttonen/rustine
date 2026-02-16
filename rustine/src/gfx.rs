@@ -573,7 +573,7 @@ pub struct RenderFrame {
 
 impl Drop for RenderFrame {
     fn drop(&mut self) {
-        warning!("RenderFrame::drop");
+        drop!("RenderFrame::drop");
     }
 }
 

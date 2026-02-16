@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{error, gfx::vulkan as vk, gfx::*, warning};
+use crate::{drop, error, gfx::vulkan as vk, gfx::*, warning};
 use crate::{
     gfx::CommandBuffer, gfx::CommandPool, gfx::presentation::AcquireStatus,
     gfx::presentation::Method, gfx::presentation::PresentationImage,
@@ -28,7 +28,7 @@ pub struct Queue {
 
 impl Drop for Queue {
     fn drop(&mut self) {
-        warning!("Queue::drop");
+        drop!("Queue::drop");
 
         self.drain();
     }
