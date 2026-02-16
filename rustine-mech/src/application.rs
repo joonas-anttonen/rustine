@@ -129,6 +129,12 @@ impl gui::Application for MyApplication {
 }
 
 fn load_lua_runtime(path: &Path) -> (gui::api::LuaRuntime, bool) {
+    // Print current directory for debugging
+    match std::env::current_dir() {
+        Ok(dir) => log::debug!("Current directory: {}", dir.display()),
+        Err(err) => log::warning!("Failed to get current directory: {err}"),
+    }
+
     match gui::api::LuaRuntime::from_file(path) {
         Ok(runtime) => {
             log::info!("{}", runtime.dom());

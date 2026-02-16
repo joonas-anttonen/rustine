@@ -437,7 +437,18 @@ impl Gfx {
     }
 
     pub fn initialize_swapchain(&mut self, parameters: presentation::Parameters) {
-        let swapchain_size = Vector2u::new(parameters.width, parameters.height);
+        let incoming_size = Vector2u::new(parameters.width, parameters.height);
+        let current_size = self
+            .target_frame
+            .as_ref()
+            .map(|f| Vector2u::new(f.width(), f.height()))
+            .unwrap_or(Vector2u::default());
+
+        // Reject redundant calls that don't change the size and we already have a target frame.
+        // TODO: Ensure we handle swapchain invalidation properly (Vulkan error + no size change)
+        if current_size == incoming_size && self.target_frame.is_some() {
+            return;
+        }
 
         self.queue.swap_presenter(parameters);
 
@@ -445,8 +456,8 @@ impl Gfx {
             .allocator
             .create_pixel_buffer(
                 Format::R8G8B8A8_UNORM,
-                swapchain_size.x,
-                swapchain_size.y,
+                incoming_size.x,
+                incoming_size.y,
                 ImageUsage::SAMPLED
                     | ImageUsage::COLOR_ATTACHMENT
                     | ImageUsage::TRANSFER_DST
@@ -455,10 +466,15 @@ impl Gfx {
                 Samples::X1,
             )
             .unwrap();
-        self.target_frame = Some(Rc::new(target_frame));
+
+        // Keep the old frame alive for a quick blit with `render_empty` to avoid
+        // rendering artifacts on resize. It will still look a bit glitchy since the size has
+        // most likely changed, but it's better than flickering black/transparent/undefined pixels.
+        let old_frame = self.target_frame.replace(Rc::new(target_frame));
         self.target_damaged = true;
 
-        self.render();
+        self.clear_render_commands();
+        self.render_empty(old_frame);
     }
 
     pub fn create_pipeline(&self, parameters: pipeline::Parameters) -> Pipeline {
@@ -696,7 +712,7 @@ impl Gfx {
         }
     }
 
-    fn render_empty(&mut self) {
+    fn render_empty(&mut self, source: Option<Rc<PixelBuffer>>) {
         self.queue.enqueue_present(|cmd, present_image| {
             // Handle all pending uploads to their target buffers
             for upload in &self.pending_image_uploads {
@@ -708,6 +724,15 @@ impl Gfx {
             self.pending_image_uploads.clear();
 
             if let Some(target_frame) = self.target_frame.as_ref() {
+                if let Some(source) = source {
+                    cmd.layout_barrier(&source, Layout::TRANSFER_SRC);
+                    cmd.layout_barrier(target_frame, Layout::TRANSFER_DST);
+                    cmd.blit(&source, target_frame, Filter::Linear);
+                } else {
+                    cmd.layout_barrier(target_frame, Layout::TRANSFER_DST);
+                    cmd.clear_pixel_buffer(target_frame, &[0.0, 0.0, 0.0, 0.0]);
+                }
+
                 cmd.layout_barrier(target_frame, Layout::TRANSFER_SRC);
                 cmd.present_image_barrier(present_image, Layout::UNDEFINED, Layout::TRANSFER_DST);
                 cmd.blit_to_present(target_frame, present_image, Filter::Linear);
@@ -737,7 +762,7 @@ impl Gfx {
         let target_frame = match self.target_frame.as_ref() {
             Some(frame) => Rc::clone(frame),
             None => {
-                self.render_empty();
+                self.render_empty(None);
                 self.frame_cpu_times
                     .push(Instant::now().duration_since(frame_start).as_secs_f64());
                 return;
@@ -766,7 +791,7 @@ impl Gfx {
             }
         } else if self.pending_image_uploads.is_empty() && !self.target_damaged {
             // No work to do, present the previous frame, if available.
-            self.render_empty();
+            self.render_empty(None);
             self.frame_cpu_times
                 .push(Instant::now().duration_since(frame_start).as_secs_f64());
             return;
@@ -779,7 +804,7 @@ impl Gfx {
         let mut gui_commands = match self.cached_gui_commands.take() {
             Some(f) => f,
             None => {
-                self.render_empty();
+                self.render_empty(None);
                 self.frame_cpu_times
                     .push(Instant::now().duration_since(frame_start).as_secs_f64());
                 return;

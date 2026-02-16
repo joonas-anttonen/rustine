@@ -1,4 +1,4 @@
-use crate:: {Platform, RunMode, Vector2f, Vector2u, Vector2i, RingBuffer, Mailbox, utilities, log};
+use crate::{Mailbox, Platform, RingBuffer, RunMode, Vector2f, Vector2i, Vector2u, log, utilities};
 
 use crate::gui::*;
 
@@ -374,7 +374,9 @@ impl Gui {
                 gui_raw_ptr as *const _,
             ));
 
-            // Manually invoke the framebuffer size callback to initialize the swapchain
+            // Manually invoke the framebuffer size callback to initialize the swapchain.
+            // This is necessary since some platforms won't trigger the callback
+            // until the window is resized, and on Wayland we end up with no visible window at all.
             let mut width: u32 = 0;
             let mut height: u32 = 0;
             ffi::panic_if_error(ffi::rwlGetPixelSize(
