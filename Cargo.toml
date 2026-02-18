@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = [ "rustine", "rustine-sc", "rustine-explorer" , "rustine-cc", "rustine-mech"]
+members = [ "rustine", "rustine-sc", "rustine-explorer" , "rustine-cc", "rustine-mech", "rustine-ed"]
 
 [profile.release]
 opt-level = 3

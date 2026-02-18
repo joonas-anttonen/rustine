@@ -134,6 +134,37 @@
 			"problemMatcher": [
 				"$rustc"
 			]
+		},
+		{
+			"label": "Run rustine-ed",
+			"detail": "Run rustine-ed (Debug)",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run",
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-ed"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Run rustine-ed (Release)",
+			"detail": "Run rustine-ed (Release)",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"run",
+				"--release"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-ed"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
 		}
 	]
 }

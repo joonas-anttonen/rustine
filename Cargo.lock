@@ -743,6 +743,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustine-ed"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rustine",
+]
+
+[[package]]
 name = "rustine-explorer"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,18 @@
+[package]
+name = "rustine-ed"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "rustine_ed"
+path = "src/lib.rs"
+test = false
+
+[[bin]]
+name = "rustine-ed"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+rustine = { version = "0.1.0", path = "../rustine" }
+libc = ">=0.2"
