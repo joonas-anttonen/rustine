@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 #[derive(Clone)]
 enum BufferType {
     Original,
@@ -21,7 +23,7 @@ struct Operation {
     text: String,
 }
 
-struct PieceTable {
+pub(crate) struct PieceTable {
     original: String,
     pieces: Vec<Piece>,
     undo_stack: Vec<Operation>,
@@ -41,8 +43,7 @@ impl PieceTable {
         }
     }
 
-    pub fn get_text(&self) -> String {
-        let mut result = String::new();
+    pub fn get_text(&self, result: &mut String) {
         for piece in &self.pieces {
             match &piece.buffer_type {
                 BufferType::Original => {
@@ -54,6 +55,47 @@ impl PieceTable {
                 }
             }
         }
+    }
+
+    pub fn extract_range(&self, position: usize, length: usize) -> String {
+        let mut result = String::with_capacity(length);
+        let mut cursor = 0usize;
+        let end_position = position
+            .checked_add(length)
+            .expect("extract range end overflows usize");
+
+        for piece in &self.pieces {
+            let piece_start = cursor;
+            let piece_end = piece_start + piece.length;
+
+            if piece_end <= position || piece_start >= end_position {
+                // This piece is completely outside the target range, skip it
+            } else {
+                // This piece overlaps with the target range, extract the relevant portion
+                let extract_start = position.max(piece_start);
+                let extract_end = end_position.min(piece_end);
+                let extract_offset = extract_start - piece_start;
+                let extract_length = extract_end - extract_start;
+
+                match &piece.buffer_type {
+                    BufferType::Original => {
+                        let slice = &self.original[piece.start + extract_offset
+                            ..piece.start + extract_offset + extract_length];
+                        result.push_str(slice);
+                    }
+                    BufferType::Add(text) => {
+                        result.extend(
+                            text.chars()
+                                .skip(piece.start + extract_offset)
+                                .take(extract_length),
+                        );
+                    }
+                }
+            }
+
+            cursor = piece_end;
+        }
+
         result
     }
 
@@ -208,17 +250,6 @@ impl PieceTable {
             return;
         }
 
-        let current_len = self.pieces.iter().map(|piece| piece.length).sum::<usize>();
-        assert!(
-            position <= current_len,
-            "insert position {position} out of bounds for length {current_len}"
-        );
-
-        let existing_at_position: String = self.get_text().chars().skip(position).take(len).collect();
-        if existing_at_position == text {
-            return;
-        }
-
         if record_undo {
             let operation = Operation {
                 kind: OperationKind::Insert,
@@ -305,12 +336,7 @@ impl PieceTable {
             let operation = Operation {
                 kind: OperationKind::Delete,
                 position,
-                text: self
-                    .get_text()
-                    .chars()
-                    .skip(position)
-                    .take(length)
-                    .collect(),
+                text: self.extract_range(position, length),
             };
             self.push_undo_operation(operation);
         }
@@ -387,7 +413,9 @@ mod tests {
     }
 
     fn assert_text(piece_table: &PieceTable, expected: &str) {
-        assert_eq!(piece_table.get_text(), expected);
+        let mut result = String::new();
+        piece_table.get_text(&mut result);
+        assert_eq!(result, expected);
     }
 
     fn assert_undo_to_original(piece_table: &mut PieceTable) {
@@ -396,16 +424,27 @@ mod tests {
     }
 
     #[test]
+    fn extract_range() {
+        let piece_table = make_piece_table();
+        let extracted = piece_table.extract_range(7, 5);
+        assert_eq!(extracted, "World");
+    }
+
+    #[test]
     fn contiguous_insert_merges() {
-        let mut piece_table = make_piece_table();
+        let original = "Hello, World!";
+
+        let mut piece_table = PieceTable::new(original.to_string());
         piece_table.insert(0, "Say: ".to_string());
+        assert_text(&piece_table, "Say: Hello, World!");
         piece_table.insert(5, "Hello, ".to_string());
+        assert_text(&piece_table, "Say: Hello, Hello, World!");
 
         assert_original_stable(&piece_table);
         assert_eq!(piece_table.pieces.len(), 2);
 
-        assert_text(&piece_table, "Say: Hello, World!");
-        assert_undo_to_original(&mut piece_table);
+        piece_table.undo();
+        assert_text(&piece_table, original);
     }
 
     #[test]
@@ -598,5 +637,77 @@ mod tests {
 
         piece_table.undo();
         assert_text(&piece_table, ORIGINAL_TEXT);
+    }
+
+    #[test]
+    fn unicode_insert_delete_and_undo() {
+        let mut piece_table = make_piece_table();
+        let unicode = " ääkköset 🚀";
+        piece_table.insert(13, unicode.to_string());
+
+        assert_original_stable(&piece_table);
+        assert_text(&piece_table, "Hello, World! ääkköset 🚀");
+
+        piece_table.delete(13, unicode.chars().count());
+        assert_text(&piece_table, ORIGINAL_TEXT);
+
+        piece_table.undo();
+        assert_text(&piece_table, "Hello, World! ääkköset 🚀");
+    }
+
+    #[test]
+    fn unicode_extract_range_from_inserted_text() {
+        let mut piece_table = make_piece_table();
+        piece_table.insert(7, "你好🌍 ".to_string());
+
+        assert_original_stable(&piece_table);
+        assert_text(&piece_table, "Hello, 你好🌍 World!");
+
+        let extracted = piece_table.extract_range(7, 3);
+        assert_eq!(extracted, "你好🌍");
+    }
+
+    #[test]
+    fn multiline_insert_and_delete() {
+        let mut piece_table = PieceTable::new("line1\nline2\nline3".to_string());
+        piece_table.insert(5, "\ninserted".to_string());
+
+        assert_text(&piece_table, "line1\ninserted\nline2\nline3");
+
+        piece_table.delete(5, "\ninserted".chars().count());
+        assert_text(&piece_table, "line1\nline2\nline3");
+
+        piece_table.undo();
+        assert_text(&piece_table, "line1\ninserted\nline2\nline3");
+    }
+
+    #[test]
+    fn multiline_extract_range_spans_newline() {
+        let piece_table = PieceTable::new("alpha\nbeta\ngamma".to_string());
+        let extracted = piece_table.extract_range(3, 6);
+        assert_eq!(extracted, "ha\nbet");
+    }
+
+    #[test]
+    fn unicode_original_buffer_insert_delete_extract() {
+        let original = "Hei ääkköset 🚀 maailma";
+        let mut piece_table = PieceTable::new(original.to_string());
+        let word = "ääkköset ";
+        let word_start = original.find(word).unwrap();
+
+        let extracted = piece_table.extract_range(word_start, word.len());
+        assert_eq!(extracted, word);
+
+        piece_table.delete(word_start, word.len());
+        assert_text(&piece_table, "Hei 🚀 maailma");
+
+        piece_table.undo();
+        assert_text(&piece_table, original);
+
+        piece_table.insert(word_start, "[X]".to_string());
+        assert_text(&piece_table, "Hei [X]ääkköset 🚀 maailma");
+
+        piece_table.undo();
+        assert_text(&piece_table, original);
     }
 }

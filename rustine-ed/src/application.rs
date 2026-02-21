@@ -6,8 +6,25 @@ use rustine::{
     log,
 };
 
+use crate::PieceTable;
+
 struct MyApplicationState {
-    pub editor: TextEditor,
+    pub text_table: PieceTable,
+    pub text_cache: String,
+}
+
+impl MyApplicationState {
+    pub fn new() -> Self {
+        MyApplicationState {
+            text_table: PieceTable::new(String::new()),
+            text_cache: String::with_capacity(1024),
+        }
+    }
+
+    pub fn update_text_cache(&mut self) {
+        self.text_cache.clear();
+        self.text_table.get_text(&mut self.text_cache);
+    }
 }
 
 pub struct MyApplication {
@@ -17,41 +34,13 @@ pub struct MyApplication {
 impl MyApplication {
     pub fn new() -> Self {
         MyApplication {
-            state: std::cell::RefCell::new(MyApplicationState {
-                editor: TextEditor {
-                    input_buffer: String::new(),
-                },
-            }),
+            state: std::cell::RefCell::new(MyApplicationState::new()),
         }
     }
 }
 
 impl Drop for MyApplication {
     fn drop(&mut self) {}
-}
-
-// "Operators" in Markdown
-// #        headings
-// >        blockquote
-// `        inline code
-// -        unordered list
-// ---      horizontal rule
-// !        image
-// [        link-text
-// (        link-url
-//
-// Ignored for now:
-// *        italic
-// **       bold
-
-struct TextEditor {
-    input_buffer: String,
-}
-
-impl TextEditor {
-    pub fn push_input(&mut self, c: char) {
-        self.input_buffer.push(c);
-    }
 }
 
 impl gui::Application for MyApplication {
@@ -68,7 +57,7 @@ impl gui::Application for MyApplication {
 
         if event.key == gui::Key::DELETE || event.key == gui::Key::BACKSPACE {
             log::info!("Received DELETE action with key: {:?}", event.key);
-            _state.editor.input_buffer.pop();
+            //_state.editor.input_buffer.pop();
         }
 
         // Assume the window is damaged after handling a key press
@@ -83,8 +72,8 @@ impl gui::Application for MyApplication {
             // Log the received character input
             //log::info!("Received char input: '{}'", c);
 
-            let mut state = self.state.borrow_mut();
-            state.editor.push_input(c);
+            let mut _state = self.state.borrow_mut();
+            //state.editor.push_input(c);
         } else {
             // Log non-printable character inputs with their Unicode code point
             //log::info!("Received non-printable char input: U+{:04X}", _c as u32);
@@ -106,7 +95,8 @@ impl gui::Application for MyApplication {
     }
 
     fn render(&self, _gui: &gui::Gui, frame: &mut gfx::RenderFrame) {
-        let state = self.state.borrow_mut();
+        let mut state = self.state.borrow_mut();
+        state.update_text_cache();
 
         let rect = gfx::Rectangle {
             x: 0.0,
@@ -123,15 +113,6 @@ impl gui::Application for MyApplication {
         let color = 0xFFFFFFFF;
         let font_id = gfx::fonts::CASKAYDIAMONO_FONT_ID;
 
-        frame.push_text(
-            state.editor.input_buffer.as_str(),
-            x,
-            y,
-            scale,
-            color,
-            font_id,
-        );
+        frame.push_text(&state.text_cache, x, y, scale, color, font_id);
     }
 }
-
-
