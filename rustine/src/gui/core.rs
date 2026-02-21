@@ -868,6 +868,7 @@ mod ffi {
                 Self::SPACE => crate::gui::input::Key::SPACE,
                 Self::ESCAPE => crate::gui::input::Key::ESCAPE,
                 Self::ENTER => crate::gui::input::Key::ENTER,
+                Self::BACKSPACE => crate::gui::input::Key::BACKSPACE,
                 Self::DELETE => crate::gui::input::Key::DELETE,
                 Self::TAB => crate::gui::input::Key::TAB,
                 Self::Q => crate::gui::input::Key::Q,

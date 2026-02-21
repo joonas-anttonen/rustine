@@ -6,7 +6,7 @@ edition = "2024"
 [lib]
 name = "rustine_ed"
 path = "src/lib.rs"
-test = false
+test = true
 
 [[bin]]
 name = "rustine-ed"

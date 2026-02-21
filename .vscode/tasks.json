@@ -165,6 +165,38 @@
 			"problemMatcher": [
 				"$rustc"
 			]
+		},
+		{
+			"label": "Test",
+			"detail": "Run tests",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"test",
+				"--tests"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Test rustine-ed",
+			"detail": "Run tests for rustine-ed",
+			"type": "process",
+			"command": "cargo",
+			"args": [
+				"test",
+				"--tests"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/rustine-ed"
+			},
+			"problemMatcher": [
+				"$rustc"
+			]
 		}
 	]
 }

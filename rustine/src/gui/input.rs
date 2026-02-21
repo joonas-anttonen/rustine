@@ -7,6 +7,7 @@ pub enum Key {
     ESCAPE,
     ENTER,
     DELETE,
+    BACKSPACE,
     TAB,
     Q,
     W,

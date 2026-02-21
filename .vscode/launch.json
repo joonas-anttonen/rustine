@@ -13,6 +13,19 @@
                     "rustine-mech"
                 ]
             }
+        },
+        {
+            "name": "rustine-ed",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "cwd": "${workspaceFolder}/rustine-ed",
+                "args": [
+                    "run",
+                    "--bin",
+                    "rustine-ed"
+                ]
+            }
         }
     ]
 }
