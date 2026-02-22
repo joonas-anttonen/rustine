@@ -83,5 +83,6 @@
         "ui",
         "log",
         "vim"
-    ]
+    ],
+    "cmake.ignoreCMakeListsMissing": true
 }

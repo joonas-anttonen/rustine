@@ -16,4 +16,6 @@ test = false
 [dependencies]
 rustine = { path = "../rustine" }
 libc = ">=0.2"
+
+[target.'cfg(unix)'.dependencies]
 udev = ">=0.9"

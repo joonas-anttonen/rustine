@@ -261,41 +261,44 @@ impl Pipeline {
 
         // 10. Shader Stages
         let mut shader_modules = Vec::new();
-        let shader_stage_create_infos: Vec<vk::VkPipelineShaderStageCreateInfo> = params
-            .shader
-            .stages
-            .iter()
-            .map(|stage| {
-                let shader_module_create_info = vk::VkShaderModuleCreateInfo {
-                    sType: vk::VkStructureType::SHADER_MODULE_CREATE_INFO,
-                    pNext: std::ptr::null(),
-                    flags: 0,
-                    codeSize: stage.bytecode.len(),
-                    pCode: stage.bytecode.as_ptr() as *const u32,
-                };
+        let mut shader_entry_points = Vec::new();
+        let mut shader_stage_create_infos = Vec::new();
 
-                let mut shader_module = vk::VkShaderModule::default();
-                unsafe {
-                    vk::vkCreateShaderModule(
-                        device.handle(),
-                        &shader_module_create_info,
-                        std::ptr::null(),
-                        &mut shader_module,
-                    )
-                };
-                shader_modules.push(shader_module);
+        for stage in &params.shader.stages {
+            let shader_module_create_info = vk::VkShaderModuleCreateInfo {
+                sType: vk::VkStructureType::SHADER_MODULE_CREATE_INFO,
+                pNext: std::ptr::null(),
+                flags: 0,
+                codeSize: stage.bytecode.len(),
+                pCode: stage.bytecode.as_ptr() as *const u32,
+            };
 
-                vk::VkPipelineShaderStageCreateInfo {
-                    sType: vk::VkStructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    pNext: std::ptr::null(),
-                    flags: 0,
-                    stage: vk::VkShaderStageFlags(stage.stage.0),
-                    module: shader_module,
-                    pName: stage.entry_point.as_ptr() as *const i8,
-                    pSpecializationInfo: std::ptr::null(),
-                }
-            })
-            .collect();
+            let mut shader_module = vk::VkShaderModule::default();
+            unsafe {
+                vk::vkCreateShaderModule(
+                    device.handle(),
+                    &shader_module_create_info,
+                    std::ptr::null(),
+                    &mut shader_module,
+                )
+            };
+            shader_modules.push(shader_module);
+
+            let entry_point = std::ffi::CString::new(stage.entry_point.as_str())
+                .map_err(|_| Status::InvalidOperation(-1))?;
+            shader_entry_points.push(entry_point);
+            let entry_point_index = shader_entry_points.len() - 1;
+
+            shader_stage_create_infos.push(vk::VkPipelineShaderStageCreateInfo {
+                sType: vk::VkStructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                pNext: std::ptr::null(),
+                flags: 0,
+                stage: vk::VkShaderStageFlags(stage.stage.0),
+                module: shader_module,
+                pName: shader_entry_points[entry_point_index].as_ptr(),
+                pSpecializationInfo: std::ptr::null(),
+            });
+        }
 
         // 11. Finally, the pipeline
         let pipeline_info = vk::VkGraphicsPipelineCreateInfo {

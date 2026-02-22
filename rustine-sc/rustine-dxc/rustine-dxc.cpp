@@ -1,17 +1,32 @@
 #include "rustine-dxc.hpp"
 
+#ifdef _WIN32
+#include <windows.h>
+#include <unknwn.h>
+#endif
+
+#if defined(__has_include)
+#if __has_include(<dxc/dxcapi.h>)
 #include <dxc/dxcapi.h>
+#elif __has_include(<dxcapi.h>)
+#include <dxcapi.h>
+#else
+#error "DXC header not found. Set DXC_INCLUDE_DIR to a directory containing dxc/dxcapi.h or dxcapi.h"
+#endif
+#else
+#include <dxc/dxcapi.h>
+#endif
+
 #include <string>
 #include <vector>
 #include <cstring>
+#include <cstdlib>
 
 #ifdef _WIN32
-#include <windows.h>
 #else
 #include <dlfcn.h>
 #include <limits.h>
 #include <unistd.h>
-#include <cstdlib>
 #include <string>
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -48,8 +63,17 @@ rdxc_status rdxcCompilerCreate(rdxc_compiler** out_compiler) {
     rdxc_compiler* compiler = new rdxc_compiler{};
     
 #ifdef _WIN32
-    // Load dxcompiler.dll from same directory as executable
-    compiler->library_handle = LoadLibraryW(L"dxcompiler.dll");
+    // Prefer DXC_LIB_DIR for explicit deployment layouts.
+    if (const char* env_dir = std::getenv("DXC_LIB_DIR")) {
+        std::string candidate = std::string(env_dir) + "\\dxcompiler.dll";
+        compiler->library_handle = LoadLibraryA(candidate.c_str());
+    }
+
+    // Fallback to default DLL search order.
+    if (!compiler->library_handle) {
+        compiler->library_handle = LoadLibraryW(L"dxcompiler.dll");
+    }
+
     if (!compiler->library_handle) {
         delete compiler;
         return RDXC_STATUS_LIBRARY_ERROR;

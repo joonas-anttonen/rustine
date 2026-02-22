@@ -190,7 +190,8 @@ pub(crate) mod ffi {
     pub const LUA_REGISTRYINDEX: c_int = -10000;
     pub const LUA_GLOBALSINDEX: c_int = -10002;
 
-    #[link(name = "luajit")]
+    #[cfg_attr(target_os = "windows", link(name = "lua51"))]
+    #[cfg_attr(not(target_os = "windows"), link(name = "luajit"))]
     unsafe extern "C" {
         // State manipulation
         pub fn luaL_newstate() -> *mut lua_State;

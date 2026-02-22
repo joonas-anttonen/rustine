@@ -112,6 +112,7 @@ impl Instance {
         self.surface_platform_hint
     }
 
+    #[cfg(not(target_os = "windows"))]
     pub fn create_wayland_surface(
         &self,
         wl_output: *const std::ffi::c_void,
@@ -139,6 +140,15 @@ impl Instance {
         surface_handle
     }
 
+    #[cfg(target_os = "windows")]
+    pub fn create_wayland_surface(
+        &self,
+        _wl_output: *const std::ffi::c_void,
+        _wl_surface: *const std::ffi::c_void,
+    ) -> vk::VkSurfaceKHR {
+        panic!("Wayland surface creation is not supported on Windows")
+    }
+
     pub fn destroy_surface(&self, surface: vk::VkSurfaceKHR) {
         unsafe {
             vk::vkDestroySurfaceKHR(self.handle, surface, ptr::null());
@@ -163,12 +173,19 @@ impl Instance {
         }
         enabled_extensions.push(surface_name.to_owned());
 
-        let platform_candidates: Vec<Platform> = match parameters.platform {
-            Platform::Wayland => vec![Platform::Wayland, Platform::X11],
-            Platform::X11 => vec![Platform::X11, Platform::Wayland],
-            Platform::Windows => vec![Platform::Windows],
-            Platform::MacOS => vec![Platform::MacOS],
-        };
+        let mut platform_candidates: Vec<Platform> = Vec::new();
+        platform_candidates.push(parameters.platform);
+
+        for platform in [
+            Platform::Wayland,
+            Platform::X11,
+            Platform::Windows,
+            Platform::MacOS,
+        ] {
+            if platform != parameters.platform {
+                platform_candidates.push(platform);
+            }
+        }
 
         let mut platform_extension_added = false;
         let mut selected_surface_platform: Option<Platform> = None;

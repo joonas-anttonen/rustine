@@ -11,9 +11,13 @@ path = "src/lib.rs"
 name = "rustine-cc"
 path = "src/main.rs"
 test = false
+required-features = ["camera-runtime"]
 
 [dependencies]
 rustine = { path = "../rustine" }
 libc = "0.2"
 roxmltree = "0.20"
 zip = "7.2.0"
+
+[features]
+camera-runtime = []

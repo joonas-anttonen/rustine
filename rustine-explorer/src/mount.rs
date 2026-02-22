@@ -1,9 +1,10 @@
 use std::{
-    ffi::CString,
-    fs,
     io::Write,
     process::{Command, Stdio},
 };
+
+#[cfg(not(target_os = "windows"))]
+use std::{ffi::CString, fs};
 
 /// Mount a filesystem using sudo with password
 pub fn mount_with_sudo(
@@ -103,6 +104,7 @@ pub fn umount_with_sudo(target: &str, password: &str) -> Result<(), MountError> 
 }
 
 /// Mount a filesystem using libc mount syscall
+#[cfg(not(target_os = "windows"))]
 pub fn mount(device: &str, target: &str, fstype: &str) -> Result<(), MountError> {
     // Create mount point if it doesn't exist
     fs::create_dir_all(target).map_err(|e| match e.kind() {
@@ -135,7 +137,16 @@ pub fn mount(device: &str, target: &str, fstype: &str) -> Result<(), MountError>
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+pub fn mount(_device: &str, _target: &str, _fstype: &str) -> Result<(), MountError> {
+    Err(MountError::Other(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "mount is not supported on Windows in this build",
+    )))
+}
+
 /// Unmount a filesystem using libc umount syscall
+#[cfg(not(target_os = "windows"))]
 pub fn umount(target: &str) -> Result<(), MountError> {
     let target_c = CString::new(target)
         .map_err(|_| MountError::InvalidPath("target path contains null byte".into()))?;
@@ -149,6 +160,14 @@ pub fn umount(target: &str) -> Result<(), MountError> {
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub fn umount(_target: &str) -> Result<(), MountError> {
+    Err(MountError::Other(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "umount is not supported on Windows in this build",
+    )))
 }
 
 /// Errors that can occur during mount operations
@@ -175,6 +194,7 @@ pub enum MountError {
 }
 
 /// Categorize mount errors from OS error codes
+#[cfg(not(target_os = "windows"))]
 fn categorize_mount_error(err: std::io::Error) -> MountError {
     use std::io::ErrorKind;
     match err.kind() {
@@ -199,6 +219,7 @@ fn categorize_mount_error(err: std::io::Error) -> MountError {
 }
 
 /// Categorize umount errors from OS error codes
+#[cfg(not(target_os = "windows"))]
 fn categorize_umount_error(err: std::io::Error) -> MountError {
     use std::io::ErrorKind;
     match err.kind() {

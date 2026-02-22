@@ -4,8 +4,18 @@ use crate::{Matrix4f, gfx};
 
 mod byte_rw;
 pub use byte_rw::*;
+
+#[cfg(not(target_os = "windows"))]
 pub mod ffmpeg;
+#[cfg(target_os = "windows")]
+#[path = "io/ffmpeg_stub.rs"]
+pub mod ffmpeg;
+
 pub mod gltf;
+#[cfg(not(target_os = "windows"))]
+pub mod webp;
+#[cfg(target_os = "windows")]
+#[path = "io/webp_stub.rs"]
 pub mod webp;
 
 #[derive(Clone)]
