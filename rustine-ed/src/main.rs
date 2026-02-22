@@ -5,37 +5,15 @@ use rustine_ed::application::*;
 
 static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 
-extern "C" fn handle_sigterm(_signal: i32) {
-    log::info!("SIGTERM");
-    SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
-    rustine::gui::Gui::wake_up();
-}
-fn install_signal_handlers() {
-    unsafe {
-        let mut sa: libc::sigaction = std::mem::zeroed();
-        sa.sa_sigaction = handle_sigterm as *const () as usize;
-        sa.sa_flags = libc::SA_RESTART;
-        libc::sigemptyset(&mut sa.sa_mask);
-
-        if libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut()) != 0 {
-            let os_error = std::io::Error::last_os_error();
-            eprintln!("Failed to install SIGINT handler: {os_error:?}",);
-        }
-        if libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut()) != 0 {
-            let os_error = std::io::Error::last_os_error();
-            eprintln!("Failed to install SIGTERM handler: {os_error:?}",);
-        }
-    }
-}
-
 fn main() -> std::process::ExitCode {
-    install_signal_handlers();
+    rustine::install_shutdown_signal_handlers(&SHUTDOWN_FLAG);
 
     log::set_current_thread_name("main");
     log::add_listener(log::ConsoleListener::new(true));
 
     {
-        let gfx_builder = rustine::gfx::Gfx::builder(rustine::Platform::Wayland)
+        let gfx_builder = rustine::gfx::Gfx::builder()
+            .platform_hint(rustine::Platform::Wayland)
             .app_name("rustine-ed")
             .app_version(Version::new(0, 1, 0))
             .debugging(true)

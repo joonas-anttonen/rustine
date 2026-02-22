@@ -5,6 +5,50 @@ use std::{collections, ptr};
 use crate::{drop, vk_call, vk_next};
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
 
+fn extend_surface_extensions_for_platform(
+    available_extensions: &collections::HashSet<std::ffi::CString>,
+    enabled_extensions: &mut Vec<std::ffi::CString>,
+    platform: Platform,
+) -> bool {
+    match platform {
+        Platform::Windows => {
+            let win32_surface = c"VK_KHR_win32_surface";
+            if available_extensions.contains(win32_surface) {
+                enabled_extensions.push(win32_surface.to_owned());
+                true
+            } else {
+                false
+            }
+        }
+        Platform::Wayland => {
+            let wayland_surface = c"VK_KHR_wayland_surface";
+            if available_extensions.contains(wayland_surface) {
+                enabled_extensions.push(wayland_surface.to_owned());
+                true
+            } else {
+                false
+            }
+        }
+        Platform::X11 => {
+            let xlib_surface = c"VK_KHR_xlib_surface";
+            let xcb_surface = c"VK_KHR_xcb_surface";
+            let mut any = false;
+
+            if available_extensions.contains(xlib_surface) {
+                enabled_extensions.push(xlib_surface.to_owned());
+                any = true;
+            }
+            if available_extensions.contains(xcb_surface) {
+                enabled_extensions.push(xcb_surface.to_owned());
+                any = true;
+            }
+
+            any
+        }
+        Platform::MacOS => false,
+    }
+}
+
 unsafe extern "C" fn vulkan_debug_callback(
     _message_severity: u32,
     _message_type: u32,
@@ -107,24 +151,31 @@ impl Instance {
         let mut enabled_layers: Vec<std::ffi::CString> = Vec::new();
         let mut enabled_extensions: Vec<std::ffi::CString> = Vec::new();
 
-        // 2. Add platform-specific surface extensions
-        enabled_extensions.push(std::ffi::CString::new("VK_KHR_surface").unwrap());
+        // 2. Add platform surface extensions (preferred platform first, then fallback)
+        let surface_name = c"VK_KHR_surface";
+        if !available_extensions.contains(surface_name) {
+            return Err(Status::NotSupported(-1));
+        }
+        enabled_extensions.push(surface_name.to_owned());
 
-        match parameters.platform {
-            Platform::Windows => {
-                enabled_extensions.push(std::ffi::CString::new("VK_KHR_win32_surface").unwrap());
-            }
-            Platform::X11 => {
-                enabled_extensions.push(std::ffi::CString::new("VK_KHR_xlib_surface").unwrap());
-                enabled_extensions.push(std::ffi::CString::new("VK_KHR_xcb_surface").unwrap());
-            }
-            Platform::Wayland => {
-                enabled_extensions.push(std::ffi::CString::new("VK_KHR_wayland_surface").unwrap());
-            }
-            // Error if unsupported platform
-            _ => {
-                return Err(Status::NotSupported(-1));
-            }
+        let platform_candidates: Vec<Platform> = match parameters.platform {
+            Platform::Wayland => vec![Platform::Wayland, Platform::X11],
+            Platform::X11 => vec![Platform::X11, Platform::Wayland],
+            Platform::Windows => vec![Platform::Windows],
+            Platform::MacOS => vec![Platform::MacOS],
+        };
+
+        let mut platform_extension_added = false;
+        for platform in platform_candidates {
+            platform_extension_added |= extend_surface_extensions_for_platform(
+                &available_extensions,
+                &mut enabled_extensions,
+                platform,
+            );
+        }
+
+        if !platform_extension_added {
+            return Err(Status::NotSupported(-1));
         }
 
         // 3. Add validation and debug utils extension if debugging is requested and available

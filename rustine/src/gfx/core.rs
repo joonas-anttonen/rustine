@@ -405,8 +405,8 @@ impl Gfx {
     }
 
     /// Creates a new `GfxBuilder` to configure and build a `Gfx` instance.
-    pub fn builder(platform: Platform) -> GfxBuilder {
-        GfxBuilder::new(platform)
+    pub fn builder() -> GfxBuilder {
+        GfxBuilder::new()
     }
 
     /// Returns a reference to the selected physical device.
@@ -967,17 +967,42 @@ pub struct GfxBuilder {
 }
 
 impl GfxBuilder {
-    /// Creates a new `GfxBuilder` with the given platform.
-    pub fn new(platform: Platform) -> Self {
+    fn default_platform_hint() -> Platform {
+        #[cfg(target_os = "linux")]
+        {
+            Platform::Wayland
+        }
+        #[cfg(target_os = "windows")]
+        {
+            Platform::Windows
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Platform::MacOS
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+        {
+            Platform::X11
+        }
+    }
+
+    /// Creates a new `GfxBuilder`.
+    pub fn new() -> Self {
         Self {
             params: Parameters {
                 debugging: false,
-                platform,
+                platform: Self::default_platform_hint(),
                 app_version: Version::new(0, 1, 0),
                 app_name: String::from("rustine"),
                 device_selector: DeviceSelector::Optimal,
             },
         }
+    }
+
+    /// Sets the preferred platform hint.
+    pub fn platform_hint(mut self, platform: Platform) -> Self {
+        self.params.platform = platform;
+        self
     }
 
     pub fn debugging(mut self, enabled: bool) -> Self {

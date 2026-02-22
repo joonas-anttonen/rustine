@@ -18,6 +18,8 @@ mod mjpeg;
 static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
 
 fn main() {
+    rustine::install_shutdown_signal_handlers(&SHUTDOWN_FLAG);
+
     log::set_current_thread_name("main");
     log::add_listener(log::ConsoleListener::new(true));
  
@@ -52,7 +54,8 @@ fn main() {
     }
 
     {
-        let gfx_builder = rustine::gfx::Gfx::builder(rustine::Platform::Wayland)
+        let gfx_builder = rustine::gfx::Gfx::builder()
+            .platform_hint(rustine::Platform::Wayland)
             .app_name("rustine-cc")
             .app_version(Version::new(0, 1, 0))
             .debugging(true)

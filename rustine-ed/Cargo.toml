@@ -15,4 +15,3 @@ test = false
 
 [dependencies]
 rustine = { version = "0.1.0", path = "../rustine" }
-libc = ">=0.2"

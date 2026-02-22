@@ -17,8 +17,51 @@ pub mod lua;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex, OnceLock, atomic::{AtomicBool, Ordering}},
 };
+
+#[cfg(unix)]
+static SHUTDOWN_SIGNAL_FLAG: OnceLock<&'static AtomicBool> = OnceLock::new();
+
+#[cfg(unix)]
+extern "C" fn handle_shutdown_signal(_signal: i32) {
+    if let Some(flag) = SHUTDOWN_SIGNAL_FLAG.get() {
+        flag.store(true, Ordering::Relaxed);
+        gui::Gui::wake_up();
+    }
+}
+
+/// Installs process signal handlers that request graceful shutdown.
+///
+/// On Unix platforms this installs handlers for `SIGINT` and `SIGTERM`.
+/// On non-Unix platforms this is a no-op.
+pub fn install_shutdown_signal_handlers(shutdown_flag: &'static AtomicBool) {
+    #[cfg(unix)]
+    {
+        let _ = SHUTDOWN_SIGNAL_FLAG.set(shutdown_flag);
+
+        unsafe {
+            let mut sa: libc::sigaction = std::mem::zeroed();
+            sa.sa_sigaction = handle_shutdown_signal as *const () as usize;
+            sa.sa_flags = libc::SA_RESTART;
+            libc::sigemptyset(&mut sa.sa_mask);
+
+            if libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut()) != 0 {
+                let os_error = std::io::Error::last_os_error();
+                log::warning!("Failed to install SIGINT handler: {os_error:?}");
+            }
+            if libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut()) != 0 {
+                let os_error = std::io::Error::last_os_error();
+                log::warning!("Failed to install SIGTERM handler: {os_error:?}");
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = shutdown_flag;
+    }
+}
 
 /// Controls how the GUI and GFX run loops handle timing and synchronization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,7 +192,10 @@ impl Default for AutoResetEvent {
     }
 }
 
-/// Represents the target platform.
+/// Represents a preferred platform hint.
+///
+/// This is not a strict requirement. Runtime setup may fall back to another
+/// compatible platform backend if the preferred one is not available.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
     Windows,

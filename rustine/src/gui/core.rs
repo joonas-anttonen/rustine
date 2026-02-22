@@ -14,7 +14,7 @@ pub struct GuiBuilder {
 }
 
 impl GuiBuilder {
-    /// Creates a new `GuiBuilder` with the given platform.
+    /// Creates a new `GuiBuilder` with a preferred platform hint.
     pub fn new(platform: Platform) -> Self {
         Self {
             params: Parameters {

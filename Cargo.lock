@@ -746,7 +746,6 @@ dependencies = [
 name = "rustine-ed"
 version = "0.1.0"
 dependencies = [
- "libc",
  "rustine",
 ]
 
@@ -763,7 +762,6 @@ dependencies = [
 name = "rustine-mech"
 version = "0.1.0"
 dependencies = [
- "libc",
  "rustine",
 ]
 
