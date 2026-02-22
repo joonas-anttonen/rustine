@@ -17,6 +17,23 @@ enum OperationKind {
     Delete,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct PieceDebugEntry {
+    pub buffer: &'static str,
+    pub start: usize,
+    pub length: usize,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PieceTableDebugState {
+    pub document_len: usize,
+    pub piece_count: usize,
+    pub undo_depth: usize,
+    pub redo_depth: usize,
+    pub pieces: Vec<PieceDebugEntry>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum InsertClass {
     Word,
@@ -65,6 +82,65 @@ impl PieceTable {
                 }
             }
         }
+    }
+
+    pub fn debug_state(&self) -> PieceTableDebugState {
+        let mut pieces = Vec::with_capacity(self.pieces.len());
+
+        for piece in &self.pieces {
+            match &piece.buffer_type {
+                BufferType::Original => {
+                    let segment = &self.original[piece.start..piece.start + piece.length];
+                    pieces.push(PieceDebugEntry {
+                        buffer: "orig",
+                        start: piece.start,
+                        length: piece.length,
+                        preview: Self::debug_preview(segment, 24),
+                    });
+                }
+                BufferType::Add(text) => {
+                    let segment: String = text.chars().skip(piece.start).take(piece.length).collect();
+                    pieces.push(PieceDebugEntry {
+                        buffer: "add",
+                        start: piece.start,
+                        length: piece.length,
+                        preview: Self::debug_preview(&segment, 24),
+                    });
+                }
+            }
+        }
+
+        let document_len = self.pieces.iter().map(|piece| piece.length).sum();
+
+        PieceTableDebugState {
+            document_len,
+            piece_count: self.pieces.len(),
+            undo_depth: self.undo_stack.len(),
+            redo_depth: self.redo_stack.len(),
+            pieces,
+        }
+    }
+
+    fn debug_preview(text: &str, max_chars: usize) -> String {
+        let mut preview = String::new();
+        let mut count = 0usize;
+
+        for c in text.chars() {
+            if count >= max_chars {
+                preview.push('…');
+                break;
+            }
+
+            match c {
+                '\n' => preview.push_str("\\n"),
+                '\r' => preview.push_str("\\r"),
+                '\t' => preview.push_str("\\t"),
+                _ => preview.push(c),
+            }
+            count += 1;
+        }
+
+        preview
     }
 
     pub fn extract_range(&self, position: usize, length: usize) -> String {
@@ -129,7 +205,16 @@ impl PieceTable {
                         last.length += piece.length;
                         continue;
                     }
-                    (BufferType::Add(last_text), BufferType::Add(next_text)) => {
+                    (BufferType::Add(last_text), BufferType::Add(next_text))
+                        if Self::can_merge_add_piece_boundary(
+                            last_text,
+                            last.start,
+                            last.length,
+                            next_text,
+                            piece.start,
+                            piece.length,
+                        ) =>
+                    {
                         let mut combined = String::new();
                         combined.extend(last_text.chars().skip(last.start).take(last.length));
                         combined.extend(next_text.chars().skip(piece.start).take(piece.length));
@@ -235,6 +320,65 @@ impl PieceTable {
         previous_class == next_class
     }
 
+    fn can_merge_add_piece_boundary(
+        left_text: &str,
+        left_start: usize,
+        left_length: usize,
+        right_text: &str,
+        right_start: usize,
+        right_length: usize,
+    ) -> bool {
+        let left_ends_with_newline = left_text
+            .chars()
+            .skip(left_start)
+            .take(left_length)
+            .last()
+            .is_some_and(|c| c == '\n');
+
+        if left_ends_with_newline {
+            return false;
+        }
+
+        let right_starts_with_newline = right_text
+            .chars()
+            .skip(right_start)
+            .take(right_length)
+            .next()
+            .is_some_and(|c| c == '\n');
+
+        !right_starts_with_newline
+    }
+
+    fn split_insert_into_pieces(text: String) -> Vec<Piece> {
+        let mut pieces = Vec::new();
+        let mut current = String::new();
+        let mut current_len = 0usize;
+
+        for c in text.chars() {
+            current.push(c);
+            current_len += 1;
+
+            if c == '\n' {
+                pieces.push(Piece {
+                    buffer_type: BufferType::Add(std::mem::take(&mut current)),
+                    start: 0,
+                    length: current_len,
+                });
+                current_len = 0;
+            }
+        }
+
+        if current_len > 0 {
+            pieces.push(Piece {
+                buffer_type: BufferType::Add(current),
+                start: 0,
+                length: current_len,
+            });
+        }
+
+        pieces
+    }
+
     fn merge_adjacent_pieces(&mut self, left_index: usize) -> bool {
         let right_index = left_index + 1;
         if right_index >= self.pieces.len() {
@@ -249,7 +393,16 @@ impl PieceTable {
                 self.pieces[left_index].start + self.pieces[left_index].length
                     == self.pieces[right_index].start
             }
-            (BufferType::Add(_), BufferType::Add(_)) => true,
+            (BufferType::Add(left_text), BufferType::Add(right_text)) => {
+                Self::can_merge_add_piece_boundary(
+                    left_text,
+                    self.pieces[left_index].start,
+                    self.pieces[left_index].length,
+                    right_text,
+                    self.pieces[right_index].start,
+                    self.pieces[right_index].length,
+                )
+            }
             _ => false,
         };
 
@@ -301,8 +454,7 @@ impl PieceTable {
     }
 
     fn insert_internal(&mut self, position: usize, text: String, record_undo: bool) {
-        let len = text.chars().count();
-        if len == 0 {
+        if text.is_empty() {
             return;
         }
 
@@ -316,14 +468,13 @@ impl PieceTable {
             self.push_undo_operation(operation);
         }
 
-        let new_piece = Piece {
-            buffer_type: BufferType::Add(text),
-            start: 0,
-            length: len,
-        };
+        let new_pieces = Self::split_insert_into_pieces(text);
+        if new_pieces.is_empty() {
+            return;
+        }
 
         if self.pieces.is_empty() {
-            self.pieces.push(new_piece);
+            self.pieces = new_pieces;
             return;
         }
 
@@ -335,8 +486,8 @@ impl PieceTable {
 
             if position < piece_end {
                 if position == piece_start {
-                    self.pieces.insert(index, new_piece);
-                    self.coalesce_around(index);
+                    self.pieces.splice(index..index, new_pieces);
+                    self.coalesce_pieces();
                     return;
                 }
 
@@ -352,23 +503,24 @@ impl PieceTable {
                     length: right_len,
                 };
 
-                self.pieces.insert(index + 1, new_piece);
-                self.pieces.insert(index + 2, right_piece);
-                self.coalesce_around(index + 1);
+                let inserted_count = new_pieces.len();
+                self.pieces.splice(index + 1..index + 1, new_pieces);
+                self.pieces.insert(index + 1 + inserted_count, right_piece);
+                self.coalesce_pieces();
                 return;
             }
 
             if position == piece_end {
-                self.pieces.insert(index + 1, new_piece);
-                self.coalesce_around(index + 1);
+                self.pieces.splice(index + 1..index + 1, new_pieces);
+                self.coalesce_pieces();
                 return;
             }
 
             cursor = piece_end;
         }
 
-        self.pieces.push(new_piece);
-        self.coalesce_around(self.pieces.len() - 1);
+        self.pieces.extend(new_pieces);
+        self.coalesce_pieces();
     }
 
     pub fn delete(&mut self, position: usize, length: usize) {
@@ -498,6 +650,25 @@ mod tests {
         let mut result = String::new();
         piece_table.get_text(&mut result);
         assert_eq!(result, expected);
+    }
+
+    fn assert_newline_piece_boundaries(piece_table: &PieceTable) {
+        for piece in &piece_table.pieces {
+            if let BufferType::Add(text) = &piece.buffer_type {
+                let segment: String = text.chars().skip(piece.start).take(piece.length).collect();
+                let newline_count = segment.chars().filter(|&c| c == '\n').count();
+                assert!(
+                    newline_count <= 1,
+                    "piece contains multiple newlines: {segment:?}"
+                );
+                if newline_count == 1 {
+                    assert!(
+                        segment.ends_with('\n'),
+                        "piece with newline must end with newline: {segment:?}"
+                    );
+                }
+            }
+        }
     }
 
     fn assert_undo_to_original(piece_table: &mut PieceTable) {
@@ -878,5 +1049,101 @@ mod tests {
 
         piece_table.undo();
         assert_text(&piece_table, original);
+    }
+
+    #[test]
+    fn empty_original_multiline_insert_splits_on_newlines() {
+        let mut piece_table = PieceTable::new(String::new());
+        piece_table.insert(0, "alpha\nbeta\ngamma".to_string());
+
+        assert_text(&piece_table, "alpha\nbeta\ngamma");
+        assert_eq!(piece_table.pieces.len(), 3);
+
+        piece_table.insert(6, "X".to_string());
+        assert_text(&piece_table, "alpha\nXbeta\ngamma");
+
+        piece_table.undo();
+        assert_text(&piece_table, "alpha\nbeta\ngamma");
+    }
+
+    #[test]
+    fn multiline_piece_count_stays_stable_across_line_edits() {
+        let mut piece_table = PieceTable::new(String::new());
+        piece_table.insert(0, "alpha\nbeta\ngamma".to_string());
+
+        assert_eq!(piece_table.pieces.len(), 3);
+
+        piece_table.insert(8, "X".to_string());
+        assert_eq!(piece_table.pieces.len(), 3);
+
+        piece_table.delete(1, 1);
+        assert_eq!(piece_table.pieces.len(), 3);
+
+        let mut current_text = String::new();
+        piece_table.get_text(&mut current_text);
+        let third_line_start = current_text
+            .match_indices('\n')
+            .nth(1)
+            .expect("expected second newline")
+            .0
+            + 1;
+
+        piece_table.insert(third_line_start + 2, "Y".to_string());
+        assert_eq!(piece_table.pieces.len(), 3);
+
+        piece_table.undo();
+        assert_eq!(piece_table.pieces.len(), 3);
+
+        piece_table.undo();
+        assert_eq!(piece_table.pieces.len(), 3);
+
+        piece_table.undo();
+        assert_eq!(piece_table.pieces.len(), 3);
+    }
+
+    #[test]
+    fn cross_line_boundary_edits_preserve_newline_piece_boundaries() {
+        let mut piece_table = PieceTable::new(String::new());
+        piece_table.insert(0, "alpha\nbeta\ngamma".to_string());
+        assert_newline_piece_boundaries(&piece_table);
+
+        piece_table.delete(5, 2);
+        assert_text(&piece_table, "alphaeta\ngamma");
+        assert_newline_piece_boundaries(&piece_table);
+
+        piece_table.insert(5, "\nb".to_string());
+        assert_text(&piece_table, "alpha\nbeta\ngamma");
+        assert_newline_piece_boundaries(&piece_table);
+
+        piece_table.delete(10, 1);
+        assert_text(&piece_table, "alpha\nbetagamma");
+        assert_newline_piece_boundaries(&piece_table);
+
+        piece_table.insert(10, "\n".to_string());
+        assert_text(&piece_table, "alpha\nbeta\ngamma");
+        assert_newline_piece_boundaries(&piece_table);
+    }
+
+    #[test]
+    fn unicode_cross_line_boundary_edits_preserve_newline_piece_boundaries() {
+        let mut piece_table = PieceTable::new(String::new());
+        piece_table.insert(0, "ää\n🚀\n你好".to_string());
+        assert_newline_piece_boundaries(&piece_table);
+
+        piece_table.delete(2, 2);
+        assert_text(&piece_table, "ää\n你好");
+        assert_newline_piece_boundaries(&piece_table);
+
+        piece_table.insert(2, "\n🚀".to_string());
+        assert_text(&piece_table, "ää\n🚀\n你好");
+        assert_newline_piece_boundaries(&piece_table);
+
+        piece_table.delete(4, 1);
+        assert_text(&piece_table, "ää\n🚀你好");
+        assert_newline_piece_boundaries(&piece_table);
+
+        piece_table.insert(4, "\n".to_string());
+        assert_text(&piece_table, "ää\n🚀\n你好");
+        assert_newline_piece_boundaries(&piece_table);
     }
 }

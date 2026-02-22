@@ -7,6 +7,7 @@ use rustine::{
 };
 
 use crate::{EditorAction, TextEditor};
+use crate::text_editor::TextEditorDebugState;
 
 struct TextRenderMetrics {
     line_height: f32,
@@ -17,6 +18,7 @@ struct TextRenderMetrics {
 struct MyApplicationState {
     pub editor: TextEditor,
     pub metrics: TextRenderMetrics,
+    pub show_debug_overlay: bool,
 }
 
 impl MyApplicationState {
@@ -35,6 +37,7 @@ impl MyApplicationState {
                 char_advance,
                 caret_width: 2.0,
             },
+            show_debug_overlay: false,
         }
     }
 }
@@ -61,6 +64,10 @@ impl gui::Application for MyApplication {
     }
 
     fn on_key(&self, gui: &gui::Gui, event: gui::KeyEvent) {
+        if Self::handle_debug_shortcut(gui, &event, &self.state) {
+            return;
+        }
+
         if Self::handle_command_shortcut(gui, &event, &self.state) {
             return;
         }
@@ -129,10 +136,34 @@ impl gui::Application for MyApplication {
         };
 
         frame.fill_rectangle(&caret_rect, 0xFFFFFFFF);
+
+        if state.show_debug_overlay {
+            let snapshot = state.editor.debug_state();
+            Self::draw_debug_overlay(frame, &snapshot, &state.metrics);
+        }
     }
 }
 
 impl MyApplication {
+    fn handle_debug_shortcut(
+        gui: &gui::Gui,
+        event: &gui::KeyEvent,
+        state: &std::cell::RefCell<MyApplicationState>,
+    ) -> bool {
+        if event.action != gui::Action::PRESS {
+            return false;
+        }
+
+        if event.key != gui::Key::F2 {
+            return false;
+        }
+
+        let mut state = state.borrow_mut();
+        state.show_debug_overlay = !state.show_debug_overlay;
+        gui.mark_damaged();
+        true
+    }
+
     fn handle_command_shortcut(
         gui: &gui::Gui,
         event: &gui::KeyEvent,
@@ -214,6 +245,78 @@ impl MyApplication {
         }
 
         None
+    }
+
+    fn draw_debug_overlay(
+        frame: &mut gfx::RenderFrame,
+        snapshot: &TextEditorDebugState,
+        metrics: &TextRenderMetrics,
+    ) {
+        let max_piece_lines = 12usize;
+        let mut lines = Vec::new();
+
+        lines.push("PieceTable Debug (F2)".to_string());
+        lines.push(format!(
+            "cursor={} (line {}, col {})",
+            snapshot.cursor, snapshot.cursor_line, snapshot.cursor_column
+        ));
+        lines.push(format!(
+            "text_len={} lines={}",
+            snapshot.text_len_chars, snapshot.line_count
+        ));
+        lines.push(format!(
+            "pieces={} doc_len={} undo={} redo={}",
+            snapshot.piece_table.piece_count,
+            snapshot.piece_table.document_len,
+            snapshot.piece_table.undo_depth,
+            snapshot.piece_table.redo_depth
+        ));
+
+        for (i, piece) in snapshot
+            .piece_table
+            .pieces
+            .iter()
+            .take(max_piece_lines)
+            .enumerate()
+        {
+            lines.push(format!(
+                "#{i:02} {} s:{} l:{} \"{}\"",
+                piece.buffer, piece.start, piece.length, piece.preview
+            ));
+        }
+
+        if snapshot.piece_table.pieces.len() > max_piece_lines {
+            lines.push(format!(
+                "... {} more pieces",
+                snapshot.piece_table.pieces.len() - max_piece_lines
+            ));
+        }
+
+        let max_chars = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+        let padding = 8.0f32;
+        let line_height = metrics.line_height.max(1.0);
+        let width = (max_chars as f32 * metrics.char_advance) + padding * 2.0;
+        let height = (lines.len() as f32 * line_height) + padding * 2.0;
+        let x = (frame.size.x as f32 - width - 10.0).max(10.0);
+        let y = 10.0;
+
+        let bg = gfx::Rectangle {
+            x,
+            y,
+            w: width,
+            h: height,
+        };
+        frame.fill_rectangle(&bg, 0x000000D0);
+
+        let text = lines.join("\n");
+        frame.push_text(
+            &text,
+            x + padding,
+            y + padding + line_height,
+            1.0,
+            0xFFFFFFFF,
+            gfx::fonts::CASKAYDIAMONO_FONT_ID,
+        );
     }
 }
 

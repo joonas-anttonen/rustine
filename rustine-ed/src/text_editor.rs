@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::PieceTable;
+use crate::piecetable::PieceTableDebugState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditorAction {
@@ -27,6 +28,16 @@ pub(crate) struct TextEditor {
     cursor: usize,
     cursor_line: usize,
     cursor_column: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TextEditorDebugState {
+    pub cursor: usize,
+    pub cursor_line: usize,
+    pub cursor_column: usize,
+    pub text_len_chars: usize,
+    pub line_count: usize,
+    pub piece_table: PieceTableDebugState,
 }
 
 impl TextEditor {
@@ -148,6 +159,17 @@ impl TextEditor {
 
     pub fn cursor_column(&self) -> usize {
         self.cursor_column
+    }
+
+    pub fn debug_state(&self) -> TextEditorDebugState {
+        TextEditorDebugState {
+            cursor: self.cursor,
+            cursor_line: self.cursor_line,
+            cursor_column: self.cursor_column,
+            text_len_chars: self.text_len_chars,
+            line_count: self.line_starts.len(),
+            piece_table: self.text_table.debug_state(),
+        }
     }
 
     fn text_len(&self) -> usize {
