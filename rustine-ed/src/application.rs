@@ -10,6 +10,7 @@ use crate::{EditorAction, TextEditor};
 use crate::text_editor::TextEditorDebugState;
 
 const EDITOR_EXTRA_LINE_GAP: f32 = 2.0;
+const DEFAULT_TAB_WIDTH: usize = 4;
 
 struct TextRenderMetrics {
     line_height: f32,
@@ -23,6 +24,7 @@ struct MyApplicationState {
     pub editor: TextEditor,
     pub metrics: TextRenderMetrics,
     pub show_debug_overlay: bool,
+    pub tab_width: usize,
 }
 
 impl MyApplicationState {
@@ -48,6 +50,7 @@ impl MyApplicationState {
                 extra_line_gap: EDITOR_EXTRA_LINE_GAP,
             },
             show_debug_overlay: false,
+            tab_width: DEFAULT_TAB_WIDTH,
         }
     }
 }
@@ -79,6 +82,10 @@ impl gui::Application for MyApplication {
         }
 
         if Self::handle_command_shortcut(gui, &event, &self.state) {
+            return;
+        }
+
+        if Self::handle_tab_insertion(gui, &event, &self.state) {
             return;
         }
 
@@ -266,6 +273,33 @@ impl MyApplication {
         }
     }
 
+    fn handle_tab_insertion(
+        gui: &gui::Gui,
+        event: &gui::KeyEvent,
+        state: &std::cell::RefCell<MyApplicationState>,
+    ) -> bool {
+        if !matches!(event.action, gui::Action::PRESS | gui::Action::REPEAT) {
+            return false;
+        }
+
+        if event.key != gui::Key::TAB || Self::has_primary_modifier(&event.mods) {
+            return false;
+        }
+
+        let mut state = state.borrow_mut();
+        let tab_width = state.tab_width;
+        let changed = if event.mods.contains(gui::Mods::SHIFT) {
+            state.editor.unindent_selection_or_current_line(tab_width)
+        } else {
+            state.editor.indent_selection_or_insert_tab(tab_width)
+        };
+
+        if changed {
+            gui.mark_damaged();
+        }
+        true
+    }
+
     fn key_event_to_action(event: &gui::KeyEvent) -> Option<EditorAction> {
         if !matches!(event.action, gui::Action::PRESS | gui::Action::REPEAT) {
             return None;
@@ -331,6 +365,16 @@ impl MyApplication {
 
     fn has_primary_modifier(mods: &gui::Mods) -> bool {
         mods.contains(gui::Mods::CONTROL) || mods.contains(gui::Mods::SUPER)
+    }
+
+    fn tab_spaces_for_column(column: usize, tab_width: usize) -> usize {
+        let width = tab_width.max(1);
+        let remainder = column % width;
+        if remainder == 0 {
+            width
+        } else {
+            width - remainder
+        }
     }
 
     fn char_to_action(c: char) -> Option<EditorAction> {
@@ -439,5 +483,20 @@ mod tests {
         assert!(MyApplication::char_to_action(' ').is_none());
         assert!(MyApplication::char_to_action('\n').is_none());
         assert!(MyApplication::char_to_action('\t').is_none());
+    }
+
+    #[test]
+    fn tab_spaces_for_column_uses_next_tab_stop() {
+        assert_eq!(MyApplication::tab_spaces_for_column(0, 4), 4);
+        assert_eq!(MyApplication::tab_spaces_for_column(1, 4), 3);
+        assert_eq!(MyApplication::tab_spaces_for_column(2, 4), 2);
+        assert_eq!(MyApplication::tab_spaces_for_column(3, 4), 1);
+        assert_eq!(MyApplication::tab_spaces_for_column(4, 4), 4);
+    }
+
+    #[test]
+    fn tab_spaces_for_column_guards_zero_tab_width() {
+        assert_eq!(MyApplication::tab_spaces_for_column(0, 0), 1);
+        assert_eq!(MyApplication::tab_spaces_for_column(5, 0), 1);
     }
 }

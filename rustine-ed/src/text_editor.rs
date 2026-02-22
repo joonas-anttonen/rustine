@@ -212,6 +212,45 @@ impl TextEditor {
         self.insert_text_internal(text)
     }
 
+    pub fn indent_selection_or_insert_tab(&mut self, tab_width: usize) -> bool {
+        let width = tab_width.max(1);
+
+        if let Some((start_line, end_line)) = self.multiline_selection_line_range() {
+            return self.indent_line_range(start_line, end_line, width, true);
+        }
+
+        let spaces = self.tab_spaces_for_column(width);
+        self.insert_text_internal(" ".repeat(spaces))
+    }
+
+    pub fn unindent_selection_or_current_line(&mut self, tab_width: usize) -> bool {
+        let mut start_line = self.cursor_line;
+        let mut end_line = self.cursor_line;
+        let mut keep_selection = false;
+
+        if let Some((selection_start, selection_end)) = self.selection_range() {
+            let (selection_start_line, _) = self.line_and_column_for_cursor(selection_start);
+            let (selection_end_line, _) = self.line_and_column_for_cursor(selection_end);
+
+            start_line = selection_start_line;
+            end_line = selection_end_line;
+
+            if selection_end_line > selection_start_line
+                && selection_end == self.line_starts[selection_end_line]
+            {
+                end_line -= 1;
+            }
+
+            keep_selection = true;
+        }
+
+        self.unindent_line_range(start_line, end_line, tab_width, keep_selection)
+    }
+
+    pub fn unindent_current_line(&mut self, tab_width: usize) -> bool {
+        self.unindent_line_range(self.cursor_line, self.cursor_line, tab_width, false)
+    }
+
     pub fn text(&self) -> &str {
         &self.text_cache
     }
@@ -313,6 +352,174 @@ impl TextEditor {
         self.selection_anchor = None;
         self.rebuild_text_cache();
         self.sync_cursor_position();
+    }
+
+    fn indent_line_range(
+        &mut self,
+        start_line: usize,
+        end_line: usize,
+        tab_width: usize,
+        keep_selection: bool,
+    ) -> bool {
+        if self.line_starts.is_empty() {
+            return false;
+        }
+
+        let width = tab_width.max(1);
+        let range_start = start_line.min(self.line_starts.len() - 1);
+        let range_end = end_line.min(self.line_starts.len() - 1);
+        if range_start > range_end {
+            return false;
+        }
+
+        let insert_positions: Vec<usize> =
+            (range_start..=range_end).map(|line| self.line_starts[line]).collect();
+        if insert_positions.is_empty() {
+            return false;
+        }
+
+        let old_cursor = self.cursor;
+        let old_anchor = self.selection_anchor;
+        let indent = " ".repeat(width);
+
+        for &insert_pos in insert_positions.iter().rev() {
+            self.text_table.insert(insert_pos, indent.clone());
+        }
+
+        self.rebuild_text_cache();
+        self.cursor = Self::position_after_insertions(old_cursor, &insert_positions, width);
+        if keep_selection {
+            self.selection_anchor = old_anchor
+                .map(|anchor| Self::position_after_insertions(anchor, &insert_positions, width));
+            if self.selection_anchor == Some(self.cursor) {
+                self.selection_anchor = None;
+            }
+        } else {
+            self.selection_anchor = None;
+        }
+        self.sync_cursor_position();
+
+        true
+    }
+
+    fn unindent_line_range(
+        &mut self,
+        start_line: usize,
+        end_line: usize,
+        tab_width: usize,
+        keep_selection: bool,
+    ) -> bool {
+        if self.line_starts.is_empty() {
+            return false;
+        }
+
+        let width = tab_width.max(1);
+        let range_start = start_line.min(self.line_starts.len() - 1);
+        let range_end = end_line.min(self.line_starts.len() - 1);
+        if range_start > range_end {
+            return false;
+        }
+
+        let mut deletions = Vec::new();
+        for line in range_start..=range_end {
+            let line_start = self.line_starts[line];
+            let leading_spaces = self.leading_spaces_at_line_start(line_start, width);
+            if leading_spaces > 0 {
+                deletions.push((line_start, leading_spaces));
+            }
+        }
+
+        if deletions.is_empty() {
+            return false;
+        }
+
+        let old_cursor = self.cursor;
+        let old_anchor = self.selection_anchor;
+
+        for &(delete_start, delete_len) in deletions.iter().rev() {
+            self.text_table.delete(delete_start, delete_len);
+        }
+
+        self.rebuild_text_cache();
+        self.cursor = Self::position_after_deletions(old_cursor, &deletions);
+        if keep_selection {
+            self.selection_anchor = old_anchor
+                .map(|anchor| Self::position_after_deletions(anchor, &deletions));
+            if self.selection_anchor == Some(self.cursor) {
+                self.selection_anchor = None;
+            }
+        } else {
+            self.selection_anchor = None;
+        }
+        self.sync_cursor_position();
+
+        true
+    }
+
+    fn leading_spaces_at_line_start(&self, line_start: usize, max_width: usize) -> usize {
+        let mut count = 0usize;
+        for c in self.text_cache.chars().skip(line_start) {
+            if c == ' ' && count < max_width {
+                count += 1;
+            } else {
+                break;
+            }
+        }
+        count
+    }
+
+    fn multiline_selection_line_range(&self) -> Option<(usize, usize)> {
+        let (selection_start, selection_end) = self.selection_range()?;
+        let (start_line, _) = self.line_and_column_for_cursor(selection_start);
+        let (end_line_raw, _) = self.line_and_column_for_cursor(selection_end);
+
+        let mut end_line = end_line_raw;
+        if end_line > start_line && selection_end == self.line_starts[end_line] {
+            end_line -= 1;
+        }
+
+        if end_line > start_line {
+            Some((start_line, end_line))
+        } else {
+            None
+        }
+    }
+
+    fn tab_spaces_for_column(&self, tab_width: usize) -> usize {
+        let width = tab_width.max(1);
+        let remainder = self.cursor_column % width;
+        if remainder == 0 {
+            width
+        } else {
+            width - remainder
+        }
+    }
+
+    fn position_after_deletions(position: usize, deletions: &[(usize, usize)]) -> usize {
+        let mut mapped = position;
+        for &(start, len) in deletions {
+            if mapped <= start {
+                continue;
+            }
+
+            let end = start + len;
+            if mapped >= end {
+                mapped -= len;
+            } else {
+                mapped = start;
+            }
+        }
+        mapped
+    }
+
+    fn position_after_insertions(position: usize, insertions: &[usize], insert_len: usize) -> usize {
+        let mut mapped = position;
+        for &start in insertions {
+            if mapped >= start {
+                mapped += insert_len;
+            }
+        }
+        mapped
     }
 
     fn insert_text_internal(&mut self, text: String) -> bool {
@@ -674,5 +881,84 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn unindent_current_line_removes_one_tab_width_of_spaces() {
+        let mut editor = TextEditor::new("    abc\n  def\nghi".to_string());
+
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
+        assert!(editor.unindent_current_line(4));
+        assert_eq!(editor.text(), "abc\n  def\nghi");
+        assert_eq!(editor.cursor(), 0);
+
+        assert!(editor.apply_action(EditorAction::MoveDown));
+        assert!(editor.unindent_current_line(4));
+        assert_eq!(editor.text(), "abc\ndef\nghi");
+        assert_eq!(editor.cursor_line(), 1);
+        assert_eq!(editor.cursor_column(), 0);
+    }
+
+    #[test]
+    fn unindent_current_line_moves_cursor_left_when_needed() {
+        let mut editor = TextEditor::new("    abc".to_string());
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
+        assert!(editor.apply_action(EditorAction::MoveRight));
+        assert!(editor.apply_action(EditorAction::MoveRight));
+        assert_eq!(editor.cursor_column(), 2);
+
+        assert!(editor.unindent_current_line(4));
+        assert_eq!(editor.text(), "abc");
+        assert_eq!(editor.cursor_column(), 0);
+    }
+
+    #[test]
+    fn unindent_selection_or_current_line_unindents_multiline_selection() {
+        let mut editor = TextEditor::new("    one\n  two\n    three".to_string());
+
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
+        assert!(editor.apply_action(EditorAction::SelectRight));
+        assert!(editor.apply_action(EditorAction::SelectDown));
+        assert!(editor.apply_action(EditorAction::SelectDown));
+
+        assert!(editor.unindent_selection_or_current_line(4));
+        assert_eq!(editor.text(), "one\ntwo\nthree");
+        assert!(editor.selection_range().is_some());
+    }
+
+    #[test]
+    fn unindent_selection_or_current_line_excludes_trailing_line_when_selection_ends_at_line_start() {
+        let mut editor = TextEditor::new("    one\n    two\n    three".to_string());
+
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
+        assert!(editor.apply_action(EditorAction::SelectDown));
+        assert!(editor.apply_action(EditorAction::SelectDown));
+
+        assert!(editor.unindent_selection_or_current_line(4));
+        assert_eq!(editor.text(), "one\ntwo\n    three");
+    }
+
+    #[test]
+    fn indent_selection_or_insert_tab_indents_multiline_selection() {
+        let mut editor = TextEditor::new("one\ntwo\nthree".to_string());
+
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
+        assert!(editor.apply_action(EditorAction::SelectDown));
+        assert!(editor.apply_action(EditorAction::SelectDown));
+
+        assert!(editor.indent_selection_or_insert_tab(4));
+        assert_eq!(editor.text(), "    one\n    two\nthree");
+        assert!(editor.selection_range().is_some());
+    }
+
+    #[test]
+    fn indent_selection_or_insert_tab_uses_next_tab_stop_without_multiline_selection() {
+        let mut editor = TextEditor::new("ab".to_string());
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
+        assert!(editor.apply_action(EditorAction::MoveRight));
+
+        assert!(editor.indent_selection_or_insert_tab(4));
+        assert_eq!(editor.text(), "a   b");
+        assert_eq!(editor.cursor_column(), 4);
     }
 }
