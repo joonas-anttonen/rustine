@@ -17,6 +17,14 @@ enum OperationKind {
     Delete,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InsertClass {
+    Word,
+    Whitespace,
+    Punctuation,
+    Newline,
+}
+
 struct Operation {
     kind: OperationKind,
     position: usize,
@@ -153,7 +161,9 @@ impl PieceTable {
             match (&last.kind, &operation.kind) {
                 (OperationKind::Insert, OperationKind::Insert) => {
                     let last_len = last.text.chars().count();
-                    if operation.position == last.position + last_len {
+                    if operation.position == last.position + last_len
+                        && Self::should_merge_insert_operations(&last.text, &operation.text)
+                    {
                         last.text.push_str(&operation.text);
                         return;
                     }
@@ -179,6 +189,50 @@ impl PieceTable {
         }
 
         self.undo_stack.push(operation);
+    }
+
+    fn classify_insert_char(c: char) -> InsertClass {
+        if c == '\n' {
+            InsertClass::Newline
+        } else if c.is_alphanumeric() || c == '_' {
+            InsertClass::Word
+        } else if c.is_whitespace() {
+            InsertClass::Whitespace
+        } else {
+            InsertClass::Punctuation
+        }
+    }
+
+    fn classify_insert_text(text: &str) -> Option<InsertClass> {
+        let mut chars = text.chars();
+        let first = chars.next()?;
+        let class = Self::classify_insert_char(first);
+        if class == InsertClass::Newline {
+            return Some(InsertClass::Newline);
+        }
+
+        for c in chars {
+            if Self::classify_insert_char(c) != class {
+                return None;
+            }
+        }
+
+        Some(class)
+    }
+
+    fn should_merge_insert_operations(previous: &str, next: &str) -> bool {
+        let Some(previous_class) = Self::classify_insert_text(previous) else {
+            return false;
+        };
+        let Some(next_class) = Self::classify_insert_text(next) else {
+            return false;
+        };
+
+        if previous_class == InsertClass::Newline || next_class == InsertClass::Newline {
+            return false;
+        }
+
+        previous_class == next_class
     }
 
     fn merge_adjacent_pieces(&mut self, left_index: usize) -> bool {
@@ -460,19 +514,69 @@ mod tests {
 
     #[test]
     fn contiguous_insert_merges() {
-        let original = "Hello, World!";
+        let mut piece_table = make_piece_table();
 
-        let mut piece_table = PieceTable::new(original.to_string());
-        piece_table.insert(0, "Say: ".to_string());
-        assert_text(&piece_table, "Say: Hello, World!");
-        piece_table.insert(5, "Hello, ".to_string());
-        assert_text(&piece_table, "Say: Hello, Hello, World!");
+        piece_table.insert(13, "R".to_string());
+        piece_table.insert(14, "u".to_string());
+        piece_table.insert(15, "s".to_string());
+        piece_table.insert(16, "t".to_string());
+        assert_text(&piece_table, "Hello, World!Rust");
 
         assert_original_stable(&piece_table);
         assert_eq!(piece_table.pieces.len(), 2);
+        assert_eq!(piece_table.undo_stack.len(), 1);
 
         piece_table.undo();
-        assert_text(&piece_table, original);
+        assert_text(&piece_table, ORIGINAL_TEXT);
+    }
+
+    #[test]
+    fn insert_coalescing_stops_at_space_boundary() {
+        let mut piece_table = make_piece_table();
+
+        piece_table.insert(13, "h".to_string());
+        piece_table.insert(14, "i".to_string());
+        piece_table.insert(15, " ".to_string());
+        piece_table.insert(16, "t".to_string());
+        piece_table.insert(17, "h".to_string());
+        piece_table.insert(18, "e".to_string());
+        piece_table.insert(19, "r".to_string());
+        piece_table.insert(20, "e".to_string());
+
+        assert_eq!(piece_table.undo_stack.len(), 3);
+        assert_text(&piece_table, "Hello, World!hi there");
+
+        piece_table.undo();
+        assert_text(&piece_table, "Hello, World!hi ");
+
+        piece_table.undo();
+        assert_text(&piece_table, "Hello, World!hi");
+
+        piece_table.undo();
+        assert_text(&piece_table, ORIGINAL_TEXT);
+    }
+
+    #[test]
+    fn insert_coalescing_stops_at_newline_boundary() {
+        let mut piece_table = make_piece_table();
+
+        piece_table.insert(13, "a".to_string());
+        piece_table.insert(14, "b".to_string());
+        piece_table.insert(15, "\n".to_string());
+        piece_table.insert(16, "c".to_string());
+        piece_table.insert(17, "d".to_string());
+
+        assert_eq!(piece_table.undo_stack.len(), 3);
+        assert_text(&piece_table, "Hello, World!ab\ncd");
+
+        piece_table.undo();
+        assert_text(&piece_table, "Hello, World!ab\n");
+
+        piece_table.undo();
+        assert_text(&piece_table, "Hello, World!ab");
+
+        piece_table.undo();
+        assert_text(&piece_table, ORIGINAL_TEXT);
     }
 
     #[test]
