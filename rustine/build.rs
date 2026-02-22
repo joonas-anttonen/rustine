@@ -620,6 +620,56 @@ fn build_bitmap_font(
     charset_spec: &CharsetSpec,
     out_dir: &Path,
 ) {
+    #[derive(Clone, Copy)]
+    struct GlyphCandidate {
+        ch: char,
+        metrics: fontdue::Metrics,
+        bitmap_index: usize,
+    }
+
+    fn try_pack_square(
+        side: u32,
+        glyphs: &[GlyphCandidate],
+        padding: u32,
+    ) -> Option<Vec<(u32, u32, char, fontdue::Metrics, usize)>> {
+        let mut current_x = 0u32;
+        let mut current_y = 0u32;
+        let mut row_height = 0u32;
+        let mut positions = Vec::with_capacity(glyphs.len());
+
+        for glyph in glyphs {
+            let width = glyph.metrics.width as u32;
+            let height = glyph.metrics.height as u32;
+
+            if width > side || height > side {
+                return None;
+            }
+
+            if current_x > 0 && current_x + width > side {
+                current_x = 0;
+                current_y += row_height + padding;
+                row_height = 0;
+            }
+
+            if current_y + height > side {
+                return None;
+            }
+
+            positions.push((
+                current_x,
+                current_y,
+                glyph.ch,
+                glyph.metrics,
+                glyph.bitmap_index,
+            ));
+
+            current_x += width + padding;
+            row_height = row_height.max(height);
+        }
+
+        Some(positions)
+    }
+
     let font_data = fs::read(font_path).expect("Failed to read font file");
     let font =
         Font::from_bytes(font_data.as_slice(), Default::default()).expect("Failed to load font");
@@ -659,33 +709,91 @@ fn build_bitmap_font(
         bitmaps.push(bitmap);
     }
 
-    // Pack glyphs into a single atlas (simple row layout)
-    let mut current_x = 0u32;
-    let mut current_y = 0u32;
-    let mut glyph_positions = Vec::new();
-    let mut atlas_width = 0u32;
+    // Pack glyphs into the smallest square atlas that fits all glyphs
+    let glyph_padding = 2u32;
+    let mut pack_order: Vec<GlyphCandidate> = metrics
+        .iter()
+        .enumerate()
+        .map(|(bitmap_index, (ch, metrics_local))| GlyphCandidate {
+            ch: *ch,
+            metrics: *metrics_local,
+            bitmap_index,
+        })
+        .collect();
 
-    for (ch, metrics_local) in metrics.iter() {
-        let width = metrics_local.width as u32;
+    pack_order.sort_by(|a, b| {
+        b.metrics
+            .height
+            .cmp(&a.metrics.height)
+            .then_with(|| b.metrics.width.cmp(&a.metrics.width))
+    });
 
-        // Simple row layout with wrap at 2048px
-        if current_x + width > 2048 {
-            current_x = 0;
-            current_y += max_height + 2;
-        }
+    let max_glyph_dim = pack_order
+        .iter()
+        .map(|g| (g.metrics.width as u32).max(g.metrics.height as u32))
+        .max()
+        .unwrap_or(0);
+    let total_padded_area: u64 = pack_order
+        .iter()
+        .map(|g| {
+            let width = g.metrics.width as u64 + glyph_padding as u64;
+            let height = g.metrics.height as u64 + glyph_padding as u64;
+            width * height
+        })
+        .sum();
+    let area_hint = (total_padded_area as f64).sqrt().ceil() as u32;
 
-        glyph_positions.push((current_x, current_y, *ch, *metrics_local));
-        current_x += width + 2; // 2px padding
-        atlas_width = atlas_width.max(current_x);
+    let min_atlas_side = 64u32;
+    let max_atlas_side = 8192u32;
+    let mut low = max_glyph_dim.max(area_hint).max(1);
+    let mut high = low;
+    assert!(
+        high <= max_atlas_side,
+        "Font '{}' requires atlas side {} which exceeds maximum {}",
+        font_name,
+        high,
+        max_atlas_side
+    );
+    while try_pack_square(high, &pack_order, glyph_padding).is_none() {
+        high = high.saturating_mul(2);
+        assert!(
+            high > 0 && high <= max_atlas_side,
+            "Font '{}' cannot fit glyphs into max atlas {}x{}",
+            font_name,
+            max_atlas_side,
+            max_atlas_side
+        );
     }
 
-    let atlas_height = current_y + max_height;
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if try_pack_square(mid, &pack_order, glyph_padding).is_some() {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    let atlas_side = low.next_power_of_two().max(min_atlas_side);
+    assert!(
+        atlas_side <= max_atlas_side,
+        "Font '{}' requires atlas {}x{} which exceeds max {}x{}",
+        font_name,
+        atlas_side,
+        atlas_side,
+        max_atlas_side,
+        max_atlas_side
+    );
+    let atlas_width = atlas_side;
+    let atlas_height = atlas_side;
+    let glyph_positions =
+        try_pack_square(atlas_width, &pack_order, glyph_padding).expect("Atlas packing failed");
 
     // Create atlas bitmap (RGBA8)
     let mut atlas = vec![0u8; (atlas_width * atlas_height * 4) as usize];
 
-    for (i, (px, py, _ch, met)) in glyph_positions.iter().enumerate() {
-        let bitmap = &bitmaps[i];
+    for (px, py, _ch, met, bitmap_index) in glyph_positions.iter() {
+        let bitmap = &bitmaps[*bitmap_index];
         let width = met.width as u32;
         let height = met.height as u32;
 
@@ -759,7 +867,7 @@ fn build_bitmap_font(
     glyph_code.push_str(": &[(char, GlyphMetrics)] = &[\n");
     let atlas_w = atlas_width as f32;
     let atlas_h = atlas_height as f32;
-    for (px, py, ch, met) in &glyph_positions {
+    for (px, py, ch, met, _bitmap_index) in &glyph_positions {
         let ch_escaped = format!("{}", ch.escape_default());
         let u0 = *px as f32 / atlas_w;
         let v0 = *py as f32 / atlas_h;

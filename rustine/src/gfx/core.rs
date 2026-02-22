@@ -340,6 +340,13 @@ impl Gfx {
                     .unwrap();
                 let font_texture = Rc::new(font_texture_buffer);
 
+                log::warning!(
+                    "Created font atlas texture for font ID {}: {}x{}",
+                    font_id,
+                    font_data.width,
+                    font_data.height
+                );
+
                 pixel_buffers.insert(font_data.texture_id, Rc::clone(&font_texture));
 
                 let font_texture_clone = Rc::clone(&font_texture);
