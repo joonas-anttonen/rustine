@@ -61,7 +61,11 @@ impl gui::Application for MyApplication {
     }
 
     fn on_key(&self, gui: &gui::Gui, event: gui::KeyEvent) {
-        if let Some(action) = Self::key_event_to_action(event) {
+        if Self::handle_command_shortcut(gui, &event, &self.state) {
+            return;
+        }
+
+        if let Some(action) = Self::key_event_to_action(&event) {
             let mut state = self.state.borrow_mut();
             if state.editor.apply_action(action) {
                 gui.mark_damaged();
@@ -129,7 +133,58 @@ impl gui::Application for MyApplication {
 }
 
 impl MyApplication {
-    fn key_event_to_action(event: gui::KeyEvent) -> Option<EditorAction> {
+    fn handle_command_shortcut(
+        gui: &gui::Gui,
+        event: &gui::KeyEvent,
+        state: &std::cell::RefCell<MyApplicationState>,
+    ) -> bool {
+        if event.action != gui::Action::PRESS || !Self::has_primary_modifier(&event.mods) {
+            return false;
+        }
+
+        match event.key {
+            gui::Key::C => {
+                let text = {
+                    let state = state.borrow();
+                    state.editor.text().to_string()
+                };
+                let _ = gui.set_clipboard_text(&text);
+                true
+            }
+            gui::Key::V => {
+                if let Some(text) = gui.clipboard_text() {
+                    let mut state = state.borrow_mut();
+                    if state.editor.insert_text(text) {
+                        gui.mark_damaged();
+                    }
+                }
+                true
+            }
+            gui::Key::Z => {
+                let action = if event.mods.contains(gui::Mods::SHIFT) {
+                    EditorAction::Redo
+                } else {
+                    EditorAction::Undo
+                };
+
+                let mut state = state.borrow_mut();
+                if state.editor.apply_action(action) {
+                    gui.mark_damaged();
+                }
+                true
+            }
+            gui::Key::Y => {
+                let mut state = state.borrow_mut();
+                if state.editor.apply_action(EditorAction::Redo) {
+                    gui.mark_damaged();
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn key_event_to_action(event: &gui::KeyEvent) -> Option<EditorAction> {
         if !matches!(event.action, gui::Action::PRESS | gui::Action::REPEAT) {
             return None;
         }
@@ -147,6 +202,10 @@ impl MyApplication {
             gui::Key::END => Some(EditorAction::MoveEnd),
             _ => None,
         }
+    }
+
+    fn has_primary_modifier(mods: &gui::Mods) -> bool {
+        mods.contains(gui::Mods::CONTROL) || mods.contains(gui::Mods::SUPER)
     }
 
     fn char_to_action(c: char) -> Option<EditorAction> {

@@ -27,6 +27,7 @@ pub(crate) struct PieceTable {
     original: String,
     pieces: Vec<Piece>,
     undo_stack: Vec<Operation>,
+    redo_stack: Vec<Operation>,
 }
 
 impl PieceTable {
@@ -40,6 +41,7 @@ impl PieceTable {
             original,
             pieces,
             undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         }
     }
 
@@ -251,6 +253,7 @@ impl PieceTable {
         }
 
         if record_undo {
+            self.redo_stack.clear();
             let operation = Operation {
                 kind: OperationKind::Insert,
                 position,
@@ -333,6 +336,7 @@ impl PieceTable {
         }
 
         if record_undo {
+            self.redo_stack.clear();
             let operation = Operation {
                 kind: OperationKind::Delete,
                 position,
@@ -383,7 +387,7 @@ impl PieceTable {
         self.coalesce_pieces();
     }
 
-    pub fn undo(&mut self) {
+    pub fn undo(&mut self) -> bool {
         if let Some(operation) = self.undo_stack.pop() {
             match operation.kind {
                 OperationKind::Insert => {
@@ -391,9 +395,33 @@ impl PieceTable {
                     self.delete_internal(operation.position, length, false);
                 }
                 OperationKind::Delete => {
-                    self.insert_internal(operation.position, operation.text, false);
+                    self.insert_internal(operation.position, operation.text.clone(), false);
                 }
             }
+
+            self.redo_stack.push(operation);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn redo(&mut self) -> bool {
+        if let Some(operation) = self.redo_stack.pop() {
+            match operation.kind {
+                OperationKind::Insert => {
+                    self.insert_internal(operation.position, operation.text.clone(), false);
+                }
+                OperationKind::Delete => {
+                    let length = operation.text.chars().count();
+                    self.delete_internal(operation.position, length, false);
+                }
+            }
+
+            self.undo_stack.push(operation);
+            true
+        } else {
+            false
         }
     }
 }
@@ -637,6 +665,43 @@ mod tests {
 
         piece_table.undo();
         assert_text(&piece_table, ORIGINAL_TEXT);
+    }
+
+    #[test]
+    fn redo_reapplies_undone_operations_in_order() {
+        let mut piece_table = make_piece_table();
+
+        piece_table.insert(0, "Say: ".to_string());
+        piece_table.delete(5, 7);
+        piece_table.insert(11, " Goodbye.".to_string());
+        assert_text(&piece_table, "Say: World! Goodbye.");
+
+        assert!(piece_table.undo());
+        assert_text(&piece_table, "Say: World!");
+
+        assert!(piece_table.undo());
+        assert_text(&piece_table, "Say: Hello, World!");
+
+        assert!(piece_table.redo());
+        assert_text(&piece_table, "Say: World!");
+
+        assert!(piece_table.redo());
+        assert_text(&piece_table, "Say: World! Goodbye.");
+
+        assert!(!piece_table.redo());
+    }
+
+    #[test]
+    fn redo_stack_clears_after_new_edit() {
+        let mut piece_table = make_piece_table();
+
+        piece_table.insert(13, "!".to_string());
+        assert!(piece_table.undo());
+        assert_text(&piece_table, ORIGINAL_TEXT);
+
+        piece_table.insert(0, "X".to_string());
+        assert!(!piece_table.redo());
+        assert_text(&piece_table, "XHello, World!");
     }
 
     #[test]

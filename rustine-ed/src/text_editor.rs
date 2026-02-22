@@ -15,6 +15,8 @@ pub(crate) enum EditorAction {
     MoveDown,
     MoveHome,
     MoveEnd,
+    Undo,
+    Redo,
 }
 
 pub(crate) struct TextEditor {
@@ -101,7 +103,35 @@ impl TextEditor {
                 let text_len = self.text_len();
                 self.set_cursor(text_len)
             }
+            EditorAction::Undo => {
+                if self.text_table.undo() {
+                    self.refresh_after_text_change();
+                    true
+                } else {
+                    false
+                }
+            }
+            EditorAction::Redo => {
+                if self.text_table.redo() {
+                    self.refresh_after_text_change();
+                    true
+                } else {
+                    false
+                }
+            }
         }
+    }
+
+    pub fn insert_text(&mut self, text: String) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+
+        let text_len = text.chars().count();
+        self.text_table.insert(self.cursor, text);
+        self.cursor += text_len;
+        self.refresh_after_text_change();
+        true
     }
 
     pub fn text(&self) -> &str {
@@ -299,5 +329,31 @@ mod tests {
         assert!(editor.apply_action(EditorAction::MoveRight));
         assert_eq!(editor.cursor_line(), 1);
         assert_eq!(editor.cursor_column(), 0);
+    }
+
+    #[test]
+    fn insert_text_inserts_multiple_chars() {
+        let mut editor = TextEditor::new("ab".to_string());
+        assert!(editor.apply_action(EditorAction::MoveHome));
+        assert!(editor.apply_action(EditorAction::MoveRight));
+
+        assert!(editor.insert_text("XYZ".to_string()));
+        assert_eq!(editor.text(), "aXYZb");
+        assert_eq!(editor.cursor(), 4);
+    }
+
+    #[test]
+    fn undo_and_redo_actions_work() {
+        let mut editor = TextEditor::new("abc".to_string());
+        assert!(editor.apply_action(EditorAction::InsertChar('d')));
+        assert_eq!(editor.text(), "abcd");
+
+        assert!(editor.apply_action(EditorAction::Undo));
+        assert_eq!(editor.text(), "abc");
+
+        assert!(editor.apply_action(EditorAction::Redo));
+        assert_eq!(editor.text(), "abcd");
+
+        assert!(!editor.apply_action(EditorAction::Redo));
     }
 }

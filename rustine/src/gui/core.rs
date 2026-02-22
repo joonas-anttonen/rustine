@@ -187,6 +187,32 @@ impl Gui {
         self.damaged.store(true, Ordering::Release);
     }
 
+    pub fn set_clipboard_text(&self, text: &str) -> bool {
+        let text_cstr = match std::ffi::CString::new(text) {
+            Ok(text_cstr) => text_cstr,
+            Err(_) => return false,
+        };
+
+        unsafe {
+            ffi::set_clipboard_string(self.glfw_window, text_cstr.as_ptr()) == ffi::GlfwStatus::Ok
+        }
+    }
+
+    pub fn clipboard_text(&self) -> Option<String> {
+        unsafe {
+            let clipboard_cstr = ffi::get_clipboard_string(self.glfw_window);
+            if clipboard_cstr.is_null() {
+                None
+            } else {
+                Some(
+                    std::ffi::CStr::from_ptr(clipboard_cstr)
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            }
+        }
+    }
+
     /// Checks if the window is damaged and clears the damaged flag.
     /// Returns true if the window was marked as damaged.
     fn is_damaged(&self) -> bool {
@@ -1052,6 +1078,8 @@ mod ffi {
 
         fn glfwWindowShouldClose(window: GlfwWindow) -> i32;
         fn glfwSetWindowShouldClose(window: GlfwWindow, value: i32);
+        fn glfwSetClipboardString(window: GlfwWindow, string: *const std::ffi::c_char);
+        fn glfwGetClipboardString(window: GlfwWindow) -> *const std::ffi::c_char;
 
         fn glfwSetWindowUserPointer(window: GlfwWindow, pointer: *mut std::ffi::c_void);
         fn glfwGetWindowUserPointer(window: GlfwWindow) -> *mut std::ffi::c_void;
@@ -1632,6 +1660,28 @@ mod ffi {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
         GlfwStatus::Ok
+    }
+
+    pub unsafe fn set_clipboard_string(
+        window: GlfwWindow,
+        string: *const std::ffi::c_char,
+    ) -> GlfwStatus {
+        if window.is_null() || string.is_null() {
+            return GlfwStatus::InvalidArgument;
+        }
+
+        unsafe {
+            glfwSetClipboardString(window, string);
+        }
+        GlfwStatus::Ok
+    }
+
+    pub unsafe fn get_clipboard_string(window: GlfwWindow) -> *const std::ffi::c_char {
+        if window.is_null() {
+            return std::ptr::null();
+        }
+
+        unsafe { glfwGetClipboardString(window) }
     }
 
     pub unsafe fn current_mods(window: GlfwWindow) -> GlfwMod {
