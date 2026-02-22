@@ -220,6 +220,8 @@ impl MyApplication {
             return None;
         }
 
+        let primary_modifier = Self::has_primary_modifier(&event.mods);
+
         match event.key {
             gui::Key::ENTER => Some(EditorAction::InsertNewline),
             gui::Key::SPACE => Some(EditorAction::InsertSpace),
@@ -229,8 +231,16 @@ impl MyApplication {
             gui::Key::RIGHT => Some(EditorAction::MoveRight),
             gui::Key::UP => Some(EditorAction::MoveUp),
             gui::Key::DOWN => Some(EditorAction::MoveDown),
-            gui::Key::HOME => Some(EditorAction::MoveHome),
-            gui::Key::END => Some(EditorAction::MoveEnd),
+            gui::Key::HOME => Some(if primary_modifier {
+                EditorAction::MoveDocumentHome
+            } else {
+                EditorAction::MoveHome
+            }),
+            gui::Key::END => Some(if primary_modifier {
+                EditorAction::MoveDocumentEnd
+            } else {
+                EditorAction::MoveEnd
+            }),
             _ => None,
         }
     }

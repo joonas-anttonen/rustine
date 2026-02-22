@@ -16,6 +16,8 @@ pub(crate) enum EditorAction {
     MoveDown,
     MoveHome,
     MoveEnd,
+    MoveDocumentHome,
+    MoveDocumentEnd,
     Undo,
     Redo,
 }
@@ -109,8 +111,16 @@ impl TextEditor {
             }
             EditorAction::MoveUp => self.move_cursor_up(),
             EditorAction::MoveDown => self.move_cursor_down(),
-            EditorAction::MoveHome => self.set_cursor(0),
+            EditorAction::MoveHome => {
+                let line_start = self.line_starts[self.cursor_line];
+                self.set_cursor(line_start)
+            }
             EditorAction::MoveEnd => {
+                let line_end = self.line_end_char_index(self.cursor_line);
+                self.set_cursor(line_end)
+            }
+            EditorAction::MoveDocumentHome => self.set_cursor(0),
+            EditorAction::MoveDocumentEnd => {
                 let text_len = self.text_len();
                 self.set_cursor(text_len)
             }
@@ -294,17 +304,40 @@ mod tests {
     }
 
     #[test]
-    fn home_end_and_horizontal_moves() {
-        let mut editor = TextEditor::new("hello".to_string());
+    fn home_end_moves_within_line() {
+        let mut editor = TextEditor::new("ab\ncd".to_string());
+
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
+        assert!(editor.apply_action(EditorAction::MoveRight));
+        assert!(editor.apply_action(EditorAction::MoveRight));
+        assert!(editor.apply_action(EditorAction::MoveRight));
+        assert_eq!(editor.cursor(), 3);
+        assert_eq!(editor.cursor_line(), 1);
+        assert_eq!(editor.cursor_column(), 0);
+
+        assert!(editor.apply_action(EditorAction::MoveEnd));
+        assert_eq!(editor.cursor(), 5);
+        assert_eq!(editor.cursor_line(), 1);
+        assert_eq!(editor.cursor_column(), 2);
 
         assert!(editor.apply_action(EditorAction::MoveHome));
+        assert_eq!(editor.cursor(), 3);
+        assert_eq!(editor.cursor_line(), 1);
+        assert_eq!(editor.cursor_column(), 0);
+    }
+
+    #[test]
+    fn document_home_end_and_horizontal_moves() {
+        let mut editor = TextEditor::new("hello".to_string());
+
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
         assert_eq!(editor.cursor(), 0);
 
         assert!(!editor.apply_action(EditorAction::MoveLeft));
         assert!(editor.apply_action(EditorAction::MoveRight));
         assert_eq!(editor.cursor(), 1);
 
-        assert!(editor.apply_action(EditorAction::MoveEnd));
+        assert!(editor.apply_action(EditorAction::MoveDocumentEnd));
         assert_eq!(editor.cursor(), 5);
         assert!(!editor.apply_action(EditorAction::MoveRight));
     }
@@ -313,7 +346,7 @@ mod tests {
     fn move_up_down_preserves_column() {
         let mut editor = TextEditor::new("12345\n12\n1234".to_string());
 
-        assert!(editor.apply_action(EditorAction::MoveHome));
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
         for _ in 0..4 {
             assert!(editor.apply_action(EditorAction::MoveRight));
         }
@@ -339,7 +372,7 @@ mod tests {
         assert_eq!(editor.cursor_line(), 1);
         assert_eq!(editor.cursor_column(), 2);
 
-        assert!(editor.apply_action(EditorAction::MoveHome));
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
         assert_eq!(editor.cursor_line(), 0);
         assert_eq!(editor.cursor_column(), 0);
 
@@ -356,7 +389,7 @@ mod tests {
     #[test]
     fn insert_text_inserts_multiple_chars() {
         let mut editor = TextEditor::new("ab".to_string());
-        assert!(editor.apply_action(EditorAction::MoveHome));
+        assert!(editor.apply_action(EditorAction::MoveDocumentHome));
         assert!(editor.apply_action(EditorAction::MoveRight));
 
         assert!(editor.insert_text("XYZ".to_string()));
