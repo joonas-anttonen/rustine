@@ -95,6 +95,15 @@ fn resolve_dxc_include_dir() -> String {
         }
     }
 
+    if cfg!(target_os = "linux") {
+        for candidate in ["/usr/include", "/usr/local/include"] {
+            let path = PathBuf::from(candidate);
+            if has_dxc_header(&path) {
+                return candidate.to_string();
+            }
+        }
+    }
+
     panic!(
         "Set DXC_INCLUDE_DIR to a folder containing dxc/dxcapi.h or dxcapi.h. \
         Alternatively set DXC_LIB_DIR and keep headers under ../include relative to it."
