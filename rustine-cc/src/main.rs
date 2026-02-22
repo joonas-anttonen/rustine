@@ -64,8 +64,7 @@ fn main() {
 
         let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
             .window_title("rustine-cc")
-            .window_size(1280, 720)
-            .window_type(rustine::gui::WindowType::Normal);
+            .window_size(1280, 720);
         let gui = gui_builder.build(Arc::clone(&gfx), application);
 
         let stream_cache = mjpeg::FrameCache::new();

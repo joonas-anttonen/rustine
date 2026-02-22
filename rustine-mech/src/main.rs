@@ -48,8 +48,7 @@ fn main() -> std::process::ExitCode {
 
         let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
             .window_title("rustine-mech")
-            .window_size(900, 600)
-            .window_type(rustine::gui::WindowType::Normal);
+            .window_size(900, 600);
         let gui = gui_builder.build(Arc::clone(&gfx), application);
 
         let mode = rustine::RunMode::Event;

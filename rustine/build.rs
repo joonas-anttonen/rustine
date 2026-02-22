@@ -81,7 +81,7 @@ fn main() {
     build_rustine_vma(&project_dir, &out_dir, generator);
     build_rustine_webp(&project_dir, &out_dir, generator);
     build_rustine_ffmpeg(&project_dir, &out_dir, generator);
-    build_rustine_wl(&project_dir, &out_dir, generator);
+    build_glfw(&project_dir, &out_dir, generator);
 
     build_luajit(&project_dir, &out_dir, generator);
 }
@@ -163,27 +163,34 @@ fn build_rustine_vma(project_dir: &Path, out_dir: &Path, generator: &'static str
     link_static("rustine-vma");
 }
 
-fn build_rustine_wl(project_dir: &Path, out_dir: &Path, generator: &'static str) {
-    let destination_dir = cmake::Config::new(project_dir.join("ext").join("rustine-wl"))
+fn build_glfw(project_dir: &Path, out_dir: &Path, generator: &'static str) {
+    let destination_dir = cmake::Config::new(project_dir.join("ext").join("glfw"))
         .generator(generator)
-        .out_dir(out_dir.join("rustine-wl"))
+        .out_dir(out_dir.join("glfw"))
+        .define("GLFW_BUILD_EXAMPLES", "OFF")
+        .define("GLFW_BUILD_TESTS", "OFF")
+        .define("GLFW_BUILD_DOCS", "OFF")
+        .define("GLFW_BUILD_X11", "OFF")
+        .define("GLFW_BUILD_WAYLAND", "ON")
         .always_configure(true)
         .build();
 
     let lib_dir = prefer_lib64(&destination_dir);
     link_search(&lib_dir);
-    link_static("rustine-wl");
+    link_static("glfw3");
+
     link_dynamic("wayland-client");
+    link_dynamic("wayland-cursor");
+    link_dynamic("wayland-egl");
     link_dynamic("xkbcommon");
-    link_dynamic("stdc++");
+    link_dynamic("m");
+    link_dynamic("dl");
+    link_dynamic("pthread");
 
-    // Allow multiple definitions to resolve fractional-scale symbol conflict with GLFW
-    println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
-
-    let rustine_wl_dir = project_dir.join("ext").join("rustine-wl");
-    rerun_if_changed(rustine_wl_dir.join("CMakeLists.txt"));
-    rerun_if_changed(rustine_wl_dir.join("rustine-wl.cpp"));
-    rerun_if_changed(rustine_wl_dir.join("rustine-wl.hpp"));
+    let glfw_dir = project_dir.join("ext").join("glfw");
+    rerun_if_changed(glfw_dir.join("CMakeLists.txt"));
+    rerun_if_changed(glfw_dir.join("src"));
+    rerun_if_changed(glfw_dir.join("include"));
 }
 
 fn build_shaders(shaders_dir: &Path, out_dir: &Path) {
