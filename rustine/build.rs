@@ -101,7 +101,7 @@ fn main() {
     build_luajit(&project_dir, &out_dir);
 }
 
-fn build_luajit(project_dir: &Path, _out_dir: &Path) {
+fn build_luajit(project_dir: &Path, out_dir: &Path) {
     let source_dir = project_dir.join("ext").join("luajit").join("src");
 
     if cfg!(target_os = "windows") {
@@ -112,8 +112,7 @@ fn build_luajit(project_dir: &Path, _out_dir: &Path) {
                     "Unable to locate vcvars64.bat. Install Visual Studio C++ tools or run from a Developer Command Prompt."
                 )
             });
-
-            let wrapper = source_dir.join("rustine-luajit-build.bat");
+            let wrapper = out_dir.join("rustine-luajit-build.bat");
             let wrapper_content = format!(
                 "@echo off\r\ncall \"{}\" >nul\r\nif errorlevel 1 exit /b 1\r\ncall msvcbuild.bat static\r\n",
                 vcvars.display()
@@ -122,7 +121,7 @@ fn build_luajit(project_dir: &Path, _out_dir: &Path) {
 
             let status = Command::new("cmd")
                 .arg("/C")
-                .arg(wrapper.file_name().unwrap())
+                .arg(&wrapper)
                 .current_dir(&source_dir)
                 .status()
                 .expect("Failed to build LuaJIT");
