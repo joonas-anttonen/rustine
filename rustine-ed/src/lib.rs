@@ -1,5 +1,5 @@
 pub mod application;
 mod piecetable;
 use piecetable::PieceTable;
-mod text;
-//use text::TextEditor;
+mod text_editor;
+use text_editor::{EditorAction, TextEditor};

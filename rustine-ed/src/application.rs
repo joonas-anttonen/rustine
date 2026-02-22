@@ -6,24 +6,36 @@ use rustine::{
     log,
 };
 
-use crate::PieceTable;
+use crate::{EditorAction, TextEditor};
+
+struct TextRenderMetrics {
+    line_height: f32,
+    char_advance: f32,
+    caret_width: f32,
+}
 
 struct MyApplicationState {
-    pub text_table: PieceTable,
-    pub text_cache: String,
+    pub editor: TextEditor,
+    pub metrics: TextRenderMetrics,
 }
 
 impl MyApplicationState {
     pub fn new() -> Self {
-        MyApplicationState {
-            text_table: PieceTable::new(String::new()),
-            text_cache: String::with_capacity(1024),
-        }
-    }
+        let scale = 1.0;
+        let font_id = gfx::fonts::CASKAYDIAMONO_FONT_ID;
+        let single_line = gfx::measure_text("M", scale, font_id);
+        let two_lines = gfx::measure_text("M\nM", scale, font_id);
+        let char_advance = single_line.w.max(1.0);
+        let line_height = (two_lines.h - single_line.h).max(1.0);
 
-    pub fn update_text_cache(&mut self) {
-        self.text_cache.clear();
-        self.text_table.get_text(&mut self.text_cache);
+        MyApplicationState {
+            editor: TextEditor::new(String::new()),
+            metrics: TextRenderMetrics {
+                line_height: line_height.max(1.0),
+                char_advance,
+                caret_width: 2.0,
+            },
+        }
     }
 }
 
@@ -49,54 +61,39 @@ impl gui::Application for MyApplication {
     }
 
     fn on_key(&self, gui: &gui::Gui, event: gui::KeyEvent) {
-        let mut _state = self.state.borrow_mut();
-
-        if event.action != gui::Action::PRESS {
-            return;
+        if let Some(action) = Self::key_event_to_action(event) {
+            let mut state = self.state.borrow_mut();
+            if state.editor.apply_action(action) {
+                gui.mark_damaged();
+            }
         }
-
-        if event.key == gui::Key::DELETE || event.key == gui::Key::BACKSPACE {
-            log::info!("Received DELETE action with key: {:?}", event.key);
-            //_state.editor.input_buffer.pop();
-        }
-
-        // Assume the window is damaged after handling a key press
-        gui.mark_damaged();
     }
 
     fn on_char(&self, gui: &gui::Gui, c: char) {
-        // Assume the window is damaged after handling a character input
-        gui.mark_damaged();
-
-        if c.is_alphanumeric() || c.is_ascii_punctuation() || c == ' ' || c == '\n' {
-            // Log the received character input
-            //log::info!("Received char input: '{}'", c);
-
-            let mut _state = self.state.borrow_mut();
-            //state.editor.push_input(c);
-        } else {
-            // Log non-printable character inputs with their Unicode code point
-            //log::info!("Received non-printable char input: U+{:04X}", _c as u32);
+        if let Some(action) = Self::char_to_action(c) {
+            let mut state = self.state.borrow_mut();
+            if state.editor.apply_action(action) {
+                gui.mark_damaged();
+            }
         }
     }
 
     fn on_mouse_enter(&self, _gui: &gui::Gui, _event: gui::MouseEnterEvent) {
-        let mut _state = self.state.borrow_mut();
+        let _state = self.state.borrow_mut();
     }
 
     fn on_mouse_leave(&self, _gui: &gui::Gui, _event: gui::MouseLeaveEvent) {}
 
     fn on_mouse_move(&self, _gui: &gui::Gui, _event: gui::MouseMoveEvent) {
-        let mut _state = self.state.borrow_mut();
+        let _state = self.state.borrow_mut();
     }
 
     fn on_mouse_button(&self, _gui: &gui::Gui, _event: gui::MouseButtonEvent) {
-        let mut _state = self.state.borrow_mut();
+        let _state = self.state.borrow_mut();
     }
 
     fn render(&self, _gui: &gui::Gui, frame: &mut gfx::RenderFrame) {
-        let mut state = self.state.borrow_mut();
-        state.update_text_cache();
+        let state = self.state.borrow();
 
         let rect = gfx::Rectangle {
             x: 0.0,
@@ -113,6 +110,50 @@ impl gui::Application for MyApplication {
         let color = 0xFFFFFFFF;
         let font_id = gfx::fonts::CASKAYDIAMONO_FONT_ID;
 
-        frame.push_text(&state.text_cache, x, y, scale, color, font_id);
+        let text = state.editor.text();
+        frame.push_text(text, x, y, scale, color, font_id);
+
+        let cursor_line = state.editor.cursor_line();
+        let cursor_col = state.editor.cursor_column();
+        let caret_x = x + cursor_col as f32 * state.metrics.char_advance;
+        let caret_baseline_y = y + cursor_line as f32 * state.metrics.line_height;
+        let caret_rect = gfx::Rectangle {
+            x: caret_x,
+            y: caret_baseline_y - state.metrics.line_height,
+            w: state.metrics.caret_width,
+            h: state.metrics.line_height,
+        };
+
+        frame.fill_rectangle(&caret_rect, 0xFFFFFFFF);
+    }
+}
+
+impl MyApplication {
+    fn key_event_to_action(event: gui::KeyEvent) -> Option<EditorAction> {
+        if event.action != gui::Action::PRESS {
+            return None;
+        }
+
+        match event.key {
+            gui::Key::ENTER => Some(EditorAction::InsertNewline),
+            gui::Key::SPACE => Some(EditorAction::InsertSpace),
+            gui::Key::BACKSPACE => Some(EditorAction::Backspace),
+            gui::Key::DELETE => Some(EditorAction::Delete),
+            gui::Key::LEFT => Some(EditorAction::MoveLeft),
+            gui::Key::RIGHT => Some(EditorAction::MoveRight),
+            gui::Key::UP => Some(EditorAction::MoveUp),
+            gui::Key::DOWN => Some(EditorAction::MoveDown),
+            gui::Key::HOME => Some(EditorAction::MoveHome),
+            gui::Key::END => Some(EditorAction::MoveEnd),
+            _ => None,
+        }
+    }
+
+    fn char_to_action(c: char) -> Option<EditorAction> {
+        if c.is_alphanumeric() || c.is_ascii_punctuation() {
+            return Some(EditorAction::InsertChar(c));
+        }
+
+        None
     }
 }
