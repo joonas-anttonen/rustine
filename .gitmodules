@@ -1,3 +1,6 @@
 [submodule "rustine/ext/luajit"]
 	path = rustine/ext/luajit
 	url = https://github.com/LuaJIT/LuaJIT.git
+[submodule "rustine/ext/glfw"]
+	path = rustine/ext/glfw
+	url = https://github.com/glfw/glfw.git
