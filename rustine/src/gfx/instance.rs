@@ -76,6 +76,7 @@ unsafe extern "C" fn vulkan_debug_callback(
 pub struct Instance {
     handle: vk::VkInstance,
     debug_messenger: Option<vk::VkDebugUtilsMessengerEXT>,
+    surface_platform_hint: Platform,
 }
 
 impl Drop for Instance {
@@ -105,6 +106,10 @@ impl Drop for Instance {
 impl Instance {
     pub fn handle(&self) -> vk::VkInstance {
         self.handle
+    }
+
+    pub fn surface_platform_hint(&self) -> Platform {
+        self.surface_platform_hint
     }
 
     pub fn create_wayland_surface(
@@ -166,12 +171,18 @@ impl Instance {
         };
 
         let mut platform_extension_added = false;
+        let mut selected_surface_platform: Option<Platform> = None;
         for platform in platform_candidates {
-            platform_extension_added |= extend_surface_extensions_for_platform(
+            let added = extend_surface_extensions_for_platform(
                 &available_extensions,
                 &mut enabled_extensions,
                 platform,
             );
+            platform_extension_added |= added;
+
+            if added && selected_surface_platform.is_none() {
+                selected_surface_platform = Some(platform);
+            }
         }
 
         if !platform_extension_added {
@@ -275,6 +286,7 @@ impl Instance {
         Ok(Instance {
             handle,
             debug_messenger,
+            surface_platform_hint: selected_surface_platform.unwrap(),
         })
     }
 

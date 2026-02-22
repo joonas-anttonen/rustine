@@ -170,7 +170,7 @@ fn build_glfw(project_dir: &Path, out_dir: &Path, generator: &'static str) {
         .define("GLFW_BUILD_EXAMPLES", "OFF")
         .define("GLFW_BUILD_TESTS", "OFF")
         .define("GLFW_BUILD_DOCS", "OFF")
-        .define("GLFW_BUILD_X11", "OFF")
+        .define("GLFW_BUILD_X11", "ON")
         .define("GLFW_BUILD_WAYLAND", "ON")
         .always_configure(true)
         .build();

@@ -24,7 +24,7 @@ fn main() -> std::process::ExitCode {
         let scene = Arc::new(Mutex::new(Scene::new(Arc::clone(&gfx))));
         let application = Box::new(MyApplication::new(Arc::clone(&scene)));
 
-        let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
+        let gui_builder = rustine::gui::Gui::builder()
             .window_title("rustine-desktop")
             .window_size(1280, 720);
         let gui = gui_builder.build(Arc::clone(&gfx), application);

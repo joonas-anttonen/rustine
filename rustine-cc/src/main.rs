@@ -64,7 +64,7 @@ fn main() {
         let a_client_image = Arc::new(gfx.lock().unwrap().create_dynamic_image());
         let application = Box::new(MyApplication::new(Arc::clone(&a_client_image)));
 
-        let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
+        let gui_builder = rustine::gui::Gui::builder()
             .window_title("rustine-cc")
             .window_size(1280, 720);
         let gui = gui_builder.build(Arc::clone(&gfx), application);

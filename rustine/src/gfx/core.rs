@@ -133,6 +133,13 @@ impl Gfx {
                 frame_delta_times.push(_dt as f64);
 
                 let mut gfx = am_gfx.lock().unwrap();
+
+                if mode == RunMode::Continuous {
+                    // In continuous mode, we assume the target
+                    // is always damaged to ensure consistent frame updates.
+                    gfx.target_damaged = true;
+                }
+
                 gfx.render();
 
                 let stat_now = Instant::now();
@@ -420,6 +427,10 @@ impl Gfx {
 
     pub fn instance(&self) -> &Instance {
         &self.instance
+    }
+
+    pub fn surface_platform_hint(&self) -> Platform {
+        self.instance.surface_platform_hint()
     }
 
     pub fn device(&self) -> &Rc<Device> {

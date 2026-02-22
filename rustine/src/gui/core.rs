@@ -1,9 +1,8 @@
-use crate::{Mailbox, Platform, RingBuffer, RunMode, Vector2f, Vector2i, Vector2u, log, utilities};
+use crate::{Mailbox, RingBuffer, RunMode, Vector2f, Vector2i, Vector2u, log, utilities};
 
 use crate::gui::*;
 
 pub struct Parameters {
-    pub platform: Platform,
     pub window_title: String,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
@@ -14,11 +13,10 @@ pub struct GuiBuilder {
 }
 
 impl GuiBuilder {
-    /// Creates a new `GuiBuilder` with a preferred platform hint.
-    pub fn new(platform: Platform) -> Self {
+    /// Creates a new `GuiBuilder`.
+    pub fn new() -> Self {
         Self {
             params: Parameters {
-                platform,
                 window_title: String::from("rustine::gui"),
                 window_width: None,
                 window_height: None,
@@ -105,6 +103,68 @@ pub fn run(gui: &Gui, mode: RunMode) {
 }
 
 impl Gui {
+    fn create_glfw_window(
+        parameters: &Parameters,
+        requested_width: u32,
+        requested_height: u32,
+        platform: crate::Platform,
+    ) -> ffi::GlfwWindow {
+        unsafe {
+            ffi::set_log_callback(ffi::GlfwLogSeverity::Error, Self::glfw_log_callback);
+            ffi::panic_if_error(ffi::set_platform_hint(platform));
+            ffi::panic_if_error(ffi::startup());
+
+            let mut glfw_window = std::ptr::null_mut();
+            ffi::panic_if_error(ffi::create_window(
+                requested_width,
+                requested_height,
+                &mut glfw_window,
+            ));
+
+            let title_cstr = std::ffi::CString::new(parameters.window_title.as_str())
+                .expect("window title must not contain null bytes");
+            ffi::panic_if_error(ffi::set_window_title(glfw_window, title_cstr.as_ptr()));
+
+            ffi::panic_if_error(ffi::set_pixel_size_callback(
+                glfw_window,
+                Self::glfw_pixel_size_callback,
+            ));
+
+            ffi::panic_if_error(ffi::set_logical_size_callback(
+                glfw_window,
+                Self::glfw_logical_size_callback,
+            ));
+
+            ffi::panic_if_error(ffi::set_key_callback(glfw_window, Self::glfw_key_callback));
+            ffi::panic_if_error(ffi::set_char_callback(
+                glfw_window,
+                Self::glfw_char_callback,
+            ));
+            ffi::panic_if_error(ffi::set_pointer_enter_callback(
+                glfw_window,
+                Self::glfw_pointer_enter_callback,
+            ));
+            ffi::panic_if_error(ffi::set_pointer_leave_callback(
+                glfw_window,
+                Self::glfw_pointer_leave_callback,
+            ));
+            ffi::panic_if_error(ffi::set_pointer_motion_callback(
+                glfw_window,
+                Self::glfw_pointer_motion_callback,
+            ));
+            ffi::panic_if_error(ffi::set_pointer_button_callback(
+                glfw_window,
+                Self::glfw_pointer_button_callback,
+            ));
+            ffi::panic_if_error(ffi::set_pointer_scroll_callback(
+                glfw_window,
+                Self::glfw_pointer_scroll_callback,
+            ));
+
+            glfw_window
+        }
+    }
+
     /// Wakes up the GUI event loop by posting an empty event.
     pub fn wake_up() {
         unsafe {
@@ -210,8 +270,8 @@ impl Gui {
     }
 
     /// Creates a new `GuiBuilder` to configure and build a `Gui` instance.
-    pub fn builder(platform: Platform) -> GuiBuilder {
-        GuiBuilder::new(platform)
+    pub fn builder() -> GuiBuilder {
+        GuiBuilder::new()
     }
 
     pub fn new(
@@ -219,71 +279,32 @@ impl Gui {
         application: Box<dyn Application>,
         parameters: Parameters,
     ) -> Rc<Self> {
-        let (glfw_window, wanted_size) = unsafe {
-            ffi::set_log_callback(ffi::GlfwLogSeverity::Error, Self::glfw_log_callback);
-            ffi::panic_if_error(ffi::startup());
-            let requested_width = parameters.window_width.unwrap_or(1280);
-            let requested_height = parameters.window_height.unwrap_or(720);
+        let requested_width = parameters.window_width.unwrap_or(1280);
+        let requested_height = parameters.window_height.unwrap_or(720);
+        let wanted_size = Vector2u::new(requested_width, requested_height);
 
-            let mut glfw_window = std::ptr::null_mut();
-            ffi::panic_if_error(ffi::create_window(
-                requested_width,
-                requested_height,
-                &mut glfw_window,
-            ));
-
-            let title_cstr = std::ffi::CString::new(parameters.window_title.as_str())
-                .expect("window title must not contain null bytes");
-            ffi::panic_if_error(ffi::set_window_title(glfw_window, title_cstr.as_ptr()));
-
-            ffi::panic_if_error(ffi::set_pixel_size_callback(
-                glfw_window,
-                Self::glfw_pixel_size_callback,
-            ));
-
-            ffi::panic_if_error(ffi::set_logical_size_callback(
-                glfw_window,
-                Self::glfw_logical_size_callback,
-            ));
-
-            ffi::panic_if_error(ffi::set_key_callback(glfw_window, Self::glfw_key_callback));
-            ffi::panic_if_error(ffi::set_char_callback(glfw_window, Self::glfw_char_callback));
-            ffi::panic_if_error(ffi::set_pointer_enter_callback(
-                glfw_window,
-                Self::glfw_pointer_enter_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_leave_callback(
-                glfw_window,
-                Self::glfw_pointer_leave_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_motion_callback(
-                glfw_window,
-                Self::glfw_pointer_motion_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_button_callback(
-                glfw_window,
-                Self::glfw_pointer_button_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_scroll_callback(
-                glfw_window,
-                Self::glfw_pointer_scroll_callback,
-            ));
-
-            (glfw_window, Vector2u::new(requested_width, requested_height))
+        let selected_platform = {
+            let gfx_guard = gfx.lock().unwrap();
+            gfx_guard.surface_platform_hint()
         };
+        let glfw_window = Self::create_glfw_window(
+            &parameters,
+            requested_width,
+            requested_height,
+            selected_platform,
+        );
 
         let mut raw_surface: *const std::ffi::c_void = std::ptr::null();
+        let surface_status: ffi::GlfwStatus;
         {
             let gfx_guard = gfx.lock().unwrap();
             let raw_instance = gfx_guard.instance().handle().0;
             unsafe {
-                ffi::panic_if_error(ffi::create_window_surface(
-                    glfw_window,
-                    raw_instance,
-                    &mut raw_surface,
-                ));
+                surface_status =
+                    ffi::create_window_surface(glfw_window, raw_instance, &mut raw_surface);
             }
         }
+        ffi::panic_if_error(surface_status);
         let gfx_surface = vk::VkSurfaceKHR(raw_surface);
 
         let mut initial_logical_size = wanted_size;
@@ -408,7 +429,11 @@ impl Gui {
         gfx.image_mailbox()
     }
 
-    unsafe extern "C" fn glfw_pixel_size_callback(window: ffi::GlfwWindow, width: u32, height: u32) {
+    unsafe extern "C" fn glfw_pixel_size_callback(
+        window: ffi::GlfwWindow,
+        width: u32,
+        height: u32,
+    ) {
         unsafe {
             let gui_ptr = ffi::get_window_user_pointer(window) as *mut Gui;
             if !gui_ptr.is_null() {
@@ -928,7 +953,8 @@ mod ffi {
 
     /// Callback for logging messages from the library
     /// severity: 0=Debug, 1=Info, 2=Warning, 3=Error
-    pub type GlfwLogCallback = unsafe extern "C" fn(severity: u32, message: *const std::ffi::c_char);
+    pub type GlfwLogCallback =
+        unsafe extern "C" fn(severity: u32, message: *const std::ffi::c_char);
 
     /// Status codes returned by glfw backend functions
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -994,10 +1020,17 @@ mod ffi {
     const GLFW_CLIENT_API: i32 = 0x00022001;
     const GLFW_NO_API: i32 = 0;
     const GLFW_RESIZABLE: i32 = 0x00020003;
+    const GLFW_PLATFORM: i32 = 0x00050003;
+
+    const GLFW_PLATFORM_WIN32: i32 = 0x00060001;
+    const GLFW_PLATFORM_COCOA: i32 = 0x00060002;
+    const GLFW_PLATFORM_WAYLAND: i32 = 0x00060003;
+    const GLFW_PLATFORM_X11: i32 = 0x00060004;
 
     #[link(name = "glfw3", kind = "static")]
     unsafe extern "C" {
         fn glfwInit() -> i32;
+        fn glfwInitHint(hint: i32, value: i32);
         fn glfwTerminate();
         fn glfwPollEvents();
         fn glfwWaitEvents();
@@ -1033,15 +1066,41 @@ mod ffi {
             surface: *mut *const std::ffi::c_void,
         ) -> i32;
 
-        fn glfwSetErrorCallback(callback: Option<unsafe extern "C" fn(i32, *const std::ffi::c_char)>);
-        fn glfwSetFramebufferSizeCallback(window: GlfwWindow, callback: Option<unsafe extern "C" fn(GlfwWindow, i32, i32)>);
-        fn glfwSetWindowSizeCallback(window: GlfwWindow, callback: Option<unsafe extern "C" fn(GlfwWindow, i32, i32)>);
-        fn glfwSetKeyCallback(window: GlfwWindow, callback: Option<unsafe extern "C" fn(GlfwWindow, i32, i32, i32, i32)>);
-        fn glfwSetCharCallback(window: GlfwWindow, callback: Option<unsafe extern "C" fn(GlfwWindow, u32)>);
-        fn glfwSetCursorEnterCallback(window: GlfwWindow, callback: Option<unsafe extern "C" fn(GlfwWindow, i32)>);
-        fn glfwSetCursorPosCallback(window: GlfwWindow, callback: Option<unsafe extern "C" fn(GlfwWindow, f64, f64)>);
-        fn glfwSetMouseButtonCallback(window: GlfwWindow, callback: Option<unsafe extern "C" fn(GlfwWindow, i32, i32, i32)>);
-        fn glfwSetScrollCallback(window: GlfwWindow, callback: Option<unsafe extern "C" fn(GlfwWindow, f64, f64)>);
+        fn glfwSetErrorCallback(
+            callback: Option<unsafe extern "C" fn(i32, *const std::ffi::c_char)>,
+        );
+        fn glfwSetFramebufferSizeCallback(
+            window: GlfwWindow,
+            callback: Option<unsafe extern "C" fn(GlfwWindow, i32, i32)>,
+        );
+        fn glfwSetWindowSizeCallback(
+            window: GlfwWindow,
+            callback: Option<unsafe extern "C" fn(GlfwWindow, i32, i32)>,
+        );
+        fn glfwSetKeyCallback(
+            window: GlfwWindow,
+            callback: Option<unsafe extern "C" fn(GlfwWindow, i32, i32, i32, i32)>,
+        );
+        fn glfwSetCharCallback(
+            window: GlfwWindow,
+            callback: Option<unsafe extern "C" fn(GlfwWindow, u32)>,
+        );
+        fn glfwSetCursorEnterCallback(
+            window: GlfwWindow,
+            callback: Option<unsafe extern "C" fn(GlfwWindow, i32)>,
+        );
+        fn glfwSetCursorPosCallback(
+            window: GlfwWindow,
+            callback: Option<unsafe extern "C" fn(GlfwWindow, f64, f64)>,
+        );
+        fn glfwSetMouseButtonCallback(
+            window: GlfwWindow,
+            callback: Option<unsafe extern "C" fn(GlfwWindow, i32, i32, i32)>,
+        );
+        fn glfwSetScrollCallback(
+            window: GlfwWindow,
+            callback: Option<unsafe extern "C" fn(GlfwWindow, f64, f64)>,
+        );
     }
 
     unsafe extern "C" fn glfw_error_callback(_code: i32, message: *const std::ffi::c_char) {
@@ -1055,10 +1114,16 @@ mod ffi {
         }
     }
 
-    unsafe extern "C" fn glfw_framebuffer_size_callback(window: GlfwWindow, width: i32, height: i32) {
+    unsafe extern "C" fn glfw_framebuffer_size_callback(
+        window: GlfwWindow,
+        width: i32,
+        height: i32,
+    ) {
         let callback = {
             let guard = CALLBACKS.lock().unwrap();
-            guard.get(&(window as usize)).and_then(|state| state.pixel_size)
+            guard
+                .get(&(window as usize))
+                .and_then(|state| state.pixel_size)
         };
         if let Some(callback) = callback {
             unsafe {
@@ -1070,7 +1135,9 @@ mod ffi {
     unsafe extern "C" fn glfw_window_size_callback(window: GlfwWindow, width: i32, height: i32) {
         let callback = {
             let guard = CALLBACKS.lock().unwrap();
-            guard.get(&(window as usize)).and_then(|state| state.logical_size)
+            guard
+                .get(&(window as usize))
+                .and_then(|state| state.logical_size)
         };
         if let Some(callback) = callback {
             unsafe {
@@ -1079,14 +1146,26 @@ mod ffi {
         }
     }
 
-    unsafe extern "C" fn glfw_key_callback(window: GlfwWindow, key: i32, scancode: i32, action: i32, mods: i32) {
+    unsafe extern "C" fn glfw_key_callback(
+        window: GlfwWindow,
+        key: i32,
+        scancode: i32,
+        action: i32,
+        mods: i32,
+    ) {
         let callback = {
             let guard = CALLBACKS.lock().unwrap();
             guard.get(&(window as usize)).and_then(|state| state.key)
         };
         if let Some(callback) = callback {
             unsafe {
-                callback(window, GlfwKey(key), scancode, GlfwAction(action as u32), GlfwMod(mods as u32));
+                callback(
+                    window,
+                    GlfwKey(key),
+                    scancode,
+                    GlfwAction(action as u32),
+                    GlfwMod(mods as u32),
+                );
             }
         }
     }
@@ -1094,7 +1173,9 @@ mod ffi {
     unsafe extern "C" fn glfw_char_callback(window: GlfwWindow, codepoint: u32) {
         let callback = {
             let guard = CALLBACKS.lock().unwrap();
-            guard.get(&(window as usize)).and_then(|state| state.char_input)
+            guard
+                .get(&(window as usize))
+                .and_then(|state| state.char_input)
         };
         if let Some(callback) = callback {
             unsafe {
@@ -1133,7 +1214,9 @@ mod ffi {
     unsafe extern "C" fn glfw_cursor_pos_callback(window: GlfwWindow, x: f64, y: f64) {
         let callback = {
             let guard = CALLBACKS.lock().unwrap();
-            guard.get(&(window as usize)).and_then(|state| state.pointer_motion)
+            guard
+                .get(&(window as usize))
+                .and_then(|state| state.pointer_motion)
         };
         if let Some(callback) = callback {
             unsafe {
@@ -1142,10 +1225,17 @@ mod ffi {
         }
     }
 
-    unsafe extern "C" fn glfw_mouse_button_callback(window: GlfwWindow, button: i32, action: i32, mods: i32) {
+    unsafe extern "C" fn glfw_mouse_button_callback(
+        window: GlfwWindow,
+        button: i32,
+        action: i32,
+        mods: i32,
+    ) {
         let callback = {
             let guard = CALLBACKS.lock().unwrap();
-            guard.get(&(window as usize)).and_then(|state| state.pointer_button)
+            guard
+                .get(&(window as usize))
+                .and_then(|state| state.pointer_button)
         };
         if let Some(callback) = callback {
             let mut x = 0.0;
@@ -1167,7 +1257,9 @@ mod ffi {
     unsafe extern "C" fn glfw_scroll_callback(window: GlfwWindow, delta_x: f64, delta_y: f64) {
         let callback = {
             let guard = CALLBACKS.lock().unwrap();
-            guard.get(&(window as usize)).and_then(|state| state.pointer_scroll)
+            guard
+                .get(&(window as usize))
+                .and_then(|state| state.pointer_scroll)
         };
         if let Some(callback) = callback {
             let mut x = 0.0;
@@ -1205,6 +1297,21 @@ mod ffi {
         } else {
             GlfwStatus::InternalError
         }
+    }
+
+    pub unsafe fn set_platform_hint(platform: crate::Platform) -> GlfwStatus {
+        let glfw_platform = match platform {
+            crate::Platform::Windows => GLFW_PLATFORM_WIN32,
+            crate::Platform::Wayland => GLFW_PLATFORM_WAYLAND,
+            crate::Platform::X11 => GLFW_PLATFORM_X11,
+            crate::Platform::MacOS => GLFW_PLATFORM_COCOA,
+        };
+
+        unsafe {
+            glfwInitHint(GLFW_PLATFORM, glfw_platform);
+        }
+
+        GlfwStatus::Ok
     }
 
     pub unsafe fn shutdown() -> GlfwStatus {
@@ -1277,7 +1384,10 @@ mod ffi {
         GlfwStatus::Ok
     }
 
-    pub unsafe fn set_window_title(window: GlfwWindow, title: *const std::ffi::c_char) -> GlfwStatus {
+    pub unsafe fn set_window_title(
+        window: GlfwWindow,
+        title: *const std::ffi::c_char,
+    ) -> GlfwStatus {
         if window.is_null() || title.is_null() {
             return GlfwStatus::InvalidArgument;
         }
@@ -1298,7 +1408,8 @@ mod ffi {
         }
 
         let vk_success: i32 = 0;
-        let result = unsafe { glfwCreateWindowSurface(instance, window, std::ptr::null(), surface_out) };
+        let result =
+            unsafe { glfwCreateWindowSurface(instance, window, std::ptr::null(), surface_out) };
         if result == vk_success {
             GlfwStatus::Ok
         } else {
@@ -1306,7 +1417,10 @@ mod ffi {
         }
     }
 
-    pub unsafe fn set_window_user_pointer(window: GlfwWindow, pointer: *const std::ffi::c_void) -> GlfwStatus {
+    pub unsafe fn set_window_user_pointer(
+        window: GlfwWindow,
+        pointer: *const std::ffi::c_void,
+    ) -> GlfwStatus {
         if window.is_null() {
             return GlfwStatus::InvalidArgument;
         }
@@ -1323,7 +1437,10 @@ mod ffi {
         unsafe { glfwGetWindowUserPointer(window) }
     }
 
-    pub unsafe fn set_pixel_size_callback(window: GlfwWindow, callback: GlfwPixelSizeCallback) -> GlfwStatus {
+    pub unsafe fn set_pixel_size_callback(
+        window: GlfwWindow,
+        callback: GlfwPixelSizeCallback,
+    ) -> GlfwStatus {
         let mut guard = CALLBACKS.lock().unwrap();
         if let Some(state) = guard.get_mut(&(window as usize)) {
             state.pixel_size = Some(callback);
@@ -1333,7 +1450,10 @@ mod ffi {
         }
     }
 
-    pub unsafe fn set_logical_size_callback(window: GlfwWindow, callback: GlfwLogicalSizeCallback) -> GlfwStatus {
+    pub unsafe fn set_logical_size_callback(
+        window: GlfwWindow,
+        callback: GlfwLogicalSizeCallback,
+    ) -> GlfwStatus {
         let mut guard = CALLBACKS.lock().unwrap();
         if let Some(state) = guard.get_mut(&(window as usize)) {
             state.logical_size = Some(callback);
@@ -1363,7 +1483,10 @@ mod ffi {
         }
     }
 
-    pub unsafe fn set_pointer_enter_callback(window: GlfwWindow, callback: GlfwPointerEnterCallback) -> GlfwStatus {
+    pub unsafe fn set_pointer_enter_callback(
+        window: GlfwWindow,
+        callback: GlfwPointerEnterCallback,
+    ) -> GlfwStatus {
         let mut guard = CALLBACKS.lock().unwrap();
         if let Some(state) = guard.get_mut(&(window as usize)) {
             state.pointer_enter = Some(callback);
@@ -1373,7 +1496,10 @@ mod ffi {
         }
     }
 
-    pub unsafe fn set_pointer_leave_callback(window: GlfwWindow, callback: GlfwPointerLeaveCallback) -> GlfwStatus {
+    pub unsafe fn set_pointer_leave_callback(
+        window: GlfwWindow,
+        callback: GlfwPointerLeaveCallback,
+    ) -> GlfwStatus {
         let mut guard = CALLBACKS.lock().unwrap();
         if let Some(state) = guard.get_mut(&(window as usize)) {
             state.pointer_leave = Some(callback);
@@ -1383,7 +1509,10 @@ mod ffi {
         }
     }
 
-    pub unsafe fn set_pointer_motion_callback(window: GlfwWindow, callback: GlfwPointerMotionCallback) -> GlfwStatus {
+    pub unsafe fn set_pointer_motion_callback(
+        window: GlfwWindow,
+        callback: GlfwPointerMotionCallback,
+    ) -> GlfwStatus {
         let mut guard = CALLBACKS.lock().unwrap();
         if let Some(state) = guard.get_mut(&(window as usize)) {
             state.pointer_motion = Some(callback);
@@ -1393,7 +1522,10 @@ mod ffi {
         }
     }
 
-    pub unsafe fn set_pointer_button_callback(window: GlfwWindow, callback: GlfwPointerButtonCallback) -> GlfwStatus {
+    pub unsafe fn set_pointer_button_callback(
+        window: GlfwWindow,
+        callback: GlfwPointerButtonCallback,
+    ) -> GlfwStatus {
         let mut guard = CALLBACKS.lock().unwrap();
         if let Some(state) = guard.get_mut(&(window as usize)) {
             state.pointer_button = Some(callback);
@@ -1403,7 +1535,10 @@ mod ffi {
         }
     }
 
-    pub unsafe fn set_pointer_scroll_callback(window: GlfwWindow, callback: GlfwPointerScrollCallback) -> GlfwStatus {
+    pub unsafe fn set_pointer_scroll_callback(
+        window: GlfwWindow,
+        callback: GlfwPointerScrollCallback,
+    ) -> GlfwStatus {
         let mut guard = CALLBACKS.lock().unwrap();
         if let Some(state) = guard.get_mut(&(window as usize)) {
             state.pointer_scroll = Some(callback);
@@ -1413,7 +1548,11 @@ mod ffi {
         }
     }
 
-    pub unsafe fn get_pixel_size(window: GlfwWindow, width: *mut u32, height: *mut u32) -> GlfwStatus {
+    pub unsafe fn get_pixel_size(
+        window: GlfwWindow,
+        width: *mut u32,
+        height: *mut u32,
+    ) -> GlfwStatus {
         if window.is_null() || width.is_null() || height.is_null() {
             return GlfwStatus::InvalidArgument;
         }
@@ -1428,7 +1567,11 @@ mod ffi {
         GlfwStatus::Ok
     }
 
-    pub unsafe fn get_logical_size(window: GlfwWindow, width: *mut u32, height: *mut u32) -> GlfwStatus {
+    pub unsafe fn get_logical_size(
+        window: GlfwWindow,
+        width: *mut u32,
+        height: *mut u32,
+    ) -> GlfwStatus {
         if window.is_null() || width.is_null() || height.is_null() {
             return GlfwStatus::InvalidArgument;
         }

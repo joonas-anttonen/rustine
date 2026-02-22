@@ -23,7 +23,7 @@ fn main() -> std::process::ExitCode {
 
         let application = Box::new(MyApplication::new());
 
-        let gui_builder = rustine::gui::Gui::builder(rustine::Platform::Wayland)
+        let gui_builder = rustine::gui::Gui::builder()
             .window_title("rustine-mech")
             .window_size(900, 600);
         let gui = gui_builder.build(Arc::clone(&gfx), application);
