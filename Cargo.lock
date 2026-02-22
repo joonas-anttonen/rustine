@@ -723,9 +723,9 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "cmake",
- "fontdue",
  "libc",
  "nalgebra",
+ "rustine-fc",
  "rustine-sc",
  "serde",
  "serde_json",
@@ -759,6 +759,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustine-fc"
+version = "0.1.0"
+dependencies = [
+ "fontdue",
+ "toml",
+]
+
+[[package]]
 name = "rustine-mech"
 version = "0.1.0"
 dependencies = [
@@ -771,6 +779,7 @@ version = "0.1.0"
 dependencies = [
  "cmake",
  "libc",
+ "toml",
 ]
 
 [[package]]

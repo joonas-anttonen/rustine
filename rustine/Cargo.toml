@@ -20,8 +20,8 @@ nalgebra = "0.34.1"
 
 [build-dependencies]
 rustine-sc = { path = "../rustine-sc" }
+rustine-fc = { path = "../rustine-fc" }
 cmake = ">=0.1"
-fontdue = ">=0.9"
 toml = ">=0.8"
 
 [features]

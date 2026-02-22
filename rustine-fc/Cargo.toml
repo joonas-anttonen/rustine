@@ -1,16 +1,13 @@
 [package]
-name = "rustine-sc"
+name = "rustine-fc"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "rustinesc"
+name = "rustinefc"
 path = "src/lib.rs"
 test = false
 
 [dependencies]
-libc = "0.2"
+fontdue = ">=0.9"
 toml = ">=0.8"
-
-[build-dependencies]
-cmake = "0.1.54"
