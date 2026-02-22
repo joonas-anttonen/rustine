@@ -189,7 +189,10 @@ impl rustine::gui::Application for MyApplication {
             return;
         }
 
-        if event.action != rustine::gui::Action::PRESS {
+        if !matches!(
+            event.action,
+            rustine::gui::Action::PRESS | rustine::gui::Action::REPEAT
+        ) {
             return;
         }
 

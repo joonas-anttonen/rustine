@@ -653,11 +653,13 @@ mod ffi {
     impl GlfwAction {
         pub const RELEASE: u32 = 0;
         pub const PRESS: u32 = 1;
+        pub const REPEAT: u32 = 2;
 
         pub fn to_input(self) -> crate::gui::input::Action {
             match self.0 {
                 Self::RELEASE => crate::gui::input::Action::RELEASE,
                 Self::PRESS => crate::gui::input::Action::PRESS,
+                Self::REPEAT => crate::gui::input::Action::REPEAT,
                 _ => crate::gui::input::Action::RELEASE,
             }
         }

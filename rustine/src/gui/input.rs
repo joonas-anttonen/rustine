@@ -63,6 +63,7 @@ pub enum Key {
 pub enum Action {
     RELEASE,
     PRESS,
+    REPEAT,
 }
 
 pub struct Mods(pub i32);

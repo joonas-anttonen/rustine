@@ -36,7 +36,7 @@ impl gui::Application for MyApplication {
     fn on_key(&self, gui: &gui::Gui, event: gui::KeyEvent) {
         let mut state = self.state.borrow_mut();
 
-        if event.action != gui::Action::PRESS {
+        if !matches!(event.action, gui::Action::PRESS | gui::Action::REPEAT) {
             return;
         }
 

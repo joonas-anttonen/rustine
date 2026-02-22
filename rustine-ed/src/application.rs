@@ -130,7 +130,7 @@ impl gui::Application for MyApplication {
 
 impl MyApplication {
     fn key_event_to_action(event: gui::KeyEvent) -> Option<EditorAction> {
-        if event.action != gui::Action::PRESS {
+        if !matches!(event.action, gui::Action::PRESS | gui::Action::REPEAT) {
             return None;
         }
 
@@ -150,10 +150,34 @@ impl MyApplication {
     }
 
     fn char_to_action(c: char) -> Option<EditorAction> {
-        if c.is_alphanumeric() || c.is_ascii_punctuation() {
+        if !c.is_control() && !c.is_whitespace() {
             return Some(EditorAction::InsertChar(c));
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn char_to_action_accepts_currency_symbols() {
+        assert!(matches!(
+            MyApplication::char_to_action('€'),
+            Some(EditorAction::InsertChar('€'))
+        ));
+        assert!(matches!(
+            MyApplication::char_to_action('£'),
+            Some(EditorAction::InsertChar('£'))
+        ));
+    }
+
+    #[test]
+    fn char_to_action_keeps_whitespace_filtered() {
+        assert!(MyApplication::char_to_action(' ').is_none());
+        assert!(MyApplication::char_to_action('\n').is_none());
+        assert!(MyApplication::char_to_action('\t').is_none());
     }
 }
