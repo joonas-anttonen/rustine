@@ -19,16 +19,12 @@ pub struct Scene {
     command_queue: Arc<Mailbox<Command>>,
 }
 
-pub fn run(am_scene: Arc<Mutex<Scene>>, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
-    Scene::run(am_scene, exit_flag, mode);
+pub fn run(am_scene: Arc<Mutex<Scene>>, mode: RunMode) {
+    Scene::run(am_scene, mode);
 }
 
 impl Scene {
-    pub fn run(
-        _am_scene: Arc<Mutex<Scene>>,
-        exit_flag: &std::sync::atomic::AtomicBool,
-        _mode: RunMode,
-    ) {
+    pub fn run(_am_scene: Arc<Mutex<Scene>>, _mode: RunMode) {
         log::set_current_thread_name("scene");
         log::debug!("Scene::run");
 
@@ -39,13 +35,13 @@ impl Scene {
         };
 
         loop {
-            if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            if crate::should_exit() {
                 break;
             }
 
             cmd_queue.wait();
 
-            if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            if crate::should_exit() {
                 break;
             }
 

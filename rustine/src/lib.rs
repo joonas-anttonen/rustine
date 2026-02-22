@@ -17,29 +17,36 @@ pub mod lua;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Condvar, Mutex, OnceLock, atomic::{AtomicBool, Ordering}},
+    sync::{Arc, Condvar, Mutex, atomic::{AtomicBool, Ordering}},
 };
 
-#[cfg(unix)]
-static SHUTDOWN_SIGNAL_FLAG: OnceLock<&'static AtomicBool> = OnceLock::new();
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+pub fn request_exit() {
+    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+pub fn reset_exit_request() {
+    SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
+}
+
+pub fn should_exit() -> bool {
+    SHUTDOWN_REQUESTED.load(Ordering::Relaxed)
+}
 
 #[cfg(unix)]
 extern "C" fn handle_shutdown_signal(_signal: i32) {
-    if let Some(flag) = SHUTDOWN_SIGNAL_FLAG.get() {
-        flag.store(true, Ordering::Relaxed);
-        gui::Gui::wake_up();
-    }
+    request_exit();
+    gui::Gui::wake_up();
 }
 
 /// Installs process signal handlers that request graceful shutdown.
 ///
 /// On Unix platforms this installs handlers for `SIGINT` and `SIGTERM`.
 /// On non-Unix platforms this is a no-op.
-pub fn install_shutdown_signal_handlers(shutdown_flag: &'static AtomicBool) {
+pub fn install_shutdown_signal_handlers() {
     #[cfg(unix)]
     {
-        let _ = SHUTDOWN_SIGNAL_FLAG.set(shutdown_flag);
-
         unsafe {
             let mut sa: libc::sigaction = std::mem::zeroed();
             sa.sa_sigaction = handle_shutdown_signal as *const () as usize;
@@ -55,11 +62,6 @@ pub fn install_shutdown_signal_handlers(shutdown_flag: &'static AtomicBool) {
                 log::warning!("Failed to install SIGTERM handler: {os_error:?}");
             }
         }
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = shutdown_flag;
     }
 }
 

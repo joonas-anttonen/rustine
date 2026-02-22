@@ -3,7 +3,7 @@ use crate::{Parameters, RingBuffer, drop, gfx::queue::Queue, gfx::*, io, warning
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, atomic::Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const GEOMETRY_TEXTURE_ID: u32 = u32::MAX;
@@ -77,8 +77,8 @@ unsafe impl Sync for Gfx {}
 ///
 /// Intended to be called from a dedicated graphics thread.
 /// Behavior when calling this from the main thread is undefined.
-pub fn run(am_gfx: Arc<Mutex<gfx::Gfx>>, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
-    Gfx::run(am_gfx, exit_flag, mode);
+pub fn run(am_gfx: Arc<Mutex<gfx::Gfx>>, mode: RunMode) {
+    Gfx::run(am_gfx, mode);
 }
 
 impl Drop for Gfx {
@@ -94,7 +94,7 @@ impl Gfx {
         self.work_available.set();
     }
 
-    fn run(am_gfx: Arc<Mutex<gfx::Gfx>>, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
+    fn run(am_gfx: Arc<Mutex<gfx::Gfx>>, mode: RunMode) {
         log::set_current_thread_name("gfx");
 
         const TARGET_FPS: u32 = 120;
@@ -112,7 +112,7 @@ impl Gfx {
             let frame_start = Instant::now();
 
             // Check for exit signal
-            if exit_flag.load(Ordering::Relaxed) {
+            if crate::should_exit() {
                 break;
             }
 
@@ -120,7 +120,7 @@ impl Gfx {
             if let RunMode::Event = mode {
                 work_available.wait();
 
-                if exit_flag.load(Ordering::Relaxed) {
+                if crate::should_exit() {
                     break;
                 }
             }

@@ -62,7 +62,6 @@ impl GigEClient {
         image: Arc<rustine::gfx::Image>,
         image_mailbox: Arc<Mailbox<(u32, rustine::io::Image)>>,
         stream_cache: Option<Arc<FrameCache>>,
-        exit_flag: &std::sync::atomic::AtomicBool,
     ) -> std::io::Result<()> {
         let (adapter, device_address) = {
             let client = client.lock().unwrap();
@@ -83,7 +82,7 @@ impl GigEClient {
             Self::setup_sockets(&adapter, device_address)?;
 
         loop {
-            if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            if rustine::should_exit() {
                 return Ok(());
             }
 
@@ -91,7 +90,6 @@ impl GigEClient {
                 &image,
                 &image_mailbox,
                 &stream_cache,
-                exit_flag,
                 &adapter,
                 &control_connection,
                 &stream_connection,
@@ -113,7 +111,6 @@ impl GigEClient {
         image: &Arc<rustine::gfx::Image>,
         image_mailbox: &Arc<Mailbox<(u32, rustine::io::Image)>>,
         stream_cache: &Option<Arc<FrameCache>>,
-        exit_flag: &atomic::AtomicBool,
         adapter: &IPAdapter,
         control_connection: &Connection,
         stream_connection: &Connection,
@@ -383,7 +380,6 @@ impl GigEClient {
             control_connection,
             control_timeout,
             stream_connection,
-            exit_flag,
             &genicam,
         )?;
         Self::issue_command(control_connection, acquisition_stop_cmd)?;
@@ -399,7 +395,6 @@ impl GigEClient {
         control_connection: &Connection,
         timeout: std::time::Duration,
         stream_connection: &Connection,
-        exit_flag: &std::sync::atomic::AtomicBool,
         genicam: &genicam::GenICam,
     ) -> std::io::Result<()> {
         let mut buf = [0u8; 10_000];
@@ -420,7 +415,7 @@ impl GigEClient {
         let mut decode_times = rustine::RingBuffer::<f64>::new(100);
 
         loop {
-            if exit_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            if rustine::should_exit() {
                 return Ok(());
             }
 

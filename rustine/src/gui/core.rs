@@ -100,8 +100,8 @@ impl Drop for Gui {
 ///
 /// Intended to be called from the main thread.
 /// Behavior when calling this from a non-main thread is undefined.
-pub fn run(gui: &Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
-    Gui::run(gui, exit_flag, mode);
+pub fn run(gui: &Gui, mode: RunMode) {
+    Gui::run(gui, mode);
 }
 
 impl Gui {
@@ -133,7 +133,7 @@ impl Gui {
         self.damaged.swap(false, Ordering::Acquire)
     }
 
-    fn run(gui: &Gui, exit_flag: &std::sync::atomic::AtomicBool, mode: RunMode) {
+    fn run(gui: &Gui, mode: RunMode) {
         //let start_instant = std::time::Instant::now();
         let mut last_instant = std::time::Instant::now();
         let mut last_stat_instant = std::time::Instant::now();
@@ -145,7 +145,7 @@ impl Gui {
 
         gui.application.startup(gui);
 
-        while !exit_flag.load(std::sync::atomic::Ordering::Relaxed) && !gui.should_close() {
+        while !crate::should_exit() && !gui.should_close() {
             let frame_start = std::time::Instant::now();
 
             if let RunMode::Event = mode {

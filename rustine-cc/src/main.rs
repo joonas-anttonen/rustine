@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::sync::{Arc, Mutex, atomic};
+use std::sync::{Arc, Mutex};
 
 use rustine::{Version, log};
 
@@ -15,10 +15,9 @@ mod genicam;
 
 mod mjpeg;
 
-static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
-
 fn main() {
-    rustine::install_shutdown_signal_handlers(&SHUTDOWN_FLAG);
+    rustine::reset_exit_request();
+    rustine::install_shutdown_signal_handlers();
 
     log::set_current_thread_name("main");
     log::add_listener(log::ConsoleListener::new(true));
@@ -89,7 +88,6 @@ fn main() {
                         a_client_image,
                         a_client_image_mailbox,
                         a_stream_cache,
-                        &SHUTDOWN_FLAG,
                     );
                     if let Err(e) = run_result {
                         log::error!("GigEClient::run {}", e);
@@ -98,12 +96,12 @@ fn main() {
             }
 
             scope.spawn(|| {
-                rustine::gfx::run(Arc::clone(&gfx), &SHUTDOWN_FLAG, mode);
+                rustine::gfx::run(Arc::clone(&gfx), mode);
             });
 
-            rustine::gui::run(&gui, &SHUTDOWN_FLAG, mode);
+            rustine::gui::run(&gui, mode);
 
-            SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
+            rustine::request_exit();
             gfx.lock().unwrap().wake_up();
         });
     }

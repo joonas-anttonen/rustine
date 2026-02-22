@@ -1,12 +1,11 @@
-use std::sync::{Arc, Mutex, atomic};
+use std::sync::{Arc, Mutex};
 
 use rustine::{Version, log, scene::Scene};
 use rustine_explorer::application::*;
 
-static SHUTDOWN_FLAG: atomic::AtomicBool = atomic::AtomicBool::new(false);
-
 fn main() -> std::process::ExitCode {
-    rustine::install_shutdown_signal_handlers(&SHUTDOWN_FLAG);
+    rustine::reset_exit_request();
+    rustine::install_shutdown_signal_handlers();
 
     log::set_current_thread_name("main");
     log::add_listener(log::ConsoleListener::new(true));
@@ -33,16 +32,16 @@ fn main() -> std::process::ExitCode {
         let mode = rustine::RunMode::Continuous;
         std::thread::scope(|scope| {
             scope.spawn(|| {
-                rustine::gfx::run(Arc::clone(&gfx), &SHUTDOWN_FLAG, mode);
+                rustine::gfx::run(Arc::clone(&gfx), mode);
             });
 
             scope.spawn(|| {
-                rustine::scene::run(Arc::clone(&scene), &SHUTDOWN_FLAG, mode);
+                rustine::scene::run(Arc::clone(&scene), mode);
             });
 
-            rustine::gui::run(&gui, &SHUTDOWN_FLAG, mode);
+            rustine::gui::run(&gui, mode);
 
-            SHUTDOWN_FLAG.store(true, atomic::Ordering::Relaxed);
+            rustine::request_exit();
             gfx.lock().unwrap().wake_up();
             scene.lock().unwrap().wake_up();
         });
