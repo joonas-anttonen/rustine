@@ -5,7 +5,6 @@ use std::sync::atomic;
 
 use crate::gfx::vulkan as vk;
 use crate::gfx::*;
-use crate::{debug, vk_call, drop};
 
 pub use ffi::VmaAllocation;
 pub use ffi::VmaAllocationInfo;
@@ -51,7 +50,6 @@ pub struct Allocator {
 
 impl Drop for Allocator {
     fn drop(&mut self) {
-        drop!("Allocator::drop");
         unsafe {
             ffi::vmaDestroyAllocator(self.handle);
         }
@@ -101,7 +99,7 @@ impl Allocator {
 
         let mut allocator_handle: ffi::VmaAllocator = std::ptr::null_mut();
         unsafe {
-            vk_call!(ffi::vmaCreateAllocator(&create_info, &mut allocator_handle))?;
+            vk::vk_call!(ffi::vmaCreateAllocator(&create_info, &mut allocator_handle))?;
         }
 
         Ok(Rc::new(Allocator {
@@ -156,7 +154,7 @@ impl Allocator {
         let mut allocation_info: ffi::VmaAllocationInfo = unsafe { std::mem::zeroed() };
 
         unsafe {
-            vk_call!(ffi::vmaCreateBuffer(
+            vk::vk_call!(ffi::vmaCreateBuffer(
                 self.handle,
                 &buffer_create_info,
                 &allocation_create_info,
@@ -252,7 +250,7 @@ impl Allocator {
         };
 
         unsafe {
-            vk_call!(ffi::vmaCreateImage(
+            vk::vk_call!(ffi::vmaCreateImage(
                 self.handle,
                 image_create_info,
                 &allocation_create_info,
@@ -265,7 +263,7 @@ impl Allocator {
         image_view_create_info.image = image; // Set the image now that it's created
 
         unsafe {
-            vk_call!(vk::vkCreateImageView(
+            vk::vk_call!(vk::vkCreateImageView(
                 self.device.handle(),
                 image_view_create_info,
                 std::ptr::null(),
@@ -330,7 +328,7 @@ impl Allocator {
         };
 
         unsafe {
-            vk_call!(ffi::vmaCreateDedicatedImage(
+            vk::vk_call!(ffi::vmaCreateDedicatedImage(
                 self.handle,
                 image_create_info,
                 &allocation_create_info,
@@ -345,7 +343,7 @@ impl Allocator {
         image_view_create_info.image = image; // Set the image now that it's created
 
         unsafe {
-            vk_call!(vk::vkCreateImageView(
+            vk::vk_call!(vk::vkCreateImageView(
                 self.device.handle(),
                 image_view_create_info,
                 std::ptr::null(),

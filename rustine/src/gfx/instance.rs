@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{drop, vk_call, vk_next};
+use crate::{vk_call, vk_next};
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
 
 unsafe extern "C" fn vulkan_debug_callback(
@@ -35,8 +35,6 @@ pub struct Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
-        drop!("Instance::drop");
-
         if let Some(messenger) = self.debug_messenger {
             let debug_utils_destroy_fn_name = c"vkDestroyDebugUtilsMessengerEXT";
             let destroy_debug_fn: vk::PFN_vkDestroyDebugUtilsMessengerEXT = unsafe {

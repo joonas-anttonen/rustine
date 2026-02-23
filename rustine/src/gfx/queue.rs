@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use crate::{drop, error, gfx::vulkan as vk, gfx::*, warning};
 use crate::{
     gfx::CommandBuffer, gfx::CommandPool, gfx::presentation::AcquireStatus,
     gfx::presentation::Method, gfx::presentation::PresentationImage,
     gfx::presentation::PresentationProvider,
 };
+use crate::{gfx::vulkan as vk, gfx::*, log};
 
 use std::{collections::VecDeque, rc::Rc};
 
@@ -28,8 +28,6 @@ pub struct Queue {
 
 impl Drop for Queue {
     fn drop(&mut self) {
-        drop!("Queue::drop");
-
         self.drain();
     }
 }
@@ -79,7 +77,7 @@ impl Queue {
         let result = unsafe { vk::vkQueueWaitIdle(*self.device.general_queue()) };
         match result {
             vk::VkResult::SUCCESS => {}
-            _ => error!("Queue::wait_for_idle: {:?}", Status::from_code(result.0)),
+            _ => log::error!("Queue::wait_for_idle: {:?}", Status::from_code(result.0)),
         }
     }
 
@@ -163,7 +161,7 @@ impl Queue {
                 self.queued_commands.push_back(command_buffer);
             }
             _ => {
-                warning!("Queue::enqueue: Submit failed");
+                log::warning!("Queue::enqueue: Submit failed");
                 self.drain();
                 command_buffer.reset();
                 self.available_commands.push_back(command_buffer);
@@ -191,22 +189,22 @@ impl Queue {
         let output_frame = match presentation_provider.acquire() {
             AcquireStatus::Success(frame) => frame,
             AcquireStatus::Timeout => {
-                warning!("Queue::enqueue_present: Acquire Timeout");
+                log::warning!("Queue::enqueue_present: Acquire Timeout");
                 return;
             }
             AcquireStatus::OutOfDate => {
-                warning!("Queue::enqueue_present: Acquire OutOfDate");
+                log::warning!("Queue::enqueue_present: Acquire OutOfDate");
                 return;
             }
             AcquireStatus::Error(err) => {
-                error!("Queue::enqueue_present: Acquire {:?}", err);
+                log::error!("Queue::enqueue_present: Acquire {:?}", err);
                 return;
             }
         };
 
         let command_buffer = self.available_commands.pop_front();
         if command_buffer.is_none() {
-            error!("Queue::enqueue_present: No available command buffer!");
+            log::error!("Queue::enqueue_present: No available command buffer!");
             return;
         }
         let mut command_buffer = command_buffer.unwrap();
@@ -217,7 +215,7 @@ impl Queue {
 
         let submit_status = match presentation_provider.method() {
             Method::Headless => {
-                warning!(
+                log::warning!(
                     "Queue::enqueue_present: Headless presentation method does not support presenting"
                 );
                 return;
@@ -235,13 +233,13 @@ impl Queue {
                 self.available_commands.push_back(command_buffer);
             }
             SubmitStatus::OutOfDate => {
-                warning!("Queue::enqueue_present: Submit OutOfDate");
+                log::warning!("Queue::enqueue_present: Submit OutOfDate");
                 self.drain();
                 command_buffer.reset();
                 self.available_commands.push_back(command_buffer);
             }
             SubmitStatus::Error(err) => {
-                error!("Queue::enqueue_present: Submit {:?}", err);
+                log::error!("Queue::enqueue_present: Submit {:?}", err);
                 self.drain();
                 command_buffer.reset();
                 self.available_commands.push_back(command_buffer);
@@ -318,7 +316,7 @@ impl Queue {
         match result {
             vk::VkResult::SUCCESS => SubmitStatus::Success,
             vk::VkResult::SUBOPTIMAL_KHR => {
-                warning!("Queue::submit_present: Present suboptimal");
+                log::warning!("Queue::submit_present: Present suboptimal");
                 SubmitStatus::Success
             }
             vk::VkResult::OUT_OF_DATE_KHR => SubmitStatus::OutOfDate,

@@ -2,7 +2,7 @@
 
 use std::{collections, ptr};
 
-use crate::{drop, vk_call, vk_next};
+use crate::{vk_call, vk_next};
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
 
 /// Represents the type of a physical graphics device.
@@ -188,7 +188,6 @@ pub struct Device {
 
 impl Drop for Device {
     fn drop(&mut self) {
-        drop!("Device::drop");
         unsafe {
             vk::vkDestroyDevice(self.handle, ptr::null());
         }

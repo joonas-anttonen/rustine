@@ -23,9 +23,3 @@ rustine-sc = { path = "../rustine-sc" }
 rustine-fc = { path = "../rustine-fc" }
 cmake = ">=0.1"
 toml = ">=0.8"
-
-[features]
-# To enable:
-# [dependencies]
-# rustine = { path = "../rustine", features = ["drop-log"] }
-drop-log = []

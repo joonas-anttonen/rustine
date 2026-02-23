@@ -1,4 +1,4 @@
-use crate::{drop, error, vk_call};
+use crate::vk_call;
 use crate::{gfx::PixelBuffer, gfx::vulkan as vk, gfx::*};
 
 use std::rc::Rc;
@@ -114,8 +114,6 @@ pub struct SwapchainProvider {
 impl Drop for SwapchainProvider {
     fn drop(&mut self) {
         unsafe {
-            drop!("SwapchainProvider::drop");
-
             vk::vkDestroyFence(self.device.handle(), self.acquire_fence, std::ptr::null());
             for semaphore in &self.acquire_semaphores {
                 vk::vkDestroySemaphore(self.device.handle(), *semaphore, std::ptr::null());

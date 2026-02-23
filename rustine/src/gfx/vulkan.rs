@@ -7,6 +7,8 @@
 
 use core::ffi;
 
+pub use crate::vk_call;
+
 /// Wraps a Vulkan function call and converts the result to `gfx::Result`.
 #[macro_export]
 macro_rules! vk_call {
