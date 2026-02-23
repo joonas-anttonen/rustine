@@ -25,7 +25,6 @@ fn link_search<P: AsRef<Path>>(path: P) {
 }
 
 /// Returns the preferred library directory, favoring "lib64" if it exists.
-/// rustine-webp needs this at least
 fn prefer_lib64(destination_dir: &Path) -> PathBuf {
     let lib64 = destination_dir.join("lib64");
     if lib64.exists() {
@@ -64,8 +63,9 @@ fn main() {
         .expect("Font generation failed");
     build_rustine_vma(&project_dir, &out_dir, use_ninja, cmake_profile);
 
+    build_libwebp(&project_dir, &out_dir, use_ninja, cmake_profile);
+
     if !cfg!(target_os = "windows") {
-        build_rustine_webp(&project_dir, &out_dir, use_ninja, cmake_profile);
         build_rustine_ffmpeg(&project_dir, &out_dir, use_ninja, cmake_profile);
     }
 
@@ -132,10 +132,22 @@ fn build_luajit(project_dir: &Path, out_dir: &Path) {
     rerun_if_changed(source_dir);
 }
 
-fn build_rustine_webp(project_dir: &Path, out_dir: &Path, use_ninja: bool, cmake_profile: &str) {
-    let mut cmake_config = cmake::Config::new(project_dir.join("ext").join("rustine-webp"));
+fn build_libwebp(project_dir: &Path, out_dir: &Path, use_ninja: bool, cmake_profile: &str) {
+    let mut cmake_config = cmake::Config::new(project_dir.join("ext").join("webp"));
     cmake_config
-        .out_dir(out_dir.join("rustine-webp").join(cmake_profile))
+        .out_dir(out_dir.join("webp").join(cmake_profile))
+        .define("BUILD_SHARED_LIBS", "OFF")
+        .define("WEBP_LINK_STATIC", "ON")
+        .define("WEBP_BUILD_ANIM_UTILS", "OFF")
+        .define("WEBP_BUILD_CWEBP", "OFF")
+        .define("WEBP_BUILD_DWEBP", "OFF")
+        .define("WEBP_BUILD_GIF2WEBP", "OFF")
+        .define("WEBP_BUILD_IMG2WEBP", "OFF")
+        .define("WEBP_BUILD_VWEBP", "OFF")
+        .define("WEBP_BUILD_WEBPINFO", "OFF")
+        .define("WEBP_BUILD_LIBWEBPMUX", "OFF")
+        .define("WEBP_BUILD_WEBPMUX", "OFF")
+        .define("WEBP_BUILD_EXTRAS", "OFF")
         .always_configure(true);
     if cfg!(target_env = "msvc") {
         cmake_config.profile("Release");
@@ -147,17 +159,13 @@ fn build_rustine_webp(project_dir: &Path, out_dir: &Path, use_ninja: bool, cmake
 
     let lib_dir = prefer_lib64(&destination_dir);
     link_search(&lib_dir);
-    link_static("rustine_webp");
-    // Use system-provided libwebp and libwebpdemux as dynamic libraries.
-    // Link webpdemux before webp so the linker resolves symbols from webp
-    // which may be referenced by the static webpdemux archive.
-    link_dynamic("webpdemux");
-    link_dynamic("webp");
+    link_static("webpdemux");
+    link_static("webp");
+    link_static("sharpyuv");
 
-    let rustine_webp_dir = project_dir.join("ext").join("rustine-webp");
-    rerun_if_changed(rustine_webp_dir.join("CMakeLists.txt"));
-    rerun_if_changed(rustine_webp_dir.join("rustine-webp.cpp"));
-    rerun_if_changed(rustine_webp_dir.join("rustine-webp.hpp"));
+    let webp_dir = project_dir.join("ext").join("webp");
+    rerun_if_changed(webp_dir.join("CMakeLists.txt"));
+    rerun_if_changed(webp_dir.join("src"));
 }
 
 fn build_rustine_ffmpeg(

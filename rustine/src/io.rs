@@ -12,10 +12,6 @@ pub mod ffmpeg;
 pub mod ffmpeg;
 
 pub mod gltf;
-#[cfg(not(target_os = "windows"))]
-pub mod webp;
-#[cfg(target_os = "windows")]
-#[path = "io/webp_stub.rs"]
 pub mod webp;
 
 #[derive(Clone)]

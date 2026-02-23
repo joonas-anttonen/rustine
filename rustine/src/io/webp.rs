@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::ptr;
+use std::{ptr, slice};
 
 pub enum WebPResult {
     Ok(u32),
@@ -11,7 +11,8 @@ pub enum WebPResult {
 /// A safe wrapper around the native WebP decoder.
 /// Automatically frees resources when dropped.
 pub struct WebPDecoder {
-    decoder: *mut ffi::RwpDecoder,
+    decoder: *mut ffi::WebPAnimDecoder,
+    _data: Vec<u8>,
     width: u32,
     height: u32,
     frame_count: u32,
@@ -22,8 +23,9 @@ impl Drop for WebPDecoder {
     fn drop(&mut self) {
         if !self.decoder.is_null() {
             unsafe {
-                ffi::rwebpDecoderDestroy(self.decoder);
+                ffi::WebPAnimDecoderDelete(self.decoder);
             }
+            self.decoder = ptr::null_mut();
         }
     }
 }
@@ -38,36 +40,42 @@ impl WebPDecoder {
     /// * `Ok(WebPDecoder)` - Successfully created decoder
     /// * `Err(String)` - Error description
     pub fn new(data: &[u8]) -> Result<Self, String> {
-        let mut decoder: *mut ffi::RwpDecoder = ptr::null_mut();
-        let mut width: u32 = 0;
-        let mut height: u32 = 0;
-        let mut frame_count: u32 = 0;
-        let mut loop_count: u32 = 0;
+        if data.is_empty() {
+            return Err("Invalid arguments provided".to_string());
+        }
 
-        let status = unsafe {
-            ffi::rwebpDecoderCreate(
-                data.as_ptr(),
-                data.len(),
-                &mut decoder,
-                &mut width,
-                &mut height,
-                &mut frame_count,
-                &mut loop_count,
+        let owned_data = data.to_vec();
+        let webp_data = ffi::WebPData {
+            bytes: owned_data.as_ptr(),
+            size: owned_data.len(),
+        };
+        let decoder = unsafe {
+            ffi::WebPAnimDecoderNewInternal(
+                &webp_data,
+                ptr::null(),
+                ffi::WEBP_DEMUX_ABI_VERSION,
             )
         };
+        if decoder.is_null() {
+            return Err("Failed to decode WebP data".to_string());
+        }
 
-        match status {
-            ffi::RwpStatus::Ok => Ok(WebPDecoder {
+        let mut info = ffi::WebPAnimInfo::default();
+        let info_ok = unsafe { ffi::WebPAnimDecoderGetInfo(decoder, &mut info) } != 0;
+        if !info_ok {
+            unsafe {
+                ffi::WebPAnimDecoderDelete(decoder);
+            }
+            Err("Failed to get WebP animation info".to_string())
+        } else {
+            Ok(WebPDecoder {
                 decoder,
-                width,
-                height,
-                frame_count,
-                loop_count,
-            }),
-            ffi::RwpStatus::InvalidArgument => Err("Invalid arguments provided".to_string()),
-            ffi::RwpStatus::AllocationFailed => Err("Memory allocation failed".to_string()),
-            ffi::RwpStatus::DecodeFailed => Err("Failed to decode WebP data".to_string()),
-            ffi::RwpStatus::EndOfStream => Err("Unexpected end of stream".to_string()),
+                _data: owned_data,
+                width: info.canvas_width,
+                height: info.canvas_height,
+                frame_count: info.frame_count,
+                loop_count: info.loop_count,
+            })
         }
     }
 
@@ -100,7 +108,13 @@ impl WebPDecoder {
     /// * `Ok(timestamp_ms)` - Frame timestamp in milliseconds
     /// * `Err(String)` - Error description or end of stream
     pub fn next_frame(&mut self, rgba_out: &mut [u8]) -> WebPResult {
-        let required_size = (self.width as usize) * (self.height as usize) * 4;
+        let Some(required_size) = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+        else {
+            return WebPResult::Error("Image dimensions overflow output size".to_string());
+        };
+
         if rgba_out.len() < required_size {
             return WebPResult::Error(format!(
                 "Output buffer too small: {} bytes, need {}",
@@ -109,80 +123,90 @@ impl WebPDecoder {
             ));
         }
 
-        let mut timestamp_ms: u32 = 0;
-        let status = unsafe {
-            ffi::rwebpDecoderNext(
-                self.decoder,
-                rgba_out.as_mut_ptr(),
-                rgba_out.len(),
-                &mut timestamp_ms,
-            )
-        };
+        if unsafe { ffi::WebPAnimDecoderHasMoreFrames(self.decoder) } == 0 {
+            return WebPResult::EndOfStream;
+        }
 
-        match status {
-            ffi::RwpStatus::Ok => WebPResult::Ok(timestamp_ms),
-            ffi::RwpStatus::InvalidArgument => WebPResult::Error("Invalid arguments".to_string()),
-            ffi::RwpStatus::AllocationFailed => WebPResult::Error("Memory allocation failed".to_string()),
-            ffi::RwpStatus::DecodeFailed => WebPResult::Error("Failed to decode frame".to_string()),
-            ffi::RwpStatus::EndOfStream => WebPResult::EndOfStream,
+        let mut frame_data: *mut u8 = ptr::null_mut();
+        let mut timestamp_ms: i32 = 0;
+        let get_next_ok =
+            unsafe { ffi::WebPAnimDecoderGetNext(self.decoder, &mut frame_data, &mut timestamp_ms) } != 0;
+        if !get_next_ok {
+            return WebPResult::Error("Failed to decode frame".to_string());
+        }
+        if frame_data.is_null() {
+            return WebPResult::Error("Decoder returned null frame buffer".to_string());
+        }
+
+        let frame = unsafe { slice::from_raw_parts(frame_data as *const u8, required_size) };
+        rgba_out[..required_size].copy_from_slice(frame);
+
+        if timestamp_ms < 0 {
+            WebPResult::Error("Decoder returned negative timestamp".to_string())
+        } else {
+            WebPResult::Ok(timestamp_ms as u32)
         }
     }
 
     /// Reset the decoder to the first frame
     pub fn reset(&mut self) -> Result<(), String> {
-        let status = unsafe { ffi::rwebpDecoderReset(self.decoder) };
-
-        match status {
-            ffi::RwpStatus::Ok => Ok(()),
-            ffi::RwpStatus::InvalidArgument => Err("Invalid decoder".to_string()),
-            _ => Err("Failed to reset decoder".to_string()),
+        if self.decoder.is_null() {
+            return Err("Invalid decoder".to_string());
         }
+
+        unsafe {
+            ffi::WebPAnimDecoderReset(self.decoder);
+        }
+        Ok(())
     }
 }
 
 mod ffi {
-    /// Status codes for WebP decoder operations
+    pub const WEBP_DEMUX_ABI_VERSION: i32 = 0x0107;
+
     #[repr(C)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum RwpStatus {
-        Ok = 0,
-        InvalidArgument = 1,
-        AllocationFailed = 2,
-        DecodeFailed = 3,
-        EndOfStream = 4,
+    pub struct WebPData {
+        pub bytes: *const u8,
+        pub size: usize,
     }
 
-    /// Opaque decoder state handle
     #[repr(C)]
-    pub struct RwpDecoder {
+    pub struct WebPAnimDecoderOptions {
+        pub color_mode: i32,
+        pub use_threads: i32,
+        pub padding: [u32; 7],
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct WebPAnimInfo {
+        pub canvas_width: u32,
+        pub canvas_height: u32,
+        pub loop_count: u32,
+        pub bgcolor: u32,
+        pub frame_count: u32,
+        pub pad: [u32; 4],
+    }
+
+    #[repr(C)]
+    pub struct WebPAnimDecoder {
         _private: [u8; 0],
     }
 
     unsafe extern "C" {
-        /// Create a decoder from in-memory WebP data.
-        /// Returns metadata via out parameters when successful.
-        pub fn rwebpDecoderCreate(
-            data: *const u8,
-            size: usize,
-            out_decoder: *mut *mut RwpDecoder,
-            out_width: *mut u32,
-            out_height: *mut u32,
-            out_frame_count: *mut u32,
-            out_loop_count: *mut u32,
-        ) -> RwpStatus;
-
-        /// Fetch the next RGBA frame. The buffer must be at least width * height * 4 bytes.
-        pub fn rwebpDecoderNext(
-            decoder: *mut RwpDecoder,
-            rgba_out: *mut u8,
-            rgba_capacity: usize,
-            out_timestamp_ms: *mut u32,
-        ) -> RwpStatus;
-
-        /// Reset the decoder to the first frame.
-        pub fn rwebpDecoderReset(decoder: *mut RwpDecoder) -> RwpStatus;
-
-        /// Destroy the decoder and free resources.
-        pub fn rwebpDecoderDestroy(decoder: *mut RwpDecoder);
+        pub fn WebPAnimDecoderNewInternal(
+            webp_data: *const WebPData,
+            dec_options: *const WebPAnimDecoderOptions,
+            abi_version: i32,
+        ) -> *mut WebPAnimDecoder;
+        pub fn WebPAnimDecoderGetInfo(dec: *const WebPAnimDecoder, info: *mut WebPAnimInfo) -> i32;
+        pub fn WebPAnimDecoderGetNext(
+            dec: *mut WebPAnimDecoder,
+            buf: *mut *mut u8,
+            timestamp: *mut i32,
+        ) -> i32;
+        pub fn WebPAnimDecoderHasMoreFrames(dec: *const WebPAnimDecoder) -> i32;
+        pub fn WebPAnimDecoderReset(dec: *mut WebPAnimDecoder);
+        pub fn WebPAnimDecoderDelete(dec: *mut WebPAnimDecoder);
     }
 }
