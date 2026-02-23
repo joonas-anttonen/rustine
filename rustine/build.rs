@@ -34,6 +34,26 @@ fn prefer_lib64(destination_dir: &Path) -> PathBuf {
     }
 }
 
+/// Returns the first existing CMake output directory that can contain built libraries.
+fn prefer_existing_lib_dir(destination_dir: &Path) -> PathBuf {
+    let candidates = [
+        destination_dir.join("lib64"),
+        destination_dir.join("lib"),
+        destination_dir.join("build").join("Release"),
+        destination_dir.join("build").join("RelWithDebInfo"),
+        destination_dir.join("build").join("Debug"),
+        destination_dir.join("build"),
+    ];
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    prefer_lib64(destination_dir)
+}
+
 fn main() {
     let _profile = env::var("PROFILE").expect("PROFILE environment variable not set");
     let project_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -157,11 +177,17 @@ fn build_libwebp(project_dir: &Path, out_dir: &Path, use_ninja: bool, cmake_prof
     }
     let destination_dir = cmake_config.build();
 
-    let lib_dir = prefer_lib64(&destination_dir);
+    let lib_dir = prefer_existing_lib_dir(&destination_dir);
     link_search(&lib_dir);
-    link_static("webpdemux");
-    link_static("webp");
-    link_static("sharpyuv");
+    if cfg!(target_env = "msvc") {
+        link_static("libwebpdemux");
+        link_static("libwebp");
+        link_static("libsharpyuv");
+    } else {
+        link_static("webpdemux");
+        link_static("webp");
+        link_static("sharpyuv");
+    }
 
     let webp_dir = project_dir.join("ext").join("webp");
     rerun_if_changed(webp_dir.join("CMakeLists.txt"));
