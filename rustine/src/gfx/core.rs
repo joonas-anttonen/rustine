@@ -131,13 +131,6 @@ impl Gfx {
                 frame_delta_times.push(_dt as f64);
 
                 let mut gfx = am_gfx.lock().unwrap();
-
-                if mode == RunMode::Continuous {
-                    // In continuous mode, we assume the target
-                    // is always damaged to ensure consistent frame updates.
-                    gfx.target_damaged = true;
-                }
-
                 gfx.render();
 
                 let stat_now = Instant::now();
@@ -490,7 +483,8 @@ impl Gfx {
         let old_frame = self.target_frame.replace(Rc::new(target_frame));
         self.target_damaged = true;
 
-        self.clear_render_commands();
+        self.render_commands.pop_back_and_discard();
+        self.cached_gui_commands = None;
         self.render_empty(old_frame);
     }
 
@@ -572,11 +566,6 @@ impl Gfx {
         } else {
             RenderFrame::new(size)
         }
-    }
-
-    pub fn clear_render_commands(&mut self) {
-        self.cached_gui_commands = None;
-        self.render_commands.pop_back_and_discard();
     }
 
     fn acquire_upload_buffer(&mut self, required_size: usize) -> Rc<MemoryBuffer> {
@@ -745,9 +734,6 @@ impl Gfx {
                     cmd.layout_barrier(&source, Layout::TRANSFER_SRC);
                     cmd.layout_barrier(target_frame, Layout::TRANSFER_DST);
                     cmd.blit(&source, target_frame, Filter::Linear);
-                } else {
-                    cmd.layout_barrier(target_frame, Layout::TRANSFER_DST);
-                    cmd.clear_pixel_buffer(target_frame, &[0.0, 0.0, 0.0, 0.0]);
                 }
 
                 cmd.layout_barrier(target_frame, Layout::TRANSFER_SRC);
@@ -977,7 +963,7 @@ pub struct GfxBuilder {
 }
 
 impl GfxBuilder {
-    fn default_platform_hint() -> Platform {
+    fn default_platform() -> Platform {
         #[cfg(target_os = "linux")]
         {
             Platform::Wayland
@@ -990,10 +976,6 @@ impl GfxBuilder {
         {
             Platform::MacOS
         }
-        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-        {
-            Platform::X11
-        }
     }
 
     /// Creates a new `GfxBuilder`.
@@ -1001,7 +983,7 @@ impl GfxBuilder {
         Self {
             params: Parameters {
                 debugging: false,
-                platform: Self::default_platform_hint(),
+                platform: Self::default_platform(),
                 app_version: Version::new(0, 1, 0),
                 app_name: String::from("rustine"),
                 device_selector: DeviceSelector::Optimal,
@@ -1009,8 +991,13 @@ impl GfxBuilder {
         }
     }
 
-    /// Sets the preferred platform hint.
-    pub fn platform_hint(mut self, platform: Platform) -> Self {
+    /// Sets the preferred platform.
+    ///
+    /// This is only a hint, the actual platform used may differ
+    /// based on availability.
+    ///
+    /// Check `Gfx::platform()` after building to see the actual platform in use.
+    pub fn platform(mut self, platform: Platform) -> Self {
         self.params.platform = platform;
         self
     }

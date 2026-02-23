@@ -14,7 +14,7 @@ fn main() -> std::process::ExitCode {
 
     {
         let gfx_builder = rustine::gfx::Gfx::builder()
-            .platform_hint(rustine::Platform::Wayland)
+            .platform(rustine::Platform::Wayland)
             .app_name("rustine-desktop")
             .app_version(Version::new(0, 1, 0))
             .debugging(true)
