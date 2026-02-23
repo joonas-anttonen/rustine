@@ -429,8 +429,9 @@ impl Gfx {
         &self.instance
     }
 
-    pub fn surface_platform_hint(&self) -> Platform {
-        self.instance.surface_platform_hint()
+    /// Returns the platform which was selected for surface creation.
+    pub fn platform(&self) -> Platform {
+        self.instance.platform()
     }
 
     pub fn device(&self) -> &Rc<Device> {

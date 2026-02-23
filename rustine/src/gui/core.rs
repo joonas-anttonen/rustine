@@ -103,68 +103,6 @@ pub fn run(gui: &Gui, mode: RunMode) {
 }
 
 impl Gui {
-    fn create_glfw_window(
-        parameters: &Parameters,
-        requested_width: u32,
-        requested_height: u32,
-        platform: crate::Platform,
-    ) -> ffi::GlfwWindow {
-        unsafe {
-            ffi::set_log_callback(ffi::GlfwLogSeverity::Error, Self::glfw_log_callback);
-            ffi::panic_if_error(ffi::set_platform_hint(platform));
-            ffi::panic_if_error(ffi::startup());
-
-            let mut glfw_window = std::ptr::null_mut();
-            ffi::panic_if_error(ffi::create_window(
-                requested_width,
-                requested_height,
-                &mut glfw_window,
-            ));
-
-            let title_cstr = std::ffi::CString::new(parameters.window_title.as_str())
-                .expect("window title must not contain null bytes");
-            ffi::panic_if_error(ffi::set_window_title(glfw_window, title_cstr.as_ptr()));
-
-            ffi::panic_if_error(ffi::set_pixel_size_callback(
-                glfw_window,
-                Self::glfw_pixel_size_callback,
-            ));
-
-            ffi::panic_if_error(ffi::set_logical_size_callback(
-                glfw_window,
-                Self::glfw_logical_size_callback,
-            ));
-
-            ffi::panic_if_error(ffi::set_key_callback(glfw_window, Self::glfw_key_callback));
-            ffi::panic_if_error(ffi::set_char_callback(
-                glfw_window,
-                Self::glfw_char_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_enter_callback(
-                glfw_window,
-                Self::glfw_pointer_enter_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_leave_callback(
-                glfw_window,
-                Self::glfw_pointer_leave_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_motion_callback(
-                glfw_window,
-                Self::glfw_pointer_motion_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_button_callback(
-                glfw_window,
-                Self::glfw_pointer_button_callback,
-            ));
-            ffi::panic_if_error(ffi::set_pointer_scroll_callback(
-                glfw_window,
-                Self::glfw_pointer_scroll_callback,
-            ));
-
-            glfw_window
-        }
-    }
-
     /// Wakes up the GUI event loop by posting an empty event.
     pub fn wake_up() {
         unsafe {
@@ -301,7 +239,7 @@ impl Gui {
     }
 
     pub fn new(
-        gfx: Arc<Mutex<gfx::Gfx>>,
+        am_gfx: Arc<Mutex<gfx::Gfx>>,
         application: Box<dyn Application>,
         parameters: Parameters,
     ) -> Rc<Self> {
@@ -310,21 +248,73 @@ impl Gui {
         let wanted_size = Vector2u::new(requested_width, requested_height);
 
         let selected_platform = {
-            let gfx_guard = gfx.lock().unwrap();
-            gfx_guard.surface_platform_hint()
+            let gfx = am_gfx.lock().unwrap();
+            gfx.platform()
         };
-        let glfw_window = Self::create_glfw_window(
-            &parameters,
-            requested_width,
-            requested_height,
-            selected_platform,
-        );
+
+        let glfw_window = {
+            let parameters: &Parameters = &parameters;
+            unsafe {
+                ffi::set_log_callback(ffi::GlfwLogSeverity::Error, Self::glfw_log_callback);
+                ffi::panic_if_error(ffi::set_platform_hint(selected_platform));
+                ffi::panic_if_error(ffi::startup());
+
+                let mut glfw_window = std::ptr::null_mut();
+                ffi::panic_if_error(ffi::create_window(
+                    requested_width,
+                    requested_height,
+                    &mut glfw_window,
+                ));
+
+                let title_cstr = std::ffi::CString::new(parameters.window_title.as_str())
+                    .expect("window title must not contain null bytes");
+                ffi::panic_if_error(ffi::set_window_title(glfw_window, title_cstr.as_ptr()));
+
+                ffi::panic_if_error(ffi::set_pixel_size_callback(
+                    glfw_window,
+                    Self::glfw_pixel_size_callback,
+                ));
+
+                ffi::panic_if_error(ffi::set_logical_size_callback(
+                    glfw_window,
+                    Self::glfw_logical_size_callback,
+                ));
+
+                ffi::panic_if_error(ffi::set_key_callback(glfw_window, Self::glfw_key_callback));
+                ffi::panic_if_error(ffi::set_char_callback(
+                    glfw_window,
+                    Self::glfw_char_callback,
+                ));
+                ffi::panic_if_error(ffi::set_pointer_enter_callback(
+                    glfw_window,
+                    Self::glfw_pointer_enter_callback,
+                ));
+                ffi::panic_if_error(ffi::set_pointer_leave_callback(
+                    glfw_window,
+                    Self::glfw_pointer_leave_callback,
+                ));
+                ffi::panic_if_error(ffi::set_pointer_motion_callback(
+                    glfw_window,
+                    Self::glfw_pointer_motion_callback,
+                ));
+                ffi::panic_if_error(ffi::set_pointer_button_callback(
+                    glfw_window,
+                    Self::glfw_pointer_button_callback,
+                ));
+                ffi::panic_if_error(ffi::set_pointer_scroll_callback(
+                    glfw_window,
+                    Self::glfw_pointer_scroll_callback,
+                ));
+
+                glfw_window
+            }
+        };
 
         let mut raw_surface: *const std::ffi::c_void = std::ptr::null();
         let surface_status: ffi::GlfwStatus;
         {
-            let gfx_guard = gfx.lock().unwrap();
-            let raw_instance = gfx_guard.instance().handle().0;
+            let gfx = am_gfx.lock().unwrap();
+            let raw_instance = gfx.instance().handle().0;
             unsafe {
                 surface_status =
                     ffi::create_window_surface(glfw_window, raw_instance, &mut raw_surface);
@@ -345,7 +335,7 @@ impl Gui {
         }
 
         let gui = Rc::new(Self {
-            gfx,
+            gfx: am_gfx,
             gfx_surface,
             glfw_window,
             application,

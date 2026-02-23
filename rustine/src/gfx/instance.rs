@@ -1,53 +1,7 @@
 #![allow(dead_code)]
 
-use std::{collections, ptr};
-
 use crate::{drop, vk_call, vk_next};
 use crate::{gfx::vulkan as vk, gfx::*, version::Version};
-
-fn extend_surface_extensions_for_platform(
-    available_extensions: &collections::HashSet<std::ffi::CString>,
-    enabled_extensions: &mut Vec<std::ffi::CString>,
-    platform: Platform,
-) -> bool {
-    match platform {
-        Platform::Windows => {
-            let win32_surface = c"VK_KHR_win32_surface";
-            if available_extensions.contains(win32_surface) {
-                enabled_extensions.push(win32_surface.to_owned());
-                true
-            } else {
-                false
-            }
-        }
-        Platform::Wayland => {
-            let wayland_surface = c"VK_KHR_wayland_surface";
-            if available_extensions.contains(wayland_surface) {
-                enabled_extensions.push(wayland_surface.to_owned());
-                true
-            } else {
-                false
-            }
-        }
-        Platform::X11 => {
-            let xlib_surface = c"VK_KHR_xlib_surface";
-            let xcb_surface = c"VK_KHR_xcb_surface";
-            let mut any = false;
-
-            if available_extensions.contains(xlib_surface) {
-                enabled_extensions.push(xlib_surface.to_owned());
-                any = true;
-            }
-            if available_extensions.contains(xcb_surface) {
-                enabled_extensions.push(xcb_surface.to_owned());
-                any = true;
-            }
-
-            any
-        }
-        Platform::MacOS => false,
-    }
-}
 
 unsafe extern "C" fn vulkan_debug_callback(
     _message_severity: u32,
@@ -76,7 +30,7 @@ unsafe extern "C" fn vulkan_debug_callback(
 pub struct Instance {
     handle: vk::VkInstance,
     debug_messenger: Option<vk::VkDebugUtilsMessengerEXT>,
-    surface_platform_hint: Platform,
+    selected_platform: Platform,
 }
 
 impl Drop for Instance {
@@ -93,12 +47,12 @@ impl Drop for Instance {
             };
 
             unsafe {
-                destroy_debug_fn.unwrap()(self.handle, messenger, ptr::null());
+                destroy_debug_fn.unwrap()(self.handle, messenger, std::ptr::null());
             }
         }
 
         unsafe {
-            vk::vkDestroyInstance(self.handle, ptr::null());
+            vk::vkDestroyInstance(self.handle, std::ptr::null());
         }
     }
 }
@@ -108,59 +62,23 @@ impl Instance {
         self.handle
     }
 
-    pub fn surface_platform_hint(&self) -> Platform {
-        self.surface_platform_hint
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn create_wayland_surface(
-        &self,
-        wl_output: *const std::ffi::c_void,
-        wl_surface: *const std::ffi::c_void,
-    ) -> vk::VkSurfaceKHR {
-        let create_info = vk::VkWaylandSurfaceCreateInfoKHR {
-            sType: vk::VkStructureType::WAYLAND_SURFACE_CREATE_INFO_KHR,
-            pNext: ptr::null(),
-            flags: 0,
-            display: wl_output,
-            surface: wl_surface,
-        };
-
-        let mut surface_handle = vk::VkSurfaceKHR::default();
-        unsafe {
-            vk_call!(vk::vkCreateWaylandSurfaceKHR(
-                self.handle,
-                &create_info,
-                ptr::null(),
-                &mut surface_handle,
-            ))
-            .unwrap();
-        }
-
-        surface_handle
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn create_wayland_surface(
-        &self,
-        _wl_output: *const std::ffi::c_void,
-        _wl_surface: *const std::ffi::c_void,
-    ) -> vk::VkSurfaceKHR {
-        panic!("Wayland surface creation is not supported on Windows")
+    /// Returns the platform which was selected for surface creation.
+    pub fn platform(&self) -> Platform {
+        self.selected_platform
     }
 
     pub fn destroy_surface(&self, surface: vk::VkSurfaceKHR) {
         unsafe {
-            vk::vkDestroySurfaceKHR(self.handle, surface, ptr::null());
+            vk::vkDestroySurfaceKHR(self.handle, surface, std::ptr::null());
         }
     }
 
     /// Creates a Vulkan instance based on the provided parameters.
     pub(crate) fn new(parameters: &crate::Parameters) -> Result<Instance> {
         // 1. Get available instance layers and extensions
-        let available_layers: collections::HashSet<std::ffi::CString> =
+        let available_layers: std::collections::HashSet<std::ffi::CString> =
             enumerate_instance_layers()?.into_iter().collect();
-        let available_extensions: collections::HashSet<std::ffi::CString> =
+        let available_extensions: std::collections::HashSet<std::ffi::CString> =
             enumerate_instance_extensions()?.into_iter().collect();
 
         let mut enabled_layers: Vec<std::ffi::CString> = Vec::new();
@@ -169,40 +87,56 @@ impl Instance {
         // 2. Add platform surface extensions (preferred platform first, then fallback)
         let surface_name = c"VK_KHR_surface";
         if !available_extensions.contains(surface_name) {
+            log::error!("VK_KHR_surface not available");
             return Err(Status::NotSupported(-1));
         }
         enabled_extensions.push(surface_name.to_owned());
 
-        let mut platform_candidates: Vec<Platform> = Vec::new();
-        platform_candidates.push(parameters.platform);
-
-        for platform in [
+        let platform_candidates: Vec<Platform> = vec![
+            parameters.platform,
             Platform::Wayland,
             Platform::X11,
             Platform::Windows,
             Platform::MacOS,
-        ] {
-            if platform != parameters.platform {
-                platform_candidates.push(platform);
-            }
-        }
+        ];
 
-        let mut platform_extension_added = false;
-        let mut selected_surface_platform: Option<Platform> = None;
+        let mut selected_platform: Option<Platform> = None;
         for platform in platform_candidates {
-            let added = extend_surface_extensions_for_platform(
-                &available_extensions,
-                &mut enabled_extensions,
-                platform,
-            );
-            platform_extension_added |= added;
-
-            if added && selected_surface_platform.is_none() {
-                selected_surface_platform = Some(platform);
+            match platform {
+                Platform::Windows => {
+                    let win32_surface = c"VK_KHR_win32_surface";
+                    if available_extensions.contains(win32_surface) {
+                        enabled_extensions.push(win32_surface.to_owned());
+                        selected_platform = Some(platform);
+                        break;
+                    }
+                }
+                Platform::Wayland => {
+                    let wayland_surface = c"VK_KHR_wayland_surface";
+                    if available_extensions.contains(wayland_surface) {
+                        enabled_extensions.push(wayland_surface.to_owned());
+                        selected_platform = Some(platform);
+                        break;
+                    }
+                }
+                Platform::X11 => {
+                    let xlib_surface = c"VK_KHR_xlib_surface";
+                    let xcb_surface = c"VK_KHR_xcb_surface";
+                    if available_extensions.contains(xlib_surface)
+                        && available_extensions.contains(xcb_surface)
+                    {
+                        enabled_extensions.push(xlib_surface.to_owned());
+                        enabled_extensions.push(xcb_surface.to_owned());
+                        selected_platform = Some(platform);
+                        break;
+                    }
+                }
+                Platform::MacOS => {}
             }
         }
 
-        if !platform_extension_added {
+        if selected_platform.is_none() {
+            log::error!("No supported surface extension available");
             return Err(Status::NotSupported(-1));
         }
 
@@ -216,6 +150,19 @@ impl Instance {
         if enable_debugging {
             enabled_layers.push(validation_name.to_owned());
             enabled_extensions.push(debug_utils_name.to_owned());
+        } else if enable_debugging {
+            match (validation_present, debug_utils_present) {
+                (false, false) => log::warning!(
+                    "Debugging requested but validation layer and debug utils extension are not available"
+                ),
+                (false, true) => {
+                    log::warning!("Debugging requested but validation layer is not available")
+                }
+                (true, false) => {
+                    log::warning!("Debugging requested but debug utils extension is not available")
+                }
+                _ => {}
+            }
         }
 
         // 4. Create the Vulkan instance
@@ -228,7 +175,7 @@ impl Instance {
 
         let app_info = vk::VkApplicationInfo {
             sType: vk::VkStructureType::APPLICATION_INFO,
-            pNext: ptr::null(),
+            pNext: std::ptr::null(),
             pApplicationName: app_name_cstring.as_ptr(),
             applicationVersion: parameters.app_version.to_vk_version(),
             pEngineName: engine_name_cstring.as_ptr(),
@@ -238,18 +185,18 @@ impl Instance {
 
         let create_info = vk::VkInstanceCreateInfo {
             sType: vk::VkStructureType::INSTANCE_CREATE_INFO,
-            pNext: ptr::null(),
+            pNext: std::ptr::null(),
             flags: 0,
             pApplicationInfo: &app_info,
             enabledLayerCount: enabled_layers_ptrs.len() as u32,
             ppEnabledLayerNames: if enabled_layers_ptrs.is_empty() {
-                ptr::null()
+                std::ptr::null()
             } else {
                 enabled_layers_ptrs.as_ptr()
             },
             enabledExtensionCount: enabled_extensions_ptrs.len() as u32,
             ppEnabledExtensionNames: if enabled_extensions_ptrs.is_empty() {
-                ptr::null()
+                std::ptr::null()
             } else {
                 enabled_extensions_ptrs.as_ptr()
             },
@@ -257,7 +204,11 @@ impl Instance {
 
         let mut handle = vk::VkInstance::default();
         unsafe {
-            vk_call!(vk::vkCreateInstance(&create_info, ptr::null(), &mut handle))?;
+            vk_call!(vk::vkCreateInstance(
+                &create_info,
+                std::ptr::null(),
+                &mut handle
+            ))?;
         }
 
         let mut debug_messenger: Option<vk::VkDebugUtilsMessengerEXT> = None;
@@ -271,20 +222,23 @@ impl Instance {
             };
 
             if create_debug_fn.is_none() {
+                log::error!(
+                    "Debugging requested but vkCreateDebugUtilsMessengerEXT is not available"
+                );
                 return Err(Status::NotSupported(-1));
             }
 
             // Create debug messenger info
             let debug_create_info = vk::VkDebugUtilsMessengerCreateInfoEXT {
                 sType: vk::VkStructureType::DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                pNext: ptr::null(),
+                pNext: std::ptr::null(),
                 flags: 0,
                 messageSeverity: vk::VkDebugUtilsMessageSeverityFlagsEXT::ERROR_BIT_EXT
                     | vk::VkDebugUtilsMessageSeverityFlagsEXT::WARNING_BIT_EXT,
                 messageType: vk::VkDebugUtilsMessageTypeFlagsEXT::GENERAL_BIT_EXT
                     | vk::VkDebugUtilsMessageTypeFlagsEXT::VALIDATION_BIT_EXT,
                 pfnUserCallback: Some(vulkan_debug_callback),
-                pUserData: ptr::null_mut(),
+                pUserData: std::ptr::null_mut(),
             };
 
             let mut debug_messenger_ptr = vk::VkDebugUtilsMessengerEXT::default();
@@ -292,7 +246,7 @@ impl Instance {
                 vk_call!(create_debug_fn.unwrap()(
                     handle,
                     &debug_create_info,
-                    ptr::null(),
+                    std::ptr::null(),
                     &mut debug_messenger_ptr,
                 ))?;
             }
@@ -303,7 +257,7 @@ impl Instance {
         Ok(Instance {
             handle,
             debug_messenger,
-            surface_platform_hint: selected_surface_platform.unwrap(),
+            selected_platform: selected_platform.unwrap(),
         })
     }
 
@@ -314,7 +268,7 @@ impl Instance {
             vk_call!(vk::vkEnumeratePhysicalDevices(
                 self.handle,
                 &mut device_count as *mut u32,
-                ptr::null_mut(),
+                std::ptr::null_mut(),
             ))?;
 
             let mut devices: Vec<vk::VkPhysicalDevice> = Vec::with_capacity(device_count as usize);
@@ -409,7 +363,7 @@ fn enumerate_instance_layers() -> Result<Vec<std::ffi::CString>> {
         let mut property_count: u32 = 0;
         vk_call!(vk::vkEnumerateInstanceLayerProperties(
             &mut property_count as *mut u32,
-            ptr::null_mut(),
+            std::ptr::null_mut(),
         ))?;
 
         let mut properties: Vec<vk::VkLayerProperties> =
@@ -436,15 +390,15 @@ fn enumerate_instance_extensions() -> Result<Vec<std::ffi::CString>> {
     unsafe {
         let mut property_count: u32 = 0;
         vk_call!(vk::vkEnumerateInstanceExtensionProperties(
-            ptr::null(),
+            std::ptr::null(),
             &mut property_count as *mut u32,
-            ptr::null_mut(),
+            std::ptr::null_mut(),
         ))?;
 
         let mut properties: Vec<vk::VkExtensionProperties> =
             Vec::with_capacity(property_count as usize);
         vk_call!(vk::vkEnumerateInstanceExtensionProperties(
-            ptr::null(),
+            std::ptr::null(),
             &mut property_count as *mut u32,
             properties.as_mut_ptr(),
         ))?;
