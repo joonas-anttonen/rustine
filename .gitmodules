@@ -4,3 +4,6 @@
 [submodule "rustine/ext/glfw"]
 	path = rustine/ext/glfw
 	url = https://github.com/glfw/glfw.git
+[submodule "rustine/ext/webp"]
+	path = rustine/ext/webp
+	url = https://chromium.googlesource.com/webm/libwebp
